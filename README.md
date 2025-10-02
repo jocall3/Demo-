@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # Demo Bank: The Awakening of a Financial Mind
 
 ## The Genesis

@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `SendMoneyView.tsx`: The Portal of Exchange
 
 This is the Portal of Exchange, the conduit through which value flows from the user's world to another's. It is one of the most critical and sensitive realms in the Demo Bank universe, and it is guarded by powerful technology and beautiful design.

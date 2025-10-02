@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `Card.tsx`: The Building Block of Reality
 
 In the universe of Demo Bank, every piece of information, every widget, every insight needs a home. It needs a frame, a container that gives it structure, beauty, and a defined space. The `Card` component is that home. It is the fundamental building block of reality, the atom from which almost every view in the application is constructed.

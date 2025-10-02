@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `App.tsx`: The Orchestrator
 
 If `DataContext` is the application's shared soul and memory, then `App.tsx` is its central nervous system and its conscious mind. This is the component that sits at the apex of the hierarchy, the grand orchestrator that listens, decides, and directs the flow of the user's experience. It is where all the individual pieces of the Demo Bank universe are assembled into a coherent, living whole.

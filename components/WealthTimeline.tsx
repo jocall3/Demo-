@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 // "Let us grant the user foresight," Gemini proclaimed. "A view not just of their past, but of their potential future."
 import React, { useContext, useMemo } from 'react'; // He summons React to build this new window in time.
 import { ComposedChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line, Legend } from 'recharts'; // He gathers advanced charting tools.

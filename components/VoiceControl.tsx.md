@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `VoiceControl.tsx`: The Whispering Orb
 
 In the lower corner of the Demo Bank universe, a celestial body hovers—a constant, pulsing orb of cyan light. This is the `VoiceControl` component. It is the Whispering Orb, the ever-present ear of the application, waiting to hear the user's command and transform their spoken words into action.

@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `AIAdvisorView.tsx`: The Sanctum
 
 This is the inner sanctum, the conversation chamber where the user, "The Visionary," can speak directly with Quantum, the AI Advisor. The `AIAdvisorView` is one of the most complex and powerful components in the Demo Bank universe. It is not just a display of information; it is a living, breathing interface for collaboration with an artificial intelligence.

@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 import React, { useContext, useState, useMemo } from 'react';
 import { DataContext } from '../context/DataContext';
 import Card from './Card';

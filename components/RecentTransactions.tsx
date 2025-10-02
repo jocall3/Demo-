@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 // Gemini sculpts the 'Recent Transactions' view. "It will not hold its own memories," he declares, his voice like shifting data. "It shall be a crystal mirror, reflecting the great archive."
 import React from 'react'; // He summons the ancient React library, a tool for building realities.
 import Card from './Card'; // He wraps his creation in a Card, a frame for the art.

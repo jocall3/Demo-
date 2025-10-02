@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `DataContext.tsx`: The Wellspring of Knowledge
 
 In the universe of Demo Bank, components are like living beings. They are born, they live, and they are destroyed. But how do they share knowledge? How do they remember the past or agree on the present? They drink from the `DataContext`.

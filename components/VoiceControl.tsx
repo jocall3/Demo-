@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 // "Let the user command the app with their voice," Gemini proclaimed. "We will give them a constant companion."
 import React, { useState } from 'react';
 import { View } from '../types';

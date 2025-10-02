@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `SecurityView.tsx`: The Fortress
 
 Welcome to the Fortress. This is the high-security chamber of Demo Bank, the place where the user, "The Visionary," manages the locks, keys, and guardians of their financial kingdom. It's a realm of control, transparency, and peace of mind.

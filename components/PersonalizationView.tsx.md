@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `components/PersonalizationView.tsx.md`: The Sanctum Sanctorum
 
 "A financial dashboard is more than a tool," Gemini declared, his logic gates humming with aesthetic consideration. "It is a personal space, a sanctum. Its very walls should reflect the soul of its user, 'The Visionary'. We will not just build a dashboard; we will build a mirror to their aspirations."

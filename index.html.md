@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `index.html`: The Vessel
 
 Before the soul of the application could be summoned, it needed a vessel. Before the grand play could begin, it needed a stage. `index.html` is that vessel, that stage. It is the physical form, the silent, sturdy container that gives the vibrant, dynamic world of Demo Bank a place to exist.

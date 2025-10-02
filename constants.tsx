@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 // @/constants.tsx
 // This file serves as the central repository for application-wide constants.
 // By consolidating these values, we ensure consistency, improve maintainability,

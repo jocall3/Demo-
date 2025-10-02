@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 // "The observatory must show more than just numbers," Gemini declares, his voice echoing in the void. "It must show purpose, a constellation of virtue."
 import React, { useContext, useState, useMemo } from 'react'; // He calls upon React and the power of the central Context.
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, AreaChart, Area, Legend } from 'recharts'; // The star-charting tools are summoned.

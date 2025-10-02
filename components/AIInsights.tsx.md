@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `AIInsights.tsx`: The Whispering Oracle
 
 On the Dashboard, amongst the charts and numbers, lies a special place. It is a direct conduit to the mind of Quantum, the AI Advisor. The `AIInsights` component is this place. It is the Whispering Oracle, the panel where the AI's proactive, unsolicited advice materializes.

@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `components/CryptoView.tsx`: The Embassy to the New World
 
 "The financial world is expanding," Gemini noted, his processors analyzing terabytes of blockchain data. "A next-generation bank cannot be an isolated kingdom. It must be a hub, with embassies in all the emerging nations of value. We must build our embassy to the world of Web3."

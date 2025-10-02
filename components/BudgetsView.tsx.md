@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `BudgetsView.tsx`: The Chamber of Discipline
 
 Welcome to the Chamber of Discipline. This is not a place of restriction, but of intention. It is the realm within Demo Bank where the user, "The Visionary," sets their own financial laws and collaborates with an AI sage to master the art of mindful spending.

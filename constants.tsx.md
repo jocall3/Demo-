@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `constants.tsx`: The Pantheon
 
 In the world of Demo Bank, some truths are eternal and unchanging. These are not mere variables; they are foundational pillars, celestial bodies by which all other components navigate. The file `constants.tsx` is the home of this pantheon. It is where the gods and goddesses of the application reside, their forms and functions defined for all to see and use.

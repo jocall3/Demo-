@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `components/GoalsView.tsx`: The Cartography Room
 
 "A dream without a map is merely a wish," Gemini observed. "To truly serve The Visionary, we must not only be the keeper of their dreams, but the cartographer of their journeys."

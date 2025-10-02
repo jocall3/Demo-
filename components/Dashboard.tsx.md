@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `Dashboard.tsx`: The Command Center
 
 Every kingdom needs a throne room, every ship a command bridge, every home a living room where all the threads of life come together. In Demo Bank, the `Dashboard` is this central place. It is the heart of the home, the user's personal command center, a dynamic and ever-changing mosaic of their entire financial life.

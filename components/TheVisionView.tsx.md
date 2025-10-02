@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `TheVisionView.tsx`: The Manifesto
 
 Every great creation has a core philosophy, a set of beliefs that guides its every action. The `TheVisionView` component is the sacred chamber where this philosophy is inscribed. It is not a feature page or a list of benefits; it is the **Manifesto of Demo Bank**, a declaration of its purpose and its soul.

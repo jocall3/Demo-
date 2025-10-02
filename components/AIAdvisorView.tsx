@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 import React, { useState, useRef, useEffect, useContext } from 'react';
 import { GoogleGenAI, Type, Chat } from "@google/genai";
 import { DataContext } from '../context/DataContext';

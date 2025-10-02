@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 # The Story of `SettingsView.tsx`: The Control Room
 
 Every sophisticated machine needs a control room, a calm and orderly space from which the operator can fine-tune its performance and behavior. The `SettingsView` is the Control Room of Demo Bank. It is a clean, no-nonsense interface where the user, "The Visionary," can manage their profile and customize the application to their exact preferences.
