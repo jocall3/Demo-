@@ -278,22 +278,26 @@ export const useToolImplementations = () => {
                 .map(([name, amount]) => ({ name, amount: parseFloat(amount.toFixed(2)) }));
             return { spendingByCategory: sortedSpending };
         },
-        // FIX: Replaced Number() with parseFloat() and parseInt() for more robust parsing of potential string values from the AI. This resolves type errors during arithmetic operations.
         simulateInvestmentGrowth: async ({ additionalMonthlyContribution, years = 10, annualReturnRate = 7 }: { additionalMonthlyContribution: any, years?: any, annualReturnRate?: any }) => {
             if (!context) return { error: "User data not available." };
             const P = context.assets.reduce((sum, asset) => sum + asset.value, 0); // Principal
-            // FIX: Use parseFloat for more robust parsing of AI-provided string values.
-            const PMT = parseFloat(additionalMonthlyContribution);
-            // FIX: Use parseFloat for more robust parsing of AI-provided string values.
-            const r = parseFloat(annualReturnRate) / 100 / 12; // Monthly interest rate
-            // FIX: Use parseInt for more robust parsing of AI-provided string values.
-            const n = parseInt(years, 10) * 12; // Number of months
+            
+            // FIX: The AI can pass non-numeric values. Ensure robust parsing to numbers and handle potential NaN results to prevent type errors in arithmetic operations.
+            const pmtValue = parseFloat(String(additionalMonthlyContribution));
+            const PMT = isNaN(pmtValue) ? 0 : pmtValue;
+
+            const rateValue = parseFloat(String(annualReturnRate));
+            const rate = isNaN(rateValue) ? 7.0 : rateValue;
+            const r = rate / 100 / 12;
+
+            const yearsValue = parseInt(String(years), 10);
+            const n = (isNaN(yearsValue) ? 10 : yearsValue) * 12;
+            
             const simulationData = [];
             let futureValue: number = P;
 
             for (let i = 1; i <= n; i++) {
-                // FIX: All inputs are now consistently numbers, preventing type errors.
-                futureValue = futureValue * (1 + r) + PMT;
+                futureValue = (futureValue * (1 + r)) + PMT;
                 if (i % 12 === 0) { // Record data yearly
                     simulationData.push({
                         year: i / 12,
@@ -319,11 +323,16 @@ export const useAIAdvisorChat = () => {
     const toolImplementations = useToolImplementations();
     // FIX: useContext returns the context value directly.
     const context = useContext(DataContext);
+    const { geminiApiKey } = context || {};
 
     useEffect(() => {
+        if (!geminiApiKey) {
+            dispatch({ type: 'SET_ERROR', payload: 'Google Gemini API Key is not set. Please add it in the API Status view.' });
+            return;
+        }
         if (!chatRef.current) {
             try {
-                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+                const ai = new GoogleGenAI({ apiKey: geminiApiKey });
                 chatRef.current = ai.chats.create({
                     // FIX: Updated model name from deprecated version.
                     model: 'gemini-2.5-pro',
@@ -334,12 +343,13 @@ export const useAIAdvisorChat = () => {
                     // FIX: Use string literal "AUTO" for the mode.
                     toolConfig: { functionCallingConfig: { mode: "AUTO" } },
                 });
+                 dispatch({ type: 'CLEAR_ERROR' });
             } catch (error) {
                 console.error("Failed to initialize GoogleGenAI:", error);
                 dispatch({ type: 'SET_ERROR', payload: 'Failed to initialize the AI model. Please check your API key.' });
             }
         }
-    }, []);
+    }, [geminiApiKey]);
     
     // Prime the AI with initial context when data is available
     useEffect(() => {
@@ -355,8 +365,8 @@ export const useAIAdvisorChat = () => {
                 dispatch({ type: 'ADD_MODEL_RESPONSE', payload: welcomeMessage });
             }
         };
-        primeAI();
-    }, [context, state.messages.length]);
+        if(geminiApiKey) primeAI();
+    }, [context, state.messages.length, geminiApiKey]);
 
 
     const sendMessage = useCallback(async (messageText: string) => {
@@ -668,7 +678,7 @@ const AIAdvisorView: React.FC<{ previousView: View | null }> = ({ previousView }
             </div>
             <Card className="flex-1 flex flex-col" padding="none">
                 <div className="flex-1 p-6 space-y-6 overflow-y-auto">
-                    {messages.length <= 1 && !isLoading && (
+                    {messages.length <= 1 && !isLoading && !error && (
                         <div className="text-center p-6 text-gray-400">
                             <p className="mb-4">Since you just came from the <strong className="text-cyan-300">{previousView || 'Dashboard'}</strong>, you could ask:</p>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -724,13 +734,13 @@ const AIAdvisorView: React.FC<{ previousView: View | null }> = ({ previousView }
                             onChange={(e) => setInput(e.target.value)}
                             placeholder="Ask Quantum anything..."
                             className="flex-grow bg-gray-700/50 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-all"
-                            disabled={isLoading}
+                            disabled={isLoading || !!error}
                             aria-label="Chat input for AI Advisor"
                         />
                         <button
                             type="submit"
                             className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-lg disabled:opacity-50 flex items-center justify-center w-24 transition-colors"
-                            disabled={isLoading || !input.trim()}
+                            disabled={isLoading || !input.trim() || !!error}
                             aria-label="Send message"
                         >
                             {isLoading ? (

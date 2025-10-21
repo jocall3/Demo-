@@ -42,6 +42,8 @@ const AITransactionWidget: React.FC<{
     responseSchema?: any; // Allow passing a response schema for structured JSON
     children?: (result: any) => React.ReactNode;
 }> = ({ title, prompt, transactions, responseSchema, children }) => {
+    const context = useContext(DataContext);
+    const { geminiApiKey } = context || {};
     const [result, setResult] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -50,8 +52,13 @@ const AITransactionWidget: React.FC<{
         setIsLoading(true);
         setError('');
         setResult(null);
+        if (!geminiApiKey) {
+            setError('Please set your Gemini API key in the API Status view.');
+            setIsLoading(false);
+            return;
+        }
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const ai = new GoogleGenAI({ apiKey: geminiApiKey });
             const transactionSummary = transactions.slice(0, 20).map(t => `${t.date} - ${t.description}: $${t.amount.toFixed(2)} (${t.type})`).join('\n');
             const fullPrompt = `${prompt}\n\nHere are the most recent transactions for context:\n${transactionSummary}`;
             

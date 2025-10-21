@@ -19,6 +19,11 @@ const AIGeneratorWidget: React.FC<{
     businessPlan: string;
     children?: (result: string) => React.ReactNode;
 }> = ({ title, prompt, businessPlan, children }) => {
+    const context = useContext(DataContext);
+    if (!context) {
+        throw new Error("AIGeneratorWidget must be inside DataProvider");
+    }
+    const { geminiApiKey } = context;
     const [result, setResult] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -27,8 +32,13 @@ const AIGeneratorWidget: React.FC<{
         setIsLoading(true);
         setError('');
         setResult('');
+        if (!geminiApiKey) {
+            setError('Please set your Gemini API key in the API Status view.');
+            setIsLoading(false);
+            return;
+        }
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const ai = new GoogleGenAI({ apiKey: geminiApiKey });
             const fullPrompt = `${prompt}\n\nHere is the business plan for context:\n\n"${businessPlan}"`;
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',

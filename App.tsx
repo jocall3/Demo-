@@ -49,10 +49,25 @@ const TheVisionView: React.FC = () => (
     </div>
 );
 
+function SettingsIcon(props: React.SVGProps<SVGSVGElement>) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" {...props}>
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924-1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+    );
+}
+
 const APIIntegrationView: React.FC = () => {
     const context = useContext(DataContext);
     if (!context) throw new Error("APIIntegrationView must be within a DataProvider.");
-    const { apiStatus } = context;
+    const { apiStatus, geminiApiKey, setGeminiApiKey } = context;
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [apiKeyInput, setApiKeyInput] = useState(geminiApiKey || '');
+
+    const handleSaveKey = () => {
+        setGeminiApiKey(apiKeyInput);
+        setIsModalOpen(false);
+    };
 
     const StatusIndicator: React.FC<{ status: APIStatus['status'] }> = ({ status }) => {
         const colors = {
@@ -71,33 +86,60 @@ const APIIntegrationView: React.FC = () => {
     };
 
     return (
-        <div className="space-y-6">
-            <h2 className="text-3xl font-bold text-white tracking-wider">System & API Status</h2>
-            <Card>
-                <div className="space-y-3">
-                    {apiStatus.map(api => (
-                        <div key={api.provider} className="flex flex-col sm:flex-row justify-between items-center p-3 bg-gray-800/50 rounded-lg">
-                            <h4 className="font-semibold text-lg text-white mb-2 sm:mb-0">{api.provider}</h4>
-                            <div className="flex items-center gap-4">
-                                <p className="text-sm text-gray-400 font-mono">{api.responseTime}ms</p>
-                                <StatusIndicator status={api.status} />
-                            </div>
+        <>
+            {isModalOpen && (
+                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}>
+                    <div className="bg-gray-800 rounded-lg shadow-2xl max-w-md w-full border border-gray-700" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 border-b border-gray-700">
+                            <h3 className="text-lg font-semibold text-white">Configure Google Gemini API Key</h3>
                         </div>
-                    ))}
+                        <div className="p-6 space-y-4">
+                            <p className="text-sm text-gray-400">Enter your API key to enable all AI features. Your key is stored locally in your browser and is not sent to our servers.</p>
+                            <input
+                                type="password"
+                                value={apiKeyInput}
+                                onChange={(e) => setApiKeyInput(e.target.value)}
+                                placeholder="Enter your Gemini API Key"
+                                className="w-full bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                            />
+                            <button onClick={handleSaveKey} className="w-full py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg">Save Key</button>
+                        </div>
+                    </div>
                 </div>
-            </Card>
-            <Card title="Simulated Live API Traffic">
-                 <div className="h-48">
-                    <ResponsiveContainer width="100%" height="100%">
-                         <AreaChart data={Array.from({length: 20}, (_, i) => ({name: i, calls: 50 + Math.random() * 50}))}>
-                             <defs><linearGradient id="apiColor" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#06b6d4" stopOpacity={0.8}/><stop offset="95%" stopColor="#06b6d4" stopOpacity={0}/></linearGradient></defs>
-                             <RechartsTooltip contentStyle={{ backgroundColor: 'rgba(31, 41, 55, 0.8)', borderColor: '#4b5563' }} />
-                             <Area type="monotone" dataKey="calls" stroke="#06b6d4" fill="url(#apiColor)" />
-                         </AreaChart>
-                     </ResponsiveContainer>
-                </div>
-            </Card>
-        </div>
+            )}
+            <div className="space-y-6">
+                <h2 className="text-3xl font-bold text-white tracking-wider">System & API Status</h2>
+                <Card>
+                    <div className="space-y-3">
+                        {apiStatus.map(api => (
+                            <div key={api.provider} className="flex flex-col sm:flex-row justify-between items-center p-3 bg-gray-800/50 rounded-lg">
+                                <h4 className="font-semibold text-lg text-white mb-2 sm:mb-0">{api.provider}</h4>
+                                <div className="flex items-center gap-4">
+                                    <p className="text-sm text-gray-400 font-mono">{api.responseTime}ms</p>
+                                    <StatusIndicator status={api.status} />
+                                    {api.provider === 'Google Gemini' && (
+                                        <button onClick={() => { setApiKeyInput(geminiApiKey || ''); setIsModalOpen(true); }} className="text-gray-400 hover:text-white">
+                                            <SettingsIcon className="h-5 w-5"/>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </Card>
+                <Card title="Simulated Live API Traffic">
+                    <div className="h-48">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={Array.from({length: 20}, (_, i) => ({name: i, calls: 50 + Math.random() * 50}))}>
+                                <defs><linearGradient id="apiColor" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#06b6d4" stopOpacity={0.8}/><stop offset="95%" stopColor="#06b6d4" stopOpacity={0}/></linearGradient></defs>
+                                <RechartsTooltip contentStyle={{ backgroundColor: 'rgba(31, 41, 55, 0.8)', borderColor: '#4b5563' }} />
+                                <Area type="monotone" dataKey="calls" stroke="#06b6d4" fill="url(#apiColor)" />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
+                </Card>
+            </div>
+        </>
     );
 };
 
@@ -167,15 +209,20 @@ const RewardsView: React.FC = () => {
 const CreditHealthView: React.FC = () => {
     const context = useContext(DataContext);
     if (!context) throw new Error("CreditHealthView must be within a DataProvider.");
-    const { creditScore, creditFactors } = context;
+    const { creditScore, creditFactors, geminiApiKey } = context;
 
     const [insight, setInsight] = useState('');
     const [isLoadingInsight, setIsLoadingInsight] = useState(false);
 
     const getAIInsight = async () => {
         setIsLoadingInsight(true);
+        if (!geminiApiKey) {
+            setInsight("Please set your Gemini API key in the API Status view to get insights.");
+            setIsLoadingInsight(false);
+            return;
+        }
         try {
-            const ai = new GoogleGenAI({apiKey: process.env.API_KEY as string});
+            const ai = new GoogleGenAI({apiKey: geminiApiKey});
             const prompt = `A user has a credit score of ${creditScore.score}. Their credit factors are: ${creditFactors.map(f => `${f.name}: ${f.status}`).join(', ')}. Provide one concise, actionable tip to help them improve their score.`;
             const response = await ai.models.generateContent({model: 'gemini-2.5-flash', contents: prompt});
             setInsight(response.text);
@@ -187,7 +234,7 @@ const CreditHealthView: React.FC = () => {
         }
     };
     
-    useEffect(() => { getAIInsight() }, []);
+    useEffect(() => { getAIInsight() }, [geminiApiKey]);
 
     const StatusIndicator: React.FC<{ status: 'Excellent' | 'Good' | 'Fair' | 'Poor' }> = ({ status }) => {
         const colors = { Excellent: 'bg-green-500', Good: 'bg-cyan-500', Fair: 'bg-yellow-500', Poor: 'bg-red-500' };
@@ -253,14 +300,19 @@ const PersonalizationView: React.FC = () => {
     if (!context) {
         throw new Error("PersonalizationView must be within a DataProvider.");
     }
-    const { setCustomBackgroundUrl, setActiveIllusion, activeIllusion } = context;
+    const { setCustomBackgroundUrl, setActiveIllusion, activeIllusion, geminiApiKey } = context;
 
     const handleGenerate = async () => {
         if (!prompt) return;
         setIsLoading(true);
         setError('');
+        if (!geminiApiKey) {
+            setError("Please set your Gemini API key in the API Status view to generate images.");
+            setIsLoading(false);
+            return;
+        }
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const ai = new GoogleGenAI({ apiKey: geminiApiKey });
             const response = await ai.models.generateImages({
                 model: 'imagen-4.0-generate-001',
                 prompt: prompt,
@@ -365,6 +417,12 @@ const PersonalizationView: React.FC = () => {
 };
 
 const CardCustomizationView: React.FC = () => {
+    const context = useContext(DataContext);
+    if (!context) {
+        throw new Error("CardCustomizationView must be within a DataProvider.");
+    }
+    const { geminiApiKey } = context;
+    
     const [baseImage, setBaseImage] = useState<string | null>(null);
     const [prompt, setPrompt] = useState('Add a phoenix rising from the center, with its wings made of glowing data streams.');
     const [generatedImage, setGeneratedImage] = useState<string | null>(null);
@@ -400,8 +458,13 @@ const CardCustomizationView: React.FC = () => {
         setIsLoading(true);
         setError('');
         setGeneratedImage(null);
+        if (!geminiApiKey) {
+            setError("Please set your Gemini API key in the API Status view to edit images.");
+            setIsLoading(false);
+            return;
+        }
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const ai = new GoogleGenAI({ apiKey: geminiApiKey });
             const base64Data = baseImage.split(',')[1];
             const mimeType = baseImage.match(/:(.*?);/)?.[1] || 'image/jpeg';
             
@@ -436,8 +499,13 @@ const CardCustomizationView: React.FC = () => {
      const generateCardStory = async () => {
         setIsStoryLoading(true);
         setCardStory('');
+         if (!geminiApiKey) {
+            setCardStory("Please set your Gemini API key in the API Status view to generate stories.");
+            setIsStoryLoading(false);
+            return;
+        }
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const ai = new GoogleGenAI({ apiKey: geminiApiKey });
             const storyPrompt = `Based on this generative AI prompt for a credit card design, write a short, inspiring "Card Story" (2-3 sentences) about what this card represents.
 Prompt: "${prompt}"
 Effects: ${metallic > 0 ? 'Metallic sheen, ' : ''}${holo ? 'Holographic effect' : ''}`;

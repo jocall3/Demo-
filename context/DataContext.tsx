@@ -69,6 +69,8 @@ interface IDataContext {
   redeemReward: (item: RewardItem) => boolean;
   apiStatus: APIStatus[];
   creditFactors: CreditFactor[];
+  geminiApiKey: string | null;
+  setGeminiApiKey: (key: string) => void;
 }
 
 export const DataContext = createContext<IDataContext | undefined>(undefined);
@@ -106,6 +108,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     error: null,
   });
 
+  const [geminiApiKey, setGeminiApiKeyState] = useState<string | null>(() => {
+      return localStorage.getItem('geminiApiKey');
+  });
+
+  const setGeminiApiKey = (key: string) => {
+      if (key) {
+          localStorage.setItem('geminiApiKey', key);
+          setGeminiApiKeyState(key);
+      } else {
+          localStorage.removeItem('geminiApiKey');
+          setGeminiApiKeyState(null);
+      }
+  };
+
   // State for new dashboard widgets
   const [subscriptions] = useState<Subscription[]>(MOCK_SUBSCRIPTIONS);
   const [creditScore] = useState<CreditScore>(MOCK_CREDIT_SCORE);
@@ -138,8 +154,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   
   // State for new views
   const [rewardItems] = useState<RewardItem[]>(MOCK_REWARD_ITEMS);
-  const [apiStatus] = useState<APIStatus[]>(MOCK_API_STATUS);
+  const [apiStatus, setApiStatus] = useState<APIStatus[]>(MOCK_API_STATUS);
   const [creditFactors] = useState<CreditFactor[]>(MOCK_CREDIT_FACTORS);
+
+  useEffect(() => {
+    setApiStatus(prev => prev.map(s => 
+        s.provider === 'Google Gemini' ? { ...s, status: geminiApiKey ? 'Operational' : 'Major Outage' } : s
+    ));
+  }, [geminiApiKey]);
 
 
   const setCustomBackgroundUrl = (url: string) => {
@@ -172,8 +194,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const generateDashboardInsights = useCallback(async () => {
     setIsInsightsLoading(true);
+     if (!geminiApiKey) {
+        setAiInsights([{ id: 'error_no_key', title: 'API Key Not Set', description: 'Please configure your Google Gemini API key in the API Status view.', urgency: 'high' }]);
+        setIsInsightsLoading(false);
+        return;
+    }
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+        const ai = new GoogleGenAI({ apiKey: geminiApiKey });
         const recentTransactionsSummary = transactions.slice(0, 10).map(t => `${t.description}: $${t.amount.toFixed(2)} (${t.type})`).join(', ');
         
         const prompt = `You are Quantum, a proactive AI financial advisor. Analyze the user's recent transactions to generate 3 diverse, actionable insights. Your insights must be concise. If an insight is about high spending, provide chartData for the top 3 items. Format your response as a JSON object that strictly adheres to the provided schema. Do not include any text outside of the JSON object.
@@ -233,7 +260,7 @@ Recent Transactions: ${recentTransactionsSummary}`;
     } finally {
         setIsInsightsLoading(false);
     }
-}, [transactions]); // Dependency on transactions ensures it can re-run with new data
+}, [transactions, geminiApiKey]); // Dependency on transactions ensures it can re-run with new data
 
 useEffect(() => {
     generateDashboardInsights(); // Initial generation
@@ -285,9 +312,13 @@ useEffect(() => {
 
   const pitchBusinessPlan = async (plan: string) => {
     setWeaverState(prev => ({ ...prev, stage: WeaverStage.Analysis, businessPlan: plan, error: null }));
+    if (!geminiApiKey) {
+        setWeaverState(prev => ({ ...prev, stage: WeaverStage.Error, error: "Google Gemini API Key is not set. Please add it in the API Status view." }));
+        return;
+    }
     
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+      const ai = new GoogleGenAI({ apiKey: geminiApiKey });
       const prompt = `Analyze the following business plan. Provide brief, constructive initial feedback (1-2 sentences) and generate exactly 5 sample assessment questions based on the plan's potential weaknesses or key areas. The questions should cover different categories like Market, Finance, Operations, etc.
 
 Business Plan: "${plan}"`;
@@ -335,9 +366,13 @@ Business Plan: "${plan}"`;
 
   const simulateTestPass = async () => {
     setWeaverState(prev => ({ ...prev, stage: WeaverStage.FinalReview, error: null }));
+    if (!geminiApiKey) {
+        setWeaverState(prev => ({ ...prev, stage: WeaverStage.Error, error: "Google Gemini API Key is not set. Please add it in the API Status view." }));
+        return;
+    }
 
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+        const ai = new GoogleGenAI({ apiKey: geminiApiKey });
         const prompt = `Based on this business plan, you have approved a seed loan. Determine a realistic loan amount (between $50,000 and $250,000). Then, generate a 3-step coaching plan to guide the founder. The plan should be high-level and encouraging.
 
 Business Plan: "${weaverState.businessPlan}"`;
@@ -459,9 +494,13 @@ Business Plan: "${weaverState.businessPlan}"`;
   const generateGoalPlan = async (goalId: string) => {
     const goal = financialGoals.find(g => g.id === goalId);
     if (!goal) return;
+    if (!geminiApiKey) {
+        console.error("Gemini API key not set.");
+        return;
+    }
 
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+        const ai = new GoogleGenAI({ apiKey: geminiApiKey });
         const prompt = `Generate a feasible financial plan for the following goal. Provide a brief feasibility summary, a recommended monthly contribution, and 3 actionable steps across different categories (Savings, Budgeting, Investing, Income).
         
 Goal: ${goal.name}
@@ -694,6 +733,8 @@ Current Savings for this goal: $${goal.currentAmount}`;
     redeemReward,
     apiStatus,
     creditFactors,
+    geminiApiKey,
+    setGeminiApiKey,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

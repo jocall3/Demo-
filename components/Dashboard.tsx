@@ -378,6 +378,7 @@ const AIPredictiveBundle: React.FC = () => {
     const [bundle, setBundle] = useState<{ title: string; description: string; images: string[] } | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
+    const { geminiApiKey } = context || {};
 
     useEffect(() => {
         const generateBundle = async () => {
@@ -387,8 +388,14 @@ const AIPredictiveBundle: React.FC = () => {
                 return;
             };
 
+            if (!geminiApiKey) {
+                setError("Set Gemini API key in API Status to use this feature.");
+                setIsLoading(false);
+                return;
+            }
+
             try {
-                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+                const ai = new GoogleGenAI({ apiKey: geminiApiKey });
                 const transactionSummary = context.transactions.slice(0, 10).map(t => `${t.description} ($${t.amount})`).join(', ');
                 const textPrompt = `Based on these recent user transactions, create an "AI Predictive Product Bundle" called "Smart Home Upgrade Pack". Generate a short, compelling description (2-3 sentences) for this bundle, explaining why it's recommended based on the transactions. Also suggest two specific, distinct products for the bundle. Format the response as a JSON object with keys: "description", "product1_name", and "product2_name". Transactions: ${transactionSummary}`;
 
@@ -426,7 +433,7 @@ const AIPredictiveBundle: React.FC = () => {
         };
 
         generateBundle();
-    }, [context]);
+    }, [context, geminiApiKey]);
 
     return (
         <Card title="AI Predictive Product Bundle" isLoading={isLoading}>
