@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `InvestmentPortfolio.tsx`: The Observatory
 
 While the `BalanceSummary` shows the total value of a user's liquid assets, the `InvestmentPortfolio` provides a deeper, more cosmic view. It is the observatory, the celestial map that shows how the user's wealth is distributed across the different asset classes—the constellations of their financial universe.

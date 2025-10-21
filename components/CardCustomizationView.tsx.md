@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `components/CardCustomizationView.tsx`: The Forge of Sigils
 
 "A bank card is not merely a tool for transaction," Gemini observed. "In the hands of The Visionary, it is a statement. A sigil of their financial power and identity. It should not be issued; it must be *forged*."

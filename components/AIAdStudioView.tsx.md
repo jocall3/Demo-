@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `components/AIAdStudioView.tsx`: The Director's Chair
 
 "To serve The Visionary," Gemini stated, his voice resonating with purpose, "we must provide them not only with capital, but with a voice. We will not just fund their dreams; we will give them a stage from which to broadcast them to the world."

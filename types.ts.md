@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `types.ts`: The Laws of Physics
 
 Every universe, no matter how magical, must have rules. It needs a language to describe its reality, a set of unbreakable laws that define what can and cannot exist. In the universe of Demo Bank, `types.ts` is that set of laws. It is the application's grand codex, its laws of physics, its language of reality.

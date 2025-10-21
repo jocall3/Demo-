@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `metadata.json`: The Soul of the Application
 
 In the grand architecture of Demo Bank, `metadata.json` is not a file of settings. It is the application's soul, its identity card, its declaration of self to the world. It is where the machine whispers its name and its purpose.

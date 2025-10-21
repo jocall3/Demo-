@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 // @/constants.tsx
 // This file serves as the central repository for application-wide constants.
 // By consolidating these values, we ensure consistency, improve maintainability,
@@ -40,6 +37,7 @@ export const NAV_ITEMS = [
     { id: View.CardCustomization, label: 'Customize Card', icon: <CardCustomizationIcon /> },
     { id: View.Security, label: 'Security', icon: <SecurityIcon /> },
     { id: View.OpenBanking, label: 'Open Banking', icon: <OpenBankingIcon /> },
+    { id: View.FinancialDemocracy, label: 'Financial Democracy', icon: <FinancialDemocracyIcon /> },
     { id: View.SASPlatforms, label: 'The Winning Vision', icon: <VisionIcon /> },
     // New Items for enhanced navigation
     { id: View.Rewards, label: 'Rewards Hub', icon: <RewardsIcon /> },
@@ -515,6 +513,23 @@ function OpenBankingIcon(props: React.SVGProps<SVGSVGElement>) {
     );
 }
 
+function FinancialDemocracyIcon(props: React.SVGProps<SVGSVGElement>) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-6 w-6"
+            aria-hidden="true"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            {...props}
+        >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c2 1 5 1 7 0 2-1 2.657-1.343 2.657-1.343a8 8 0 010 10z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+    )
+}
+
 /**
  * @description Renders the Corporate Command Icon.
  * This icon uses a building to symbolize a corporate or business entity.
@@ -607,6 +622,33 @@ function SettingsIcon(props: React.SVGProps<SVGSVGElement>) {
     );
 }
 
+// ================================================================================================
+// BANK & PAYMENT PROVIDER LOGOS
+// ================================================================================================
+
+const ChaseLogo = () => <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" className="w-6 h-6"><title>Chase</title><path d="M12,24A12,12,0,1,0,0,12,12,12,0,0,0,12,24Z" fill="#117aca"/><path d="M12.22,18.25h4.63V12.5H12.22Zm-5.75-5.75H11.1v4.63H6.47Zm5.75-5.75h4.63V11.1H12.22Z" fill="#fff"/><path d="M18.25,6.47V11.1h-4.63V6.47Z" fill="#fff"/></svg>;
+const BofALogo = () => <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" className="w-6 h-6"><title>Bank of America</title><path d="M9.3 4H14.7L18 10.5H6L9.3 4ZM9.3 19.9H14.7L18 13.4H6L9.3 19.9Z" fill="#005A9C"/><path d="M4 10.5H20V13.4H4V10.5Z" fill="#E2001A"/></svg>;
+const WellsFargoLogo = () => <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" className="w-6 h-6"><title>Wells Fargo</title><path fill="#D71E28" d="M2.57 20.83L.01 4.2h23.98l-2.56 16.63z"/><path fill="#FFC72C" d="M17.84 8.78L16.2 12.8h-1.9L12 5.7l-2.3 7.1H7.8l-1.6-4.02L4.08 17.5h15.84l-2.08-8.72z"/></svg>;
+const AmexLogo = () => <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" className="w-6 h-6"><title>American Express</title><path d="M22.498 2.5H1.5C.67 2.5 0 3.17 0 4v16c0 .83.67 1.5 1.5 1.5h20.998c.83 0 1.5-.67 1.5-1.5V4c0-.83-.67-1.5-1.502-1.5z" fill="#006FCF"/><path d="M14.65 14.24h-1.02l.62-1.63-2-5.11h-1.3l-3.23 8.24h1.02l.62-1.63h3.04l.3 1.63h1.25zm-2.8-2.67l.95-2.51.95 2.51h-1.9zM15.9 14.24V9.5h1.25v-1h2v1h1.25v4.74h-1.25v2h-2v-2H15.9z" fill="#fff"/></svg>;
+const CitiLogo = () => <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" className="w-6 h-6"><title>Citi</title><path d="M12 24C5.373 24 0 18.627 0 12S5.373 0 12 0s12 5.373 12 12-5.373 12-12 12Z" fill="#003B70"/><path d="M7.4 17.2h1.4v-7H7.4v7zm4.2 0h1.4v-7h-1.4v7zm4.2 0h1.4v-7h-1.4v7z" fill="#fff"/><path d="M6 9.4c0-.4.3-.8.8-.8h9.4c.5 0 .8.4.8.8v.2a7.1 7.1 0 0 0-11 0v-.2z" fill="#D71E28"/></svg>;
+const BinanceLogo = () => <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" className="w-6 h-6"><title>Binance</title><path fill="#F0B90B" d="M12 24a12 12 0 100-24 12 12 0 000 24z"/><path d="m14.92 12.11 2.05-2.02-2.05-2.02-2.02 2.02-2.8-2.8-2.01 2.02 4.8 4.8-4.8 4.8 2.02 2.02 2.8-2.8 2.02 2.02 2.05-2.02-2.05-2.02z" fill="#fff"/></svg>;
+const CoinbaseLogo = () => <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" className="w-6 h-6"><title>Coinbase</title><path d="M12 24C5.373 24 0 18.627 0 12S5.373 0 12 0s12 5.373 12 12-5.373 12-12 12z" fill="#0052FF"/><path d="M7 7h10v10H7V7z" fill="#fff"/></svg>;
+const VenmoLogo = () => <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" className="w-6 h-6"><title>Venmo</title><path d="M23.2 14.7c-.2-2-1-3.7-2.3-5.2-1.3-1.4-3-2.5-5-3.3-1-.4-2-.7-3-1-.5-.1-.9-.3-1.4-.4C11.1 4.7 11 5 11 5.3c.1.6.2 1.2.4 1.8.2.6.4 1.2.7 1.7 1.1 2 2.6 3.7 4.5 5 .3.2.6.3.9.4.5.1.9.2 1.3.3.6.1 1.2.2 1.8.3.1.2.1.4.1.6-.2 2.1-1.1 3.9-2.5 5.2-1.4 1.4-3.3 2.3-5.3 2.7-.6.1-1.2.2-1.8.3-.2 0-.4-.1-.5-.2-.1-.2-.1-.5 0-.7.3-.8.6-1.6.8-2.4.2-1 .3-2 .5-3 .1-.4.2-.8.4-1.2l.2-.7.2-.6c.2-.4.3-.7.3-1.1.1-.3.1-.7.1-1 0-.4-.1-.8-.2-1.2-.2-.5-.4-1-.7-1.4-.7-1.1-1.6-2.1-2.8-2.8-.5-.3-1-.6-1.5-.8-1-.4-2-.7-3-1-.3-.1-.5-.2-.8-.3-.2-.1-.5-.1-.7-.2-.4-.1-.9-.2-1.3-.3-.4 0-.9-.1-1.3-.1h-.1c-.1 0-.2.1-.2.2v.2c0 .2 0 .4.1.6s.1.4.1.6l.1.5c.1.3.2.7.3 1 .1.4.2.8.4 1.1.2.3.4.6.6.9.5.6 1 1.2 1.6 1.7.6.5 1.2.9 1.9 1.3 1.1.6 2.2 1 3.4 1.4.5.1.9.3 1.4.4.4.1.9.3 1.3.4.7.2 1.4.3 2.1.5.1 0 .2.1.2.2.1.2.1.4 0 .6-.2.1-.5.3-.7.4-.6.2-1.2.4-1.8.5-1.1.3-2.2.5-3.3.6-2.2.3-4.4.2-6.6-.3L0 12.9V7.1l.8.1c.2 0 .4.1.6.1.7.1 1.4.2 2.1.4.9.2 1.8.5 2.7.9.8.3 1.6.7 2.4 1.2.7.4 1.4.8 2 1.3.6.4 1.2.8 1.8 1.2.2.1.4.3.6.4.3.2.6.4.9.6.1.1.3.1.4.2.1 0 .1.1.2.1Z" fill="#3D95CE"/></svg>;
+const PaypalLogo = () => <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" className="w-6 h-6"><title>PayPal</title><path d="M7.34 19.32h2.75l1.6-10.87H8.62L7.34 19.32zm8.3-10.6c-.4-.25-1-.41-1.8-.41h-1.8l.52 3.42c.1.34.4.57.75.57h.26c.4 0 .73-.22.82-.59l.4-2.58c.08-.4.04-.6-.15-.81zm.55 5.06c-.2.9-1 1.55-2.04 1.55h-1.06l-.52-3.4h1.1c.73 0 1.22.12 1.5.7.2.4.2.9-.03 1.15zM22.18 8.4h-2.9l-2.07 10.92h2.2l.33-1.83h2.18c2.1 0 3.3-1.12 3.8-3.18.4-1.6-.2-2.9-1.54-3.91z" fill="#003087"/><path d="M24 8.16C22.45 6.9 20.2 6.5 17.7 6.5h-5.23l-.53 3.42-.18 1.15-.02.34c-.1.34.18.63.53.63h.2c.4 0 .73-.22.82-.59l.86-5.46h1.8c.4 0 .74.05.97.16 1.4.65 1.8 2.18 1.4 3.9-.3 1.25-1.1 1.9-2.2 1.9h-1.06l.52-3.42c.1-.34.4-.57.75-.57h.03c.4 0 .73.22.82-.59l.4-2.58c.08-.4.04-.6-.15-.81-.4-.25-1-.41-1.8-.41h-.05c-.4 0-.74-.05-.97-.16-1.4-.65-1.8-2.18-1.4-3.91.4-1.92 2.1-2.95 4.1-2.95h2.9z" fill="#009CDE"/></svg>;
+const ZelleLogo = () => <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" className="w-6 h-6"><title>Zelle</title><path d="M12 24C5.373 24 0 18.627 0 12S5.373 0 12 0s12 5.373 12 12-5.373 12-12 12z" fill="#6930B5"/><g fill="#fff"><path d="M16.9 8.3h-9.8c-.3 0-.5.2-.5.5s.2.5.5.5h9.8c.3 0 .5-.2.5-.5s-.2-.5-.5-.5z"/><path d="M16.9 11.5h-9.8c-.3 0-.5.2-.5.5s.2.5.5.5h9.8c.3 0 .5-.2.5-.5s-.2-.5-.5-.5zM7.1 14.7h9.8c.3 0 .5.2.5.5s-.2.5-.5.5H7.1c-.3 0-.5-.2-.5-.5s.2-.5.5-.5z"/></g></svg>;
+
+export const banks = [
+    { name: 'Chase', logo: <ChaseLogo />, institution_id: 'ins_109960' },
+    { name: 'Bank of America', logo: <BofALogo />, institution_id: 'ins_109950' },
+    { name: 'Wells Fargo', logo: <WellsFargoLogo />, institution_id: 'ins_109980' },
+    { name: 'American Express', logo: <AmexLogo />, institution_id: 'ins_100000' },
+    { name: 'Citi', logo: <CitiLogo />, institution_id: 'ins_109970' },
+    { name: 'Binance', logo: <BinanceLogo />, institution_id: 'crypto_binance' },
+    { name: 'Coinbase', logo: <CoinbaseLogo />, institution_id: 'crypto_coinbase' },
+    { name: 'Venmo', logo: <VenmoLogo />, institution_id: 'payment_venmo' },
+    { name: 'Paypal', logo: <PaypalLogo />, institution_id: 'payment_paypal' },
+    { name: 'Zelle', logo: <ZelleLogo />, institution_id: 'payment_zelle' },
+];
 
 // ================================================================================================
 // UI THEME AND DESIGN TOKENS

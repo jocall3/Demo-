@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 import React, { useContext, useMemo, useState, useEffect } from 'react';
 import BalanceSummary from './BalanceSummary';
 import RecentTransactions from './RecentTransactions';
@@ -13,6 +10,7 @@ import Card from './Card';
 import { type GamificationState, type Subscription, type CreditScore, type SavingsGoal, type MarketMover, type UpcomingBill, type Transaction, type BudgetCategory, type RewardPoints, View } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, Legend, AreaChart, Area } from 'recharts';
 import PlaidLinkButton from './PlaidLinkButton';
+import { GoogleGenAI, Type } from '@google/genai';
 
 // ================================================================================================
 // MODAL & OVERLAY COMPONENTS
@@ -375,15 +373,77 @@ const MarketMovers: React.FC<{ movers: MarketMover[]; onSelect: (mover: MarketMo
     </Card>
 );
 
-const MonthlyCarbonSummary: React.FC<{ transactions: Transaction[] }> = ({ transactions }) => {
-    const totalFootprint = transactions.reduce((sum, tx) => sum + (tx.carbonFootprint || 0), 0);
+const AIPredictiveBundle: React.FC = () => {
+    const context = useContext(DataContext);
+    const [bundle, setBundle] = useState<{ title: string; description: string; images: string[] } | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        const generateBundle = async () => {
+            if (!context || context.transactions.length === 0) {
+                setIsLoading(false);
+                setError("Not enough transaction data to generate a bundle.");
+                return;
+            };
+
+            try {
+                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+                const transactionSummary = context.transactions.slice(0, 10).map(t => `${t.description} ($${t.amount})`).join(', ');
+                const textPrompt = `Based on these recent user transactions, create an "AI Predictive Product Bundle" called "Smart Home Upgrade Pack". Generate a short, compelling description (2-3 sentences) for this bundle, explaining why it's recommended based on the transactions. Also suggest two specific, distinct products for the bundle. Format the response as a JSON object with keys: "description", "product1_name", and "product2_name". Transactions: ${transactionSummary}`;
+
+                const textResponse = await ai.models.generateContent({
+                    model: 'gemini-2.5-flash',
+                    contents: textPrompt,
+                    config: { responseMimeType: 'application/json' }
+                });
+
+                const bundleData = JSON.parse(textResponse.text);
+
+                const imagePrompt1 = `A sleek, modern product shot of a ${bundleData.product1_name}, minimalist aesthetic, on a clean, light gray background.`;
+                const imagePrompt2 = `A sleek, modern product shot of a ${bundleData.product2_name}, minimalist aesthetic, on a clean, light gray background.`;
+
+                const [imageResponse1, imageResponse2] = await Promise.all([
+                    ai.models.generateImages({ model: 'imagen-4.0-generate-001', prompt: imagePrompt1, config: { numberOfImages: 1, outputMimeType: 'image/jpeg' } }),
+                    ai.models.generateImages({ model: 'imagen-4.0-generate-001', prompt: imagePrompt2, config: { numberOfImages: 1, outputMimeType: 'image/jpeg' } })
+                ]);
+                
+                const imageUrl1 = `data:image/jpeg;base64,${imageResponse1.generatedImages[0].image.imageBytes}`;
+                const imageUrl2 = `data:image/jpeg;base64,${imageResponse2.generatedImages[0].image.imageBytes}`;
+                
+                setBundle({
+                    title: "Smart Home Upgrade Pack",
+                    description: bundleData.description,
+                    images: [imageUrl1, imageUrl2]
+                });
+
+            } catch (err) {
+                console.error("Error generating product bundle:", err);
+                setError("Plato AI couldn't generate a bundle at this time.");
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        generateBundle();
+    }, [context]);
+
     return (
-        <Card title="Monthly Carbon Summary">
-            <div className="text-center">
-                <p className="text-3xl font-bold text-cyan-300">{totalFootprint.toFixed(1)} kg CO₂</p>
-                <p className="text-sm text-gray-400">Estimated total for this month's transactions.</p>
-                <p className="text-xs text-gray-500 mt-2">AI Tip: Dining out has a higher footprint than groceries.</p>
-            </div>
+        <Card title="AI Predictive Product Bundle" isLoading={isLoading}>
+            {error && <p className="text-red-400 text-center">{error}</p>}
+            {bundle && (
+                 <div className="flex flex-col md:flex-row items-center gap-6">
+                    <div className="flex-1">
+                        <h3 className="text-xl font-semibold text-cyan-300">{bundle.title}</h3>
+                        <p className="text-sm text-gray-400 mt-2 mb-4 italic">"{bundle.description}"</p>
+                        <button className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm">View Bundle</button>
+                    </div>
+                    <div className="flex gap-4">
+                        <div className="w-24 h-24 bg-gray-700 rounded-lg"><img src={bundle.images[0]} className="object-cover w-full h-full rounded-lg" /></div>
+                        <div className="w-24 h-24 bg-gray-700 rounded-lg"><img src={bundle.images[1]} className="object-cover w-full h-full rounded-lg" /></div>
+                    </div>
+                </div>
+            )}
         </Card>
     );
 };
@@ -440,6 +500,12 @@ const Dashboard: React.FC<DashboardProps> = ({ setActiveView }) => {
                 <div className="lg:col-span-3">
                     <GamificationProfile gamification={gamification} onClick={() => setActiveView(View.Rewards)} />
                 </div>
+
+                {hasLinkedAccounts && (
+                    <div className="lg:col-span-12">
+                        <AIPredictiveBundle />
+                    </div>
+                )}
 
                 {/* --- NEW WIDGETS SECTION --- */}
                 <div className="lg:col-span-3">

@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `index.tsx`: The Genesis Block
 
 In the grand, silent theater of the browser, before there was light or form, there was `index.tsx`. This is not merely a file; it is the genesis block, the single point of creation from which the entire universe of Demo Bank expands.

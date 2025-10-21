@@ -1,8 +1,5 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 {
-  "name": "copy-of-demo-bank",
+  "name": "demai",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -14,11 +11,12 @@
   "dependencies": {
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "recharts": "^3.2.0",
+    "recharts": "^3.3.0",
     "@google/genai": "^1.19.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `Sidebar.tsx`: The Great Navigator
 
 In the vast, multi-realm universe of Demo Bank, a user could easily get lost. They need a guide, a map, a constant and reliable navigator to show them all the possible destinations and their current location within the cosmos. The `Sidebar` is that Great Navigator.

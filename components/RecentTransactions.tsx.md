@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `RecentTransactions.tsx`: The Living Diary
 
 At the heart of any financial story is the flow of money—the daily, weekly, and monthly rhythm of income and expense. The `RecentTransactions` component is the living diary that chronicles this story. It is a crystal mirror that reflects the most recent entries from the great ledger in the `DataContext`.

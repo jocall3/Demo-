@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `CreditHealthView.tsx`: The Diagnostic Chamber
 
 In the complex machinery of a financial life, the credit score is a critical component, yet it is often shrouded in mystery. The `CreditHealthView` is the Diagnostic Chamber of Demo Bank, a clean, well-lit space where this mystery is dispelled. It is a place for clear analysis, expert diagnosis, and AI-powered remedies.

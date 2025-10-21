@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `BalanceSummary.tsx`: The Grand Ledger
 
 In the Command Center of the Dashboard, one view stands above the others in prominence and importance: the `BalanceSummary`. This component is the grand ledger, the definitive statement of the user's current financial standing. It answers the most fundamental question: "How am I doing?"

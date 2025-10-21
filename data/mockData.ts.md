@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `mockData.ts`: The Primordial Memories
 
 Every world, when it is first born, is not a complete void. It is seeded with primordial memories, foundational stories that give it shape and history from the very first moment. In the universe of Demo Bank, `data/mockData.ts` is the source of these memories.

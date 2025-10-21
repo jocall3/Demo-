@@ -1,8 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
-
-
 // components/Card.tsx
 // This component has been significantly re-architected to function as a highly
 // versatile and state-aware container, in alignment with production-grade standards
@@ -65,6 +60,7 @@ export interface CardProps {
   padding?: 'sm' | 'md' | 'lg' | 'none'; // Control internal padding.
   // FIX: Add onClick prop to allow cards to be interactive.
   onClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
+  isMetric?: boolean;
 
   // Custom Components
   loadingIndicator?: ReactNode;
@@ -81,7 +77,8 @@ export interface CardProps {
  * @param {CardVariant} variant - The card variant.
  * @returns {string} The corresponding Tailwind CSS classes.
  */
-const getVariantClasses = (variant: CardVariant): string => {
+// FIX: Changed parameter type to string to make the function more robust and fix the type error.
+const getVariantClasses = (variant: string): string => {
   switch (variant) {
     case 'outline':
       return 'bg-transparent border-2 border-gray-600/80 shadow-md';
@@ -100,7 +97,8 @@ const getVariantClasses = (variant: CardVariant): string => {
  * @param {'sm' | 'md' | 'lg' | 'none'} padding - The desired padding level.
  * @returns {string} The Tailwind CSS classes for padding.
  */
-const getPaddingClasses = (padding: 'sm' | 'md' | 'lg' | 'none'): string => {
+// FIX: Changed parameter type to string to make the function more robust and fix the type error.
+const getPaddingClasses = (padding: string): string => {
     switch(padding) {
         case 'sm': return 'p-3';
         case 'md': return 'p-6';
@@ -179,7 +177,7 @@ const CardHeader: React.FC<{
   actions?: CardHeaderAction[];
 }> = ({ title, subtitle, isCollapsible, isCollapsed, toggleCollapse, actions }) => {
   // FIX: Update condition to account for subtitle.
-  if (!title && !subtitle && (!actions || actions.length === 0)) {
+  if (!title && !subtitle && (!actions || actions.length === 0) && !isCollapsible) {
     return null; // Render no header if there's no title, subtitle and no actions.
   }
 
@@ -275,6 +273,7 @@ const Card: React.FC<CardProps> = ({
   loadingIndicator,
   // FIX: Destructure onClick prop to apply it to the main div.
   onClick,
+  isMetric = false,
 }) => {
   // --------------------------------------------------------------------------------
   // State Management
@@ -325,7 +324,9 @@ const Card: React.FC<CardProps> = ({
   // Dynamic Class Computation
   // --------------------------------------------------------------------------------
   const baseClasses = getVariantClasses(variant);
-  const paddingClasses = getPaddingClasses(padding);
+  // If it's a metric card and padding is the default, use a smaller padding.
+  const finalPadding = isMetric && padding === 'md' ? 'sm' : padding;
+  const paddingClasses = getPaddingClasses(finalPadding);
 
   // Combine all classes into a final string.
   const finalContainerClasses = `
@@ -360,6 +361,8 @@ const Card: React.FC<CardProps> = ({
       height: isCollapsible ? contentHeight : 'auto',
     };
 
+    const contentPadding = (title || subtitle || isCollapsible || headerActions) ? 'pt-4' : '';
+
     return (
         <div
           style={contentWrapperStyle}
@@ -367,7 +370,7 @@ const Card: React.FC<CardProps> = ({
           aria-hidden={isCollapsed}
         >
           <div ref={contentRef}>
-             <div className="pt-4">
+             <div className={contentPadding}>
                 {children}
              </div>
           </div>
@@ -381,7 +384,7 @@ const Card: React.FC<CardProps> = ({
   // FIX: Pass onClick handler to the root div element.
   return (
     <div className={finalContainerClasses.trim().replace(/\s+/g, ' ')} onClick={onClick}>
-      <div className={paddingClasses}>
+      <div className={`${paddingClasses} ${isMetric ? 'text-center' : ''}`}>
         <CardHeader
           title={title}
           // FIX: Pass subtitle prop to CardHeader.

@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `PlaidLinkButton.tsx`: The Handshake
 
 In the world of modern finance, a bank cannot be an isolated fortress. It must have the ability to connect, to communicate, to shake hands with other institutions in a secure and trusted way. The `PlaidLinkButton` and its accompanying `PlaidModal` are the embodiment of this handshake. It is the application's trusted diplomat, the component responsible for building bridges to the user's wider financial life.

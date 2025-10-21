@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `RewardsView.tsx`: The Hall of Accolades
 
 A journey is more meaningful when its milestones are celebrated. The `RewardsView` is the Hall of Accolades within Demo Bank, a vibrant and engaging space where the user's financial discipline and progress are recognized, celebrated, and rewarded. It is the gamification of finance made tangible.

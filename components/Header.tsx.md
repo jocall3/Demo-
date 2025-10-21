@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `Header.tsx`: The Crown
 
 At the very top of the Demo Bank kingdom, sitting above all other realms, is the `Header`. It is the application's crown, a persistent symbol of identity, awareness, and control. It is the user's constant companion, the one piece of the interface that never disappears, no matter where their journey takes them.

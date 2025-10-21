@@ -1,7 +1,5 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 import React, { useState, useEffect } from 'react';
+import { banks } from '../constants'; // Import the centralized bank list
 
 interface PlaidLinkButtonProps {
     onSuccess: (publicToken: string, metadata: any) => void;
@@ -11,20 +9,6 @@ interface PlaidLinkButtonProps {
 // SVG ICONS & LOGOS
 // ================================================================================================
 const PlaidLogo = () => <svg width="88" height="34" viewBox="0 0 88 34" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M82.2 3.82c-3.32 0-5.83 2.5-5.83 5.82 0 3.31 2.51 5.82 5.83 5.82 3.31 0 5.82-2.5 5.82-5.82 0-3.31-2.51-5.82-5.82-5.82Zm0 9.14c-1.87 0-3.32-1.45-3.32-3.32 0-1.87 1.45-3.32 3.32-3.32 1.87 0 3.31-1.45 3.31-3.32 0-1.87-1.44-3.32-3.31-3.32-1.87 0-3.32-1.45-3.32-3.32s1.45-3.32 3.32-3.32 3.31 1.45 3.31 3.32c0 1.87 1.45 3.32 3.32 3.32s3.32-1.45 3.32-3.32-1.45-3.32-3.32-3.32-3.31-1.45-3.31-3.32c0-3.31 2.5-5.82 5.82-5.82s5.82 2.5 5.82 5.82-2.5 5.82-5.82 5.82c-1.87 0-3.32 1.45-3.32 3.31 0 1.87-1.45 3.32-3.32 3.32Z" fill="#fff"></path><path d="M25.86 10.93c0 4.14-3.55 7.4-7.93 7.4-4.39 0-7.94-3.26-7.94-7.4S13.54 3.53 17.93 3.53c4.38 0 7.93 3.26 7.93 7.4Zm-10.45 0c0 1.45 1.12 2.5 2.52 2.5 1.39 0 2.51-1.05 2.51-2.5 0-1.45-1.12-2.5-2.51-2.5-1.4 0-2.52 1.05-2.52 2.5Z" fill="#fff"></path><path d="M49.6 10.93c0 4.14-3.54 7.4-7.93 7.4-4.38 0-7.93-3.26-7.93-7.4S37.29 3.53 41.67 3.53c4.39 0 7.93 3.26 7.93 7.4Zm-10.45 0c0 1.45 1.12 2.5 2.52 2.5 1.4 0 2.52-1.05 2.52-2.5 0-1.45-1.12-2.5-2.52-2.5-1.4 0-2.52 1.05-2.52 2.5Z" fill="#fff"></path><path d="M68.8 3.82c-3.32 0-5.83 2.5-5.83 5.82 0 3.31 2.51 5.82 5.83 5.82 3.31 0 5.82-2.5 5.82-5.82 0-3.31-2.51-5.82-5.82-5.82Zm0 9.14c-1.87 0-3.32-1.45-3.32-3.32 0-1.87 1.45-3.32 3.32-3.32s3.31-1.45 3.31-3.32c0-1.87-1.44-3.32-3.31-3.32-1.87 0-3.32-1.45-3.32-3.32s1.45-3.32 3.32-3.32 3.31 1.45 3.31 3.32c0 1.87 1.45 3.32 3.32 3.32s3.32-1.45 3.32-3.32-1.45-3.32-3.32-3.32-3.31-1.45-3.31-3.32c0-3.31 2.5-5.82 5.82-5.82s5.82 2.5 5.82 5.82-2.5 5.82-5.82 5.82c-1.87 0-3.32 1.45-3.32 3.31 0 1.87-1.45 3.32-3.32 3.32Z" fill="#fff"></path><path d="M25.86 28.33c0 2.2-1.78 3.97-3.97 3.97h-7.93c-2.2 0-3.97-1.77-3.97-3.97v-7.93c0-2.2 1.78-3.97 3.97-3.97h7.93c2.2 0 3.97 1.77 3.97 3.97v7.93Z" fill="#fff"></path><path d="M17.93 25.43c-2.2 0-3.97-1.78-3.97-3.97s1.78-3.97 3.97-3.97 3.97 1.78 3.97 3.97-1.78 3.97-3.97 3.97Z" fill="#0D0F2A"></path><path d="M2.5 18.23c-1.4 0-2.5-1.12-2.5-2.51V2.5C0 1.1 1.1 0 2.5 0s2.5 1.1 2.5 2.5v13.22c0 1.39-1.1 2.51-2.5 2.51Z" fill="#fff"></path></svg>;
-const ChaseLogo = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 24c6.627 0 12-5.373 12-12S18.627 0 12 0 0 5.373 0 12s5.373 12 12 12Z" fill="#005EB8"></path><path d="m15.86 14.88-2.316-2.328 2.316-2.316a.428.428 0 0 0 0-.624l-.876-.876a.428.428 0 0 0-.624 0L12 11.052l-2.316-2.316a.428.428 0 0 0-.624 0l-.876.876a.428.428 0 0 0 0 .624l2.316 2.316-2.316 2.328a.428.428 0 0 0 0 .624l.876.876a.428.428 0 0 0 .624 0l2.316-2.328 2.316 2.328a.428.428 0 0 0 .624 0l.876-.876a.428.428 0 0 0 0-.624Z" fill="#fff"></path></svg>;
-const BofALogo = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 24c6.627 0 12-5.373 12-12S18.627 0 12 0 0 5.373 0 12s5.373 12 12 12Z" fill="#E2001A"></path><path d="M4 11h16v2H4v-2Zm3 4h10v2H7v-2Zm1.5-8h7v2h-7V7Z" fill="#fff"></path></svg>;
-const WellsFargoLogo = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 24c6.627 0 12-5.373 12-12S18.627 0 12 0 0 5.373 0 12s5.373 12 12 12Z" fill="#D71E28"></path><path d="M12.3 4 8 13.3l-1.3-2.2L4 16h16l-4-6.7-1.3 2.2-2.4-7.5Z" fill="#FFC72C"></path></svg>;
-const AmexLogo = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 24c6.627 0 12-5.373 12-12S18.627 0 12 0 0 5.373 0 12s5.373 12 12 12Z" fill="#006FCF"></path><path d="M4 7h16v10H4V7Z" fill="#fff"></path><path d="M12 8.5 7.5 12l4.5 3.5v-7ZM12 8.5v7l4.5-3.5L12 8.5Z" fill="#006FCF"></path></svg>;
-const CitiLogo = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 24c6.627 0 12-5.373 12-12S18.627 0 12 0 0 5.373 0 12s5.373 12 12 12Z" fill="#003B70"></path><path d="M6.5 9.3c0-.3.2-.5.5-.5h10a.5.5 0 0 1 .5.5v5.4a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-5.4Z" fill="#fff"></path><path d="M12.5 8.2a1 1 0 0 0-2 0h2Zm-1 8.6a1 1 0 0 0 0-2v2Zm-1-8.6a1 1 0 1 0-2 0h2Zm-2 0v7.6h2V8.2h-2Zm1 8.6a1 1 0 0 0 2 0h-2Z" fill="#D71E28"></path></svg>;
-
-
-const banks = [
-    { name: 'Chase', logo: <ChaseLogo /> },
-    { name: 'Bank of America', logo: <BofALogo /> },
-    { name: 'Wells Fargo', logo: <WellsFargoLogo /> },
-    { name: 'American Express', logo: <AmexLogo /> },
-    { name: 'Citi', logo: <CitiLogo /> },
-];
 
 // ================================================================================================
 // HIGH-FIDELITY PLAID MODAL SIMULATION
@@ -36,7 +20,7 @@ const PlaidModal: React.FC<{
     onSuccess: (publicToken: string, metadata: any) => void;
 }> = ({ isOpen, onClose, onSuccess }) => {
     const [step, setStep] = useState<'select' | 'connecting' | 'connected'>('select');
-    const [selectedBank, setSelectedBank] = useState<{name: string, logo: React.ReactNode} | null>(null);
+    const [selectedBank, setSelectedBank] = useState<typeof banks[0] | null>(null);
 
     useEffect(() => {
         if (!isOpen) {
@@ -48,7 +32,7 @@ const PlaidModal: React.FC<{
         }
     }, [isOpen]);
 
-    const handleBankSelect = (bank: {name: string, logo: React.ReactNode}) => {
+    const handleBankSelect = (bank: typeof banks[0]) => {
         setSelectedBank(bank);
         setStep('connecting');
 
@@ -59,7 +43,7 @@ const PlaidModal: React.FC<{
         setTimeout(() => {
             const mockPublicToken = `public-sandbox-${Math.random().toString(36).substring(7)}`;
             const mockMetadata = {
-                institution: { name: bank.name, institution_id: `ins_${Math.floor(Math.random() * 100)}` },
+                institution: { name: bank.name, institution_id: bank.institution_id },
                 accounts: [{ id: `acct_${Math.random().toString(36).substring(7)}`, name: 'Plaid Checking', mask: Math.floor(1000 + Math.random() * 9000).toString(), type: 'checking', subtype: 'checking' }],
                 link_session_id: `link-session-${Math.random().toString(36).substring(7)}`,
             };

@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 import React, { createContext, useState, ReactNode, useEffect, useCallback } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 import type { Transaction, Asset, BudgetCategory, GamificationState, IllusionType, LinkedAccount, QuantumWeaverState, AIPlan, AIQuestion, Subscription, CreditScore, UpcomingBill, SavingsGoal, MarketMover, MarketplaceProduct, FinancialGoal, AIGoalPlan, CryptoAsset, VirtualCard, PaymentOperation, AIInsight, CorporateCard, CorporateTransaction, RewardPoints, Notification, NFTAsset, RewardItem, APIStatus, CreditFactor, CorporateCardControls } from '../types';
@@ -43,10 +40,6 @@ interface IDataContext {
   upcomingBills: UpcomingBill[];
   savingsGoals: SavingsGoal[];
   marketMovers: MarketMover[];
-  marketplaceProducts: MarketplaceProduct[];
-  fetchMarketplaceProducts: () => Promise<void>;
-  isMarketplaceLoading: boolean;
-  addProductToTransactions: (product: MarketplaceProduct) => void;
   financialGoals: FinancialGoal[];
   addFinancialGoal: (goalData: Omit<FinancialGoal, 'id' | 'plan' | 'currentAmount'>) => void;
   contributeToGoal: (goalId: string, amount: number) => void;
@@ -121,10 +114,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [marketMovers] = useState<MarketMover[]>(MOCK_MARKET_MOVERS);
   const [rewardPoints, setRewardPoints] = useState<RewardPoints>(MOCK_REWARD_POINTS);
   
-  // State for Plato's Marketplace
-  const [marketplaceProducts, setMarketplaceProducts] = useState<MarketplaceProduct[]>([]);
-  const [isMarketplaceLoading, setIsMarketplaceLoading] = useState(false);
-
   // State for Financial Goals
   const [financialGoals, setFinancialGoals] = useState<FinancialGoal[]>(MOCK_FINANCIAL_GOALS);
 
@@ -434,19 +423,6 @@ Business Plan: "${weaverState.businessPlan}"`;
     updateGamification(tx.type === 'income' ? 20 : 10);
   };
 
-  const addProductToTransactions = (product: MarketplaceProduct) => {
-      const tx: Transaction = {
-          id: `mkt_${product.id}_${Date.now()}`,
-          type: 'expense',
-          category: product.category,
-          description: product.name,
-          amount: product.price,
-          date: new Date().toLocaleDateString('en-CA'),
-          carbonFootprint: 2.5 // Placeholder value
-      };
-      addTransaction(tx);
-  };
-
   const addBudget = (budget: Omit<BudgetCategory, 'id' | 'spent' | 'color'>) => {
       const newBudget: BudgetCategory = {
           id: budget.name.toLowerCase().replace(' ', '-'),
@@ -455,54 +431,6 @@ Business Plan: "${weaverState.businessPlan}"`;
           color: `#${Math.floor(Math.random()*16777215).toString(16)}`
       };
       setBudgets(prev => [...prev, newBudget]);
-  };
-
-  const fetchMarketplaceProducts = async () => {
-    setIsMarketplaceLoading(true);
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-        const transactionSummary = transactions.slice(0, 10).map(t => `${t.description} ($${t.amount})`).join(', ');
-        const prompt = `Based on these recent user transactions, generate 3 highly relevant, premium product recommendations for a "Plato's Marketplace". The products should be aspirational and tech-focused. For each product, provide a name, price, category, a creative image URL from a placeholder service like unsplash.it, and a short, compelling "aiJustification" explaining why the user would like it.
-
-Transactions: ${transactionSummary}`;
-
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        products: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    id: { type: Type.STRING },
-                                    name: { type: Type.STRING },
-                                    price: { type: Type.NUMBER },
-                                    category: { type: Type.STRING },
-                                    imageUrl: { type: Type.STRING },
-                                    aiJustification: { type: Type.STRING }
-                                },
-                                required: ["id", "name", "price", "category", "imageUrl", "aiJustification"]
-                            }
-                        }
-                    },
-                    required: ["products"]
-                }
-            }
-        });
-
-        const parsedResponse = JSON.parse(response.text);
-        setMarketplaceProducts(parsedResponse.products);
-
-    } catch (err) {
-        console.error("Error fetching marketplace products:", err);
-    } finally {
-        setIsMarketplaceLoading(false);
-    }
   };
 
   const addFinancialGoal = (goalData: Omit<FinancialGoal, 'id' | 'plan' | 'currentAmount'>) => {
@@ -737,10 +665,6 @@ Current Savings for this goal: $${goal.currentAmount}`;
     upcomingBills,
     savingsGoals,
     marketMovers,
-    marketplaceProducts,
-    fetchMarketplaceProducts,
-    isMarketplaceLoading,
-    addProductToTransactions,
     financialGoals,
     addFinancialGoal,
     contributeToGoal,

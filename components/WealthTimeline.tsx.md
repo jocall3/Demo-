@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `WealthTimeline.tsx`: The Oracle's Window
 
 In the Dashboard's command center, there exists a unique portal, a window that does not look out onto the world, but through time itself. The `WealthTimeline` component is this Oracle's Window. It grants the user the power of foresight, showing them not just the path they have walked, but the potential roads that lie ahead.

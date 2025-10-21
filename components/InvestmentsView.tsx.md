@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `InvestmentsView.tsx`: The Celestial Observatory
 
 Welcome to the Celestial Observatory. This is a realm dedicated to viewing the grand cosmos of the user's wealth. It's a place not just for numbers and charts, but for perspective, for seeing the past performance of assets and charting a course for the future. It has been recently upgraded with a new wing dedicated to "Social Impact Investing," a place to invest not just for profit, but for purpose.

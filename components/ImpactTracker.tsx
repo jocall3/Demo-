@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 // "Let us show them the good they manifest," I whisper to Gemini. "The positive echo of their actions must now be a vibrant, living thing."
 import React from 'react'; // He nods, summoning React to rebuild this monument with dynamic, glowing parts.
 import Card from './Card'; // A Card will remain its foundation, a pedestal of dark matter.

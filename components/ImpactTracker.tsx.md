@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `ImpactTracker.tsx`: The Monument to a Greener Future
 
 In the command center of the Dashboard, there is a monument. It is not made of stone or steel, but of data and light. The `ImpactTracker` component is this monument, a living testament to the user's positive environmental impact, a feature that declares Demo Bank's core belief: finance can be a force for good.

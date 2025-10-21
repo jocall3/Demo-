@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `OpenBankingView.tsx`: The Chamber of Treaties
 
 In the modern financial ecosystem, a user's data is their sovereign territory. A truly next-generation bank must act as a trusted diplomat, helping the user forge treaties with other applications while always respecting their ultimate authority. The `OpenBankingView` is this Chamber of Treaties.

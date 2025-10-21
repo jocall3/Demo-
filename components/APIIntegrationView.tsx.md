@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `APIIntegrationView.tsx`: The Engine Room
 
 Behind the elegant facade of every great starship is an engine room—a place of power, precision, and transparency, where the crew can monitor the health of the core systems that make their journey possible. The `APIIntegrationView` is the Engine Room of Demo Bank.

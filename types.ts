@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 export interface Transaction {
   id: string;
   type: 'income' | 'expense';
@@ -237,6 +234,7 @@ export enum View {
     Rewards = 'rewards',
     CreditHealth = 'credit-health',
     Settings = 'settings',
+    FinancialDemocracy = 'financial-democracy',
 }
 
 export interface AIGoalPlanStep {
@@ -251,6 +249,13 @@ export interface AIGoalPlan {
     steps: AIGoalPlanStep[];
 }
 
+export type Contribution = {
+    id: string;
+    amount: number;
+    date: string;
+    type: 'manual' | 'recurring';
+};
+
 export interface FinancialGoal {
     id: string;
     name: string;
@@ -259,6 +264,7 @@ export interface FinancialGoal {
     currentAmount: number;
     iconName: string;
     plan: AIGoalPlan | null;
+    contributions?: Contribution[];
 }
 
 export interface RewardItem {

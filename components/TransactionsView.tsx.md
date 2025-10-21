@@ -1,6 +1,3 @@
-// Copyright James Burvel O’Callaghan III
-// President Citibank Demo Business Inc.
-
 # The Story of `TransactionsView.tsx`: The Great Library
 
 While the Dashboard shows a glimpse of the most recent diary entries, the `TransactionsView` is the Great Library itself—the complete and unabridged Hall of Records containing every financial event in the user's history. It is a place of deep exploration, analysis, and discovery.
