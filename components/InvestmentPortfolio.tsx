@@ -35,7 +35,7 @@ const CustomTooltip = ({ active, payload }: any) => {
 const InvestmentPortfolio: React.FC = () => {
     // The component is now completely decoupled from the global context for its data.
     // It relies on a dedicated hook that manages fetching, caching, and state.
-    const { data: portfolio, isLoading, isError, error } = useInvestmentPortfolio();
+    const { portfolio: assets, isLoading, isError, error, totalValue, weightedPerformance } = useInvestmentPortfolio();
 
     // Use the Card component's built-in loading and error states for a consistent UX.
     if (isLoading) {
@@ -48,7 +48,7 @@ const InvestmentPortfolio: React.FC = () => {
     }
     
     // Handle the case where data fetching is successful but returns no data.
-    if (!portfolio || portfolio.assets.length === 0) {
+    if (!assets || assets.length === 0) {
          return (
             <Card title="Investment Portfolio" className="min-h-[380px]">
                 <div className="flex items-center justify-center h-full text-center text-gray-500">
@@ -57,8 +57,6 @@ const InvestmentPortfolio: React.FC = () => {
             </Card>
         );
     }
-
-    const { assets, totalValue, weightedPerformance } = portfolio;
 
   return (
     <Card title="Investment Portfolio">
