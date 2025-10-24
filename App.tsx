@@ -1,15 +1,9 @@
-import React, { useState, FC, ReactNode, useEffect, useCallback } from 'react';
+import React, { useState, FC, ReactNode, useEffect, useCallback, useMemo } from 'react';
 import { Provider, useSelector, useDispatch } from 'react-redux';
 import { configureStore, createSlice, PayloadAction } from '@reduxjs/toolkit';
-import {
-  ApolloClient,
-  InMemoryCache,
-  ApolloProvider,
-  createHttpLink,
-  gql,
-  useQuery,
-  useMutation
-} from '@apollo/client';
+import { ApolloClient, InMemoryCache, ApolloProvider, createHttpLink, gql, useQuery, useMutation } from '@apollo/client';
+import { setContext } from '@apollo/client/link/context';
+import { Auth0Provider, useAuth0, AppState } from '@auth0/auth0-react';
 
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -33,24 +27,10 @@ import { View, IllusionType, APIStatus, RewardItem, GamificationState, CreditFac
 import Card from './components/Card';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip as RechartsTooltip, AreaChart, Area } from 'recharts';
 
-// ================================================================================================
-// APOLLO CLIENT SETUP (NEW)
-// ================================================================================================
-
-const httpLink = createHttpLink({
-  // The URI of the GraphQL gateway. This should be an environment variable.
-  // In a Vite setup, this can be proxied.
-  uri: import.meta.env.VITE_GRAPHQL_URI || '/graphql',
-});
-
-const client = new ApolloClient({
-  link: httpLink,
-  cache: new InMemoryCache(),
-});
-
-// ================================================================================================
-// REDUX TOOLKIT SETUP (For Global UI State - UNCHANGED)
-// ================================================================================================
+// ===============================================================================================
+// REDUX TOOLKIT SETUP (For Global UI State)
+// Manages client-side state like the active view, sidebar status, and theme.
+// ===============================================================================================
 
 interface UiState {
     activeView: View;
@@ -118,9 +98,9 @@ const useAppSelector = <TSelected extends unknown>(
     selector: (state: RootState) => TSelected
 ): TSelected => useSelector<RootState, TSelected>(selector);
 
-// ================================================================================================
-// GRAPHQL DEFINITIONS (NEW)
-// ================================================================================================
+// ===============================================================================================
+// GRAPHQL DEFINITIONS
+// ===============================================================================================
 
 const GET_SHARED_WIDGET_DATA = gql`
   query GetSharedWidgetData {
@@ -177,9 +157,10 @@ const GET_AI_SUGGESTION_MUTATION = gql`
     }
 `;
 
-// ================================================================================================
-// INLINE VIEW COMPONENTS (Refactored to use Apollo Client)
-// ================================================================================================
+
+// ===============================================================================================
+// INLINE VIEW COMPONENTS (Preserved from original structure)
+// ===============================================================================================
 
 const TheVisionView: React.FC = () => (
     <div className="space-y-8 text-gray-300 max-w-4xl mx-auto">
@@ -196,9 +177,9 @@ const TheVisionView: React.FC = () => (
             <h2 className="text-3xl font-semibold text-white mb-4">Core Tenets</h2>
             <ul className="space-y-4">
                 <li className="p-4 bg-gray-800/50 rounded-lg"><strong className="text-cyan-400">The AI is a Partner, Not Just a Tool:</strong> Our integration with Google's Gemini API is designed for collaboration. From co-creating your bank card's design to generating a business plan, the AI is a creative and strategic partner.</li>
-                <li className="p-4 bg-gray-800/50 rounded-lg"><strong className="text-cyan-400">Seamless Integration is Reality:</strong> We demonstrate enterprise-grade readiness with high-fidelity simulations of Plaid, Stripe, Marqeta, and Modern Treasury. This isn't a concept; it's a blueprint for a fully operational financial ecosystem.</li>
+                <li className="p-4 bg-gray-800/50 rounded-lg"><strong className="text-cyan-400">Seamless Integration is Reality:</strong> We demonstrate enterprise-grade readiness with high-fidelity simulations of Plaid, Stripe, and others. This isn't a concept; it's a blueprint for a fully operational financial ecosystem.</li>
                 <li className="p-4 bg-gray-800/50 rounded-lg"><strong className="text-cyan-400">Finance is a Gateway, Not a Gatekeeper:</strong> Features like the Quantum Weaver Incubator and the AI Ad Studio are designed to empower creation. We provide not just the capital, but the tools to build, market, and grow.</li>
-                <li className="p-4 bg-gray-800/50 rounded-lg"><strong className="text-cyan-400">The Future is Multi-Rail:</strong> Our platform is fluent in both traditional finance (ISO 20022) and the decentralized future (Web3). The Crypto & Corporate hubs are designed to manage value, no matter how it's represented.</li>
+                <li className="p-4 bg-gray-800/50 rounded-lg"><strong className="text-cyan-400">The Future is Multi-Rail:</strong> Our platform is fluent in both traditional finance and the decentralized future. The Crypto & Corporate hubs are designed to manage value, no matter how it's represented.</li>
             </ul>
         </div>
     </div>
@@ -264,7 +245,7 @@ const APIIntegrationView: FC = () => {
                                 <div className="flex items-center gap-4">
                                     <p className="text-sm text-gray-400 font-mono">{api.responseTime}ms</p>
                                     <StatusIndicator status={api.status} />
-                                    {api.provider === 'Google Gemini' && (
+                                    {api.provider === 'GoogleGemini' && (
                                         <button onClick={() => { setApiKeyInput(geminiApiKey || ''); setIsModalOpen(true); }} className="text-gray-400 hover:text-white"><SettingsIcon className="h-5 w-5"/></button>
                                     )}
                                 </div>
@@ -437,10 +418,38 @@ const CardCustomizationView: FC = () => (
     <Card title="Card Customization"><p className="text-gray-400">Feature coming soon.</p></Card>
 );
 
-// ================================================================================================
-// MAIN APP COMPONENT
-// ================================================================================================
+// ===============================================================================================
+// AUTHENTICATION & LOGIN UI (NEW)
+// ===============================================================================================
 
+const LoginScreen: FC = () => {
+  const { loginWithRedirect } = useAuth0();
+  return (
+    <div className="flex items-center justify-center h-screen bg-gray-950">
+      <Card>
+        <div className="text-center p-8">
+          <h1 className="text-3xl font-bold text-white mb-2">Welcome to Demo Bank</h1>
+          <p className="text-gray-400 mb-6">Your AI-powered financial co-pilot.</p>
+          <button
+            onClick={() => loginWithRedirect()}
+            className="px-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-lg shadow-lg transition-transform transform hover:scale-105"
+          >
+            Log In / Sign Up
+          </button>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+// ===============================================================================================
+// MAIN APP LAYOUT & LOGIC (Refactored)
+// ===============================================================================================
+
+/**
+ * The main application component, rendered only when the user is authenticated.
+ * It contains the primary layout (Sidebar, Header, content) and view rendering logic.
+ */
 const App: FC = () => {
     const dispatch = useAppDispatch();
     const { activeView, previousView, isSidebarOpen, customBackgroundUrl, activeIllusion } = useAppSelector(state => state.ui);
@@ -470,7 +479,7 @@ const App: FC = () => {
             case View.Goals: return <FinancialGoalsView />;
             case View.Crypto: return <CryptoView />;
             case View.CorporateCommand: return <CorporateCommandView />;
-            case View.SASPlatforms: return <TheVisionView />;
+            case View.TheVision: return <TheVisionView />;
             case View.APIIntegration: return <APIIntegrationView />;
             case View.OpenBanking: return <OpenBankingView />;
             case View.Rewards: return <RewardsView />;
@@ -506,12 +515,109 @@ const App: FC = () => {
     );
 };
 
-const AppWrapper: FC = () => (
-    <ApolloProvider client={client}>
-        <Provider store={store}>
-            <App />
-        </Provider>
+/**
+ * Creates and configures an Apollo Client instance that automatically includes the
+ * Auth0 JWT in the headers of every GraphQL request.
+ */
+const AuthenticatedApp: FC = () => {
+  const { getAccessTokenSilently } = useAuth0();
+
+  const apolloClient = useMemo(() => {
+    const httpLink = createHttpLink({
+      uri: import.meta.env.VITE_GRAPHQL_GATEWAY_URL || '/graphql',
+    });
+
+    const authLink = setContext(async (_, { headers }) => {
+      try {
+        const token = await getAccessTokenSilently({
+          authorizationParams: {
+            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+          },
+        });
+        return {
+          headers: {
+            ...headers,
+            authorization: token ? `Bearer ${token}` : '',
+          },
+        };
+      } catch (error) {
+        console.error('Error getting access token for Apollo', error);
+        return { headers };
+      }
+    });
+
+    return new ApolloClient({
+      link: authLink.concat(httpLink),
+      cache: new InMemoryCache(),
+    });
+  }, [getAccessTokenSilently]);
+
+  return (
+    <ApolloProvider client={apolloClient}>
+      <Provider store={store}>
+        <App />
+      </Provider>
     </ApolloProvider>
-);
+  );
+};
+
+/**
+ * This component acts as a controller, checking the authentication state and
+ * rendering either the login screen or the main application.
+ */
+const AppController: FC = () => {
+  const { isAuthenticated, isLoading, error } = useAuth0();
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center h-screen bg-gray-950 text-white">Loading Authentication...</div>;
+  }
+  
+  if (error) {
+    return <div className="flex items-center justify-center h-screen bg-gray-950 text-red-400 p-8 text-center"><h1>Authentication Error</h1><p className="mt-2">{error.message}</p></div>;
+  }
+
+  return isAuthenticated ? <AuthenticatedApp /> : <LoginScreen />;
+};
+
+// ===============================================================================================
+// APP WRAPPER (Root Component with Auth0 Provider)
+// ===============================================================================================
+
+const AppWrapper: FC = () => {
+  const onRedirectCallback = (appState?: AppState) => {
+    window.history.replaceState(
+      {},
+      document.title,
+      appState?.returnTo || window.location.pathname
+    );
+  };
+
+  const auth0Domain = import.meta.env.VITE_AUTH0_DOMAIN;
+  const auth0ClientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
+  const auth0Audience = import.meta.env.VITE_AUTH0_AUDIENCE;
+
+  if (!auth0Domain || !auth0ClientId || !auth0Audience) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-red-950 text-white p-8">
+        <h1 className="text-2xl font-bold">Auth0 Configuration Missing</h1>
+        <p className="mt-2 text-center">Please set <code className="bg-red-800 p-1 rounded">VITE_AUTH0_DOMAIN</code>, <code className="bg-red-800 p-1 rounded">VITE_AUTH0_CLIENT_ID</code>, and <code className="bg-red-800 p-1 rounded">VITE_AUTH0_AUDIENCE</code> in your .env file.</p>
+      </div>
+    );
+  }
+
+  return (
+    <Auth0Provider
+      domain={auth0Domain}
+      clientId={auth0ClientId}
+      onRedirectCallback={onRedirectCallback}
+      authorizationParams={{
+        redirect_uri: window.location.origin,
+        audience: auth0Audience,
+      }}
+    >
+      <AppController />
+    </Auth0Provider>
+  );
+};
 
 export default AppWrapper;
