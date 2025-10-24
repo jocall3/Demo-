@@ -6,20 +6,42 @@ pipelines:
     apiEndpoints:
       - api
     policies:
-      # 1. CORS for browser-based clients
+      # 1. OpenTelemetry for distributed tracing
+      - opentelemetry:
+          action:
+            serviceName: 'api-gateway'
+            sampler:
+              type: 'always_on' # Trace every request
+            exporter:
+              type: 'otlp' # OpenTelemetry Protocol
+              # This endpoint should point to your OpenTelemetry Collector
+              endpoint: 'http://otel-collector:4317' # gRPC endpoint
+
+      # 2. Structured logging with trace context
+      - log:
+          action:
+            format: 'json'
+            # The exact syntax for accessing context may vary by gateway implementation.
+            # This example assumes traceId/spanId are available in the context.
+            message: >
+              method=${req.method} url=${req.url} statusCode=${res.statusCode} 
+              traceId=${context.opentelemetry.traceId} 
+              spanId=${context.opentelemetry.spanId}
+
+      # 3. CORS for browser-based clients
       - cors:
           action:
             origin: ['http://localhost:5173', 'https://demobank.com']
             credentials: true
 
-      # 2. Rate limiting to prevent abuse
+      # 4. Rate limiting to prevent abuse
       - rate-limit:
           action:
             windowMs: 60000 # 1 minute
             max: 500 # Limit each IP to 500 requests per window
             message: 'Too many requests, please try again later.'
-      
-      # 3. JWT validation for client authentication
+
+      # 5. JWT validation for client authentication
       - jwt:
           action:
             # In a real scenario, JWKS URI would be used for public key validation
@@ -27,7 +49,7 @@ pipelines:
             audience: 'https://api.demobank.com'
             issuer: 'https://demobank.us.auth0.com/'
 
-      # 4. Proxying to the BFF service
+      # 6. Proxying to the BFF service
       - proxy:
           action:
             serviceEndpoint: bff
@@ -36,14 +58,27 @@ pipelines:
             pathRewrite:
               '^/api': ''
 
+  # New pipeline for exposing Prometheus metrics
+  - name: metrics-api
+    apiEndpoints:
+      - metrics
+    policies:
+      - prometheus:
+          action:
+            collectDefaultMetrics: true # Automatically collect default Node.js/process metrics
+            customLabels:
+              service: 'api-gateway'
+
 # Define the public-facing endpoints
 apiEndpoints:
   - name: api
     path: '/api/*'
+  - name: metrics
+    path: '/metrics'
 
 # Define the downstream services
 serviceEndpoints:
   - name: bff
     # In a containerized environment (e.g., Docker), 'bff' is the service name.
-    # For local development outside containers, this would be 'http://localhost:3000'.
-    url: 'http://bff:3000'
+    # The BFF service runs on port 3001 as per its configuration.
+    url: 'http://bff:3001'
