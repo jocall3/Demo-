@@ -1,0 +1,79 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  # The default receiver for all alerts that don't match any specific route.
+  receiver: 'default-slack-notifications'
+  
+  # How long to wait to buffer alerts of the same group before sending an initial notification.
+  group_wait: 30s
+  
+  # How long to wait before sending a notification about new alerts that are added to a group of alerts that is already firing.
+  group_interval: 5m
+  
+  # How long to wait before re-sending a notification for an alert that has been firing for longer than `group_interval`.
+  repeat_interval: 4h
+  
+  # A default grouping to prevent alerts with similar characteristics from spamming.
+  # Grouping by service, alertname, and severity is a good starting point for a microservices architecture.
+  group_by: ['service', 'alertname', 'severity']
+
+  # A list of routing rules. The first match wins.
+  routes:
+    # Rule for critical alerts that require immediate attention (e.g., paging an on-call engineer).
+    - receiver: 'on-call-pagerduty'
+      matchers:
+        - severity = "critical"
+      # `continue: true` allows this alert to also be processed by subsequent sibling routes.
+      # This means a critical alert will go to PagerDuty AND Slack.
+      continue: true
+
+    # Rule for non-critical warnings that should go to a general alerts channel.
+    - receiver: 'default-slack-notifications'
+      matchers:
+        - severity = "warning"
+        
+    # A route to discard low-priority or informational alerts to reduce noise.
+    - receiver: 'null'
+      matchers:
+        - severity = "info"
+
+receivers:
+  # A receiver that does nothing, used to discard alerts.
+  - name: 'null'
+
+  # The default receiver that sends notifications to a Slack channel.
+  - name: 'default-slack-notifications'
+    slack_configs:
+      - send_resolved: true
+        # The API URL is a secret and should be managed outside this file (e.g., via environment variables or a secret management tool).
+        # This is a placeholder URL.
+        api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK_URL'
+        channel: '#platform-alerts'
+        # A custom message template for Slack notifications.
+        title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.service }} - {{ .CommonLabels.alertname }}'
+        text: >-
+          {{ range .Alerts -}}
+          *Severity:* `{{ .Labels.severity | toUpper }}`
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Labels:*
+          ```
+          {{ range .Labels.SortedPairs }} • {{ .Name }}: {{ .Value }}
+          {{ end }}```
+          *Grafana:* <{{ .GeneratorURL }}|View Dashboard>
+          {{ end }}
+
+  # A receiver for critical alerts that integrates with PagerDuty via a webhook.
+  - name: 'on-call-pagerduty'
+    webhook_configs:
+      - send_resolved: true
+        # This URL is a placeholder for a PagerDuty Events API v2 integration key.
+        url: 'https://events.pagerduty.com/v2/enqueue'
+        # In a real setup, you would add custom headers for authorization and use templates
+        # to format the body according to the PagerDuty API specification,
+        # mapping Alertmanager severity to PagerDuty severity.
+
+# Optional: Path to any custom Go template files for notifications.
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
