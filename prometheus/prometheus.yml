@@ -9,7 +9,8 @@ alerting:
             # The Alertmanager service, running on its default port inside the Docker network.
             - alertmanager:9093
 
-# Load alerting rules from this file. In a larger setup, this might be a directory.
+# Load alerting rules from a file. In a real setup, this file would contain
+# rules for high error rates, service availability, high latency, etc.
 rule_files:
   - "/etc/prometheus/alert.rules.yml"
 
@@ -24,44 +25,46 @@ scrape_configs:
     static_configs:
       - targets: ['alertmanager:9093']
 
-  # Scrape the OpenTelemetry Collector for its internal metrics and exported Prometheus metrics.
+  # Scrape the OpenTelemetry Collector for its internal metrics and any exported metrics.
   - job_name: 'otel-collector'
     static_configs:
       - targets: ['otel-collector:8888'] # Default Prometheus exporter port for OTel Collector
 
   # --- Application Microservices ---
   # These jobs scrape the /metrics endpoint exposed by each microservice's OpenTelemetry SDK.
-  # The service names (e.g., 'api-gateway') correspond to the hostnames in the Docker network.
+  # The service names (e.g., 'api-gateway') are assumed to correspond to the hostnames
+  # in the container network (e.g., defined in docker-compose.yml).
 
   - job_name: 'api-gateway'
     metrics_path: /metrics
     static_configs:
-      - targets: ['api-gateway:9464'] # Exposed by the new BFF/API Gateway service.
+      # The API Gateway (formerly BFF) is the main entry point.
+      - targets: ['api-gateway:9464']
 
   - job_name: 'user-service'
     metrics_path: /metrics
     static_configs:
-      # This service is defined in the architectural directive.
-      # Port is assumed to be consistent with other new microservices.
       - targets: ['user-service:9465']
 
-  - job_name: 'banking-service'
+  - job_name: 'accounts-service'
     metrics_path: /metrics
     static_configs:
-      - targets: ['banking-service:9465']
+      - targets: ['accounts-service:9465']
 
-  - job_name: 'plaid-service'
+  - job_name: 'transactions-service'
     metrics_path: /metrics
     static_configs:
-      - targets: ['plaid-service:9465']
-      
-  - job_name: 'genai-service'
+      - targets: ['transactions-service:9465']
+
+  - job_name: 'plaid-integration-service'
     metrics_path: /metrics
     static_configs:
-      - targets: ['genai-service:9465']
-      
-  - job_name: 'metrics-service'
+      - targets: ['plaid-integration-service:9465']
+
+  - job_name: 'ai-agent-service'
     metrics_path: /metrics
     static_configs:
-      # The service responsible for providing business metrics via GraphQL also exposes its own operational metrics.
-      - targets: ['metrics-service:9465']
+      - targets: ['ai-agent-service:9465']
+
+  # As new services (e.g., identity-service, security-gateway) are added,
+  # their scrape configurations would be added here.
