@@ -1,9 +1,15 @@
 # ============================================================================
-# Demo Bank BFF GraphQL Schema
-# This schema defines the API contract between the frontend applications and
-# the Backend-for-Frontend layer. It abstracts away the complexities of
-# downstream services like Plaid, Stripe, and Google Gemini.
+# Demo Bank BFF GraphQL Subgraph Schema (Apollo Federation v2)
+# This schema defines the BFF's contribution to the federated supergraph.
+# It extends the base User entity (owned by another service) to add all
+# financial data, and defines BFF-specific queries and mutations.
 # ============================================================================
+
+extend schema
+  @link(
+    url: "https://specs.apollo.dev/federation/v2.3"
+    import: ["@key", "@shareable", "@extends", "@external"]
+  )
 
 # ============================================================================
 # SCALARS & ENUMS
@@ -12,12 +18,12 @@
 """
 A custom scalar for representing date and time values in ISO 8601 format.
 """
-scalar Date
+scalar Date @shareable
 
 """
 A custom scalar representing a file upload, used for mutations involving files.
 """
-scalar Upload
+scalar Upload @shareable
 
 """
 The type of a financial transaction.
@@ -80,13 +86,36 @@ enum WeaverStage {
 }
 
 # ============================================================================
-# OBJECT TYPES
+# OBJECT TYPES & ENTITIES
 # ============================================================================
 
 """
-Represents a single financial transaction.
+Represents the User entity, extended from another service (e.g., a users service).
+The BFF is responsible for resolving all financial data associated with the user.
 """
-type Transaction {
+extend type User @key(fields: "id") {
+  id: ID! @external
+  transactions: [Transaction!]!
+  assets: [Asset!]!
+  aiInsights: [AIInsight!]!
+  budgets: [BudgetCategory!]!
+  gamification: GamificationState!
+  subscriptions: [Subscription!]!
+  upcomingBills: [UpcomingBill!]!
+  financialGoals: [FinancialGoal!]!
+  cryptoPortfolio: CryptoPortfolio!
+  corporateData: CorporateData!
+  creditHealth: CreditHealth!
+  rewards: Rewards!
+  notifications: [Notification!]!
+  apiStatus: [APIStatus!]!
+}
+
+"""
+Represents a single financial transaction. Defined as an entity so it can be
+extended by other services (e.g., a fraud detection service).
+"""
+type Transaction @key(fields: "id") {
   id: ID!
   type: TransactionType!
   category: String!
@@ -228,7 +257,7 @@ type Contribution {
 """
 Represents a user's financial goal, such as saving for a house or vacation.
 """
-type FinancialGoal {
+type FinancialGoal @key(fields: "id") {
   id: ID!
   name: String!
   targetAmount: Float!
@@ -281,7 +310,7 @@ type CorporateCardControls {
 """
 Represents a single corporate card.
 """
-type CorporateCard {
+type CorporateCard @key(fields: "id") {
   id: ID!
   holderName: String!
   cardNumberMask: String!
@@ -343,9 +372,9 @@ type Rewards {
 """
 Represents a user notification.
 """
-type Notification {
+type Notification @key(fields: "id") {
   id: ID!
-  message: String!
+  message: String! 
   timestamp: String!
   read: Boolean!
   view: String
@@ -358,26 +387,6 @@ type APIStatus {
   provider: APIProvider!
   status: APIStatusType!
   responseTime: Int!
-}
-
-"""
-A comprehensive object containing the majority of a user's financial data, suitable for hydrating the main dashboard.
-"""
-type UserData {
-  transactions: [Transaction!]!
-  assets: [Asset!]!
-  aiInsights: [AIInsight!]!
-  budgets: [BudgetCategory!]!
-  gamification: GamificationState!
-  subscriptions: [Subscription!]!
-  upcomingBills: [UpcomingBill!]!
-  financialGoals: [FinancialGoal!]!
-  cryptoPortfolio: CryptoPortfolio!
-  corporateData: CorporateData!
-  creditHealth: CreditHealth!
-  rewards: Rewards!
-  notifications: [Notification!]!
-  apiStatus: [APIStatus!]!
 }
 
 """
@@ -471,18 +480,13 @@ input GenerateCardImageInput {
 
 type Query {
   """
-  Fetches the primary data payload for the dashboard and most views.
-  This is the main query for the application.
-  """
-  userData: UserData!
-
-  """
-  Fetches the current state of a Quantum Weaver session.
+  Fetches the current state of a Quantum Weaver session for the authenticated user.
   """
   quantumWeaverState: QuantumWeaverState!
 
   """
   Fetches the server status for all integrated APIs.
+  This query is provided here but could also be owned by an infrastructure service.
   """
   apiStatus: [APIStatus!]!
 }

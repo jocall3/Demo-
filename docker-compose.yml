@@ -1,13 +1,11 @@
 version: "3.8"
 
-# Networks block defines the custom network for our services.
-# This allows containers to communicate with each other using their service names as hostnames.
+# Defines the custom network that allows all services to communicate via their service names.
 networks:
-  observability-net:
+  app-net:
     driver: bridge
 
-# Volumes block defines named volumes for data persistence.
-# This ensures that data for Prometheus, Grafana, etc., is not lost when containers are recreated.
+# Defines named volumes for persistent data storage for stateful services.
 volumes:
   prometheus_data: {}
   grafana_data: {}
@@ -15,98 +13,165 @@ volumes:
 
 services:
   # --------------------------------------------------------------------------
-  # Application Services
+  # API Gateway & Subgraphs (Apollo Federation)
   # --------------------------------------------------------------------------
 
-  # The Frontend service (Vite + React)
+  # The main entry point for the application. It runs Apollo Gateway to compose
+  # the subgraphs into a single, unified Supergraph.
+  api-gateway:
+    container_name: api-gateway
+    build:
+      context: ./gateway # Assumes a new 'gateway' directory for the Apollo Gateway service
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    volumes: # For hot-reloading in development
+      - ./gateway:/app
+      - /app/node_modules
+    environment:
+      - PORT=4000
+      - NODE_ENV=development
+      # URLs for the subgraph services, which the gateway will introspect.
+      - USERS_SUBGRAPH_URL=http://users-subgraph:4001/graphql
+      - BANKING_SUBGRAPH_URL=http://banking-subgraph:4002/graphql
+      - AI_SUBGRAPH_URL=http://ai-subgraph:4003/graphql
+      # OpenTelemetry Configuration
+      - OTEL_SERVICE_NAME=api-gateway
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+    depends_on:
+      - users-subgraph
+      - banking-subgraph
+      - ai-subgraph
+    networks:
+      - app-net
+
+  # Subgraph service for user management, authentication, etc.
+  users-subgraph:
+    container_name: users-subgraph
+    build:
+      context: ./subgraphs/users # Assumes a new 'subgraphs/users' directory
+      dockerfile: Dockerfile
+    ports:
+      - "4001:4001" # Exposing for easier debugging
+    volumes: # For hot-reloading in development
+      - ./subgraphs/users:/app
+      - /app/node_modules
+    environment:
+      - PORT=4001
+      - NODE_ENV=development
+      - OTEL_SERVICE_NAME=users-subgraph
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+    depends_on:
+      - otel-collector
+    networks:
+      - app-net
+
+  # Subgraph service for all banking and financial data logic (e.g., Plaid integration).
+  banking-subgraph:
+    container_name: banking-subgraph
+    build:
+      context: ./subgraphs/banking # Assumes a new 'subgraphs/banking' directory
+      dockerfile: Dockerfile
+    ports:
+      - "4002:4002" # Exposing for easier debugging
+    volumes: # For hot-reloading in development
+      - ./subgraphs/banking:/app
+      - /app/node_modules
+    # env_file: # Uncomment to use a dedicated .env file for secrets
+    #   - ./subgraphs/banking/.env
+    environment:
+      - PORT=4002
+      - NODE_ENV=development
+      - OTEL_SERVICE_NAME=banking-subgraph
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+    depends_on:
+      - otel-collector
+    networks:
+      - app-net
+
+  # Subgraph service for handling all Generative AI features (e.g., Gemini integration).
+  ai-subgraph:
+    container_name: ai-subgraph
+    build:
+      context: ./subgraphs/ai # Assumes a new 'subgraphs/ai' directory
+      dockerfile: Dockerfile
+    ports:
+      - "4003:4003" # Exposing for easier debugging
+    volumes: # For hot-reloading in development
+      - ./subgraphs/ai:/app
+      - /app/node_modules
+    # env_file: # Uncomment to use a dedicated .env file for secrets
+    #   - ./subgraphs/ai/.env
+    environment:
+      - PORT=4003
+      - NODE_ENV=development
+      - OTEL_SERVICE_NAME=ai-subgraph
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+    depends_on:
+      - otel-collector
+    networks:
+      - app-net
+
+  # --------------------------------------------------------------------------
+  # Client Application
+  # --------------------------------------------------------------------------
+
   frontend:
     container_name: demobank-frontend
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      # Expose the Vite dev server to the host machine.
-      - "3000:3000"
+      - "3000:3000" # Vite dev server port as configured in vite.config.ts
     volumes:
-      # Mount the project directory for hot-reloading during development.
       - .:/app
-      # Use the node_modules from within the container, not the host machine.
       - /app/node_modules
     environment:
       - NODE_ENV=development
-      # Ensures the Vite dev server is accessible outside the container.
       - HOST=0.0.0.0
-      # Points the frontend to the BFF's API endpoint.
-      - VITE_API_URL=http://bff:3001
-      # OpenTelemetry Configuration for the Frontend
+      # The frontend now communicates with the GraphQL Supergraph via the API Gateway.
+      - VITE_GRAPHQL_ENDPOINT=http://api-gateway:4000/graphql
+      # OpenTelemetry Configuration
       - OTEL_SERVICE_NAME=frontend-client
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 # Using HTTP/protobuf endpoint
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
     depends_on:
-      - bff
-      - otel-collector
+      - api-gateway
     networks:
-      - observability-net
-
-  # The Backend-for-Frontend service (NestJS)
-  bff:
-    container_name: demobank-bff
-    build:
-      context: ./bff
-      dockerfile: Dockerfile
-    ports:
-      # Expose the BFF port to the host for direct API testing.
-      - "3001:3001"
-    volumes:
-      - ./bff:/app
-      - /app/node_modules
-    env_file:
-      - ./bff/.env
-    environment:
-      # OpenTelemetry Configuration for the BFF
-      - OTEL_SERVICE_NAME=bff-service
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 # Using HTTP/protobuf endpoint
-    depends_on:
-      - otel-collector
-    networks:
-      - observability-net
+      - app-net
 
   # --------------------------------------------------------------------------
   # Observability Stack
+  # NOTE: ./prometheus/prometheus.yml must be updated to scrape the new services
+  # (api-gateway, users-subgraph, banking-subgraph, ai-subgraph)
   # --------------------------------------------------------------------------
 
-  # 1. OpenTelemetry Collector
-  # Receives telemetry data (traces, metrics, logs) from services and exports it to various backends.
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.97.0
     container_name: otel-collector
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
-      # Mount the collector configuration file. This file must be created in ./observability/
+      # NOTE: Assumes an otel-collector-config.yml file exists in a local 'observability' directory.
       - ./observability/otel-collector-config.yml:/etc/otelcol-contrib/config.yaml
     ports:
-      - "4317:4317" # OTLP gRPC receiver
-      - "4318:4318" # OTLP HTTP receiver
-      - "13133:13133" # Health check extension
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "13133:13133" # Health Check
     networks:
-      - observability-net
+      - app-net
 
-  # 2. Jaeger (Distributed Tracing)
-  # Stores and visualizes traces sent from the OTEL Collector.
   jaeger:
     image: jaegertracing/all-in-one:1.53
     container_name: jaeger
     ports:
       - "16686:16686" # Jaeger UI
-      - "14268:14268" # Accepts traces in jaeger.thrift format over HTTP
+      - "14268:14268" # Trace receiver
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     networks:
-      - observability-net
+      - app-net
     depends_on:
       - otel-collector
 
-  # 3. Prometheus (Metrics)
-  # Scrapes and stores time-series metrics from services and the OTEL Collector.
   prometheus:
     image: prom/prometheus:v2.45.0
     container_name: prometheus
@@ -116,64 +181,55 @@ services:
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
     volumes:
-      # Mount the Prometheus configuration file. This file must be created in ./observability/
-      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
     ports:
       - "9090:9090" # Prometheus UI
     networks:
-      - observability-net
+      - app-net
     depends_on:
       - otel-collector
 
-  # 4. Grafana (Visualization)
-  # Creates dashboards to visualize metrics from Prometheus and logs from Elasticsearch.
   grafana:
     image: grafana/grafana:10.4.1
     container_name: grafana
     ports:
-      # Port changed to 3002 to avoid conflict with frontend dev server
-      - "3002:3000"
+      - "3002:3000" # Use host port 3002 to avoid conflict with frontend
     volumes:
       - grafana_data:/var/lib/grafana
-      # Mount provisioning files for data sources and dashboards. This directory must be created in ./observability/
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/provisioning:/etc/grafana/provisioning
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
     networks:
-      - observability-net
+      - app-net
     depends_on:
       - prometheus
       - elasticsearch
 
-  # 5. Elasticsearch (Log Storage)
-  # A search and analytics engine used here to store structured logs.
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.2
     container_name: elasticsearch
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false # Disable security for local development
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Limit memory usage for development
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     ports:
-      - "9200:9200" # Elasticsearch API
+      - "9200:9200"
     networks:
-      - observability-net
+      - app-net
 
-  # 6. Kibana (Log Visualization)
-  # A web interface for searching and visualizing logs stored in Elasticsearch.
   kibana:
     image: docker.elastic.co/kibana/kibana:8.13.2
     container_name: kibana
     ports:
-      - "5601:5601" # Kibana UI
+      - "5601:5601"
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     networks:
-      - observability-net
+      - app-net
     depends_on:
       - elasticsearch

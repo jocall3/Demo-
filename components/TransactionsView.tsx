@@ -1,89 +1,97 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery, useMutation, UseMutationResult } from '@tanstack/react-query';
+import { useQuery, useMutation, UseMutationResult, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Card from './Card';
 import type { Transaction, DetectedSubscription } from '../types';
+import { gql } from 'graphql-request'; // Assumes a GraphQL client library is added to the project
 
 // ================================================================================================
-// MOCK DATA (Simulating data from a service layer)
-// ================================================================================================
-const MOCK_TRANSACTIONS: Transaction[] = [
-  { id: '1', type: 'expense', category: 'Dining', description: 'Coffee Shop', amount: 12.50, date: '2024-07-21', carbonFootprint: 1.2 },
-  { id: '2', type: 'income', category: 'Salary', description: 'Paycheck', amount: 2500.00, date: '2024-07-20' },
-  { id: '3', type: 'expense', category: 'Shopping', description: 'Online Store', amount: 89.99, date: '2024-07-19', carbonFootprint: 8.5 },
-  { id: '4', type: 'expense', category: 'Utilities', description: 'Electricity Bill', amount: 75.30, date: '2024-07-18', carbonFootprint: 15.3 },
-  { id: '5', type: 'expense', category: 'Transport', description: 'Gas Station', amount: 55.00, date: '2024-07-18', carbonFootprint: 25.1 },
-  { id: '6', type: 'income', category: 'Freelance', description: 'Project ABC', amount: 500.00, date: '2024-07-17' },
-];
-
-// ================================================================================================
-// SERVICE LAYER
-// In a real application, this logic would reside in a dedicated `services/` directory.
+// GraphQL CLIENT & QUERIES
+// In a real application, this would be in dedicated files (e.g., `lib/graphql.ts`, `features/transactions/queries.ts`)
 // ================================================================================================
 
-/**
- * Fetches all transactions from the BFF.
- * @returns A promise that resolves to an array of transactions.
- */
-const fetchTransactions = async (): Promise<Transaction[]> => {
-    console.log("Calling BFF to fetch transactions...");
-    // Simulating an API call to a BFF endpoint like GET /api/transactions
-    await new Promise(resolve => setTimeout(resolve, 1200)); 
-    // const response = await fetch('/api/transactions');
-    // if (!response.ok) throw new Error('Failed to fetch transactions');
-    // return response.json();
-    return MOCK_TRANSACTIONS; // Returning mock data for demonstration
+// A lightweight GraphQL client function to demonstrate the pattern.
+// Assumes the BFF exposes a /graphql endpoint.
+const graphqlRequest = async <T, V>(query: string, variables?: V): Promise<T> => {
+    const response = await fetch('/graphql', { // The BFF's GraphQL endpoint
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables }),
+    });
+    if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({ message: 'An unknown network error occurred' }));
+        throw new Error(errorBody.message || `GraphQL request failed with status ${response.status}`);
+    }
+    const { data, errors } = await response.json();
+    if (errors) {
+        throw new Error(errors.map((e: any) => e.message).join('\n'));
+    }
+    return data;
 };
 
-/**
- * Requests an AI insight from the BFF based on transaction data.
- * @param insightType The type of insight to generate.
- * @param transactions A list of transactions to analyze.
- * @returns A promise that resolves to the AI-generated insight.
- */
-const fetchTransactionInsight = async (insightType: string, transactions: Transaction[]): Promise<{ result: any }> => {
-    console.log(`Calling BFF to generate insight: ${insightType}`);
-    // Simulating an API call to a BFF endpoint like POST /api/ai/transaction-insight
-    await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1000));
-    // const response = await fetch('/api/ai/transaction-insight', { ... });
-    // if (!response.ok) throw new Error('Failed to generate insight');
-    // return response.json();
-    
-    // Returning mock data for demonstration
-    if (insightType === 'subscription_hunter') {
-        return { result: { subscriptions: [{ name: 'QuantumFlix', estimatedAmount: 15.99 }, { name: 'SynthWave Music', estimatedAmount: 9.99 }] }};
+const GET_TRANSACTIONS_QUERY = gql`
+    query GetUserTransactions {
+        userData {
+            transactions {
+                id
+                type
+                category
+                description
+                amount
+                date
+                carbonFootprint
+            }
+        }
     }
-    if (insightType === 'anomaly_detection') {
-        return { result: "Unusual spending of $89.99 at 'Online Store' detected. This is 50% higher than your average shopping purchase." };
-    }
-    return { result: 'This is a mock insight from Plato AI for your review.' };
-};
+`;
 
+const ASK_AI_ADVISOR_MUTATION = gql`
+    mutation AskAdvisorForTransactionInsight($message: String!) {
+        askAIAdvisor(message: $message) {
+            messages {
+                role
+                parts {
+                    text
+                }
+            }
+        }
+    }
+`;
 
 // ================================================================================================
-// CUSTOM HOOKS
-// In a real application, these hooks would reside in a `hooks/` or `features/` directory.
+// CUSTOM HOOKS (Feature-Sliced State Management)
 // ================================================================================================
 
 /**
- * Custom hook to fetch and manage transaction data using React Query.
- * This abstracts the data fetching logic from the UI component.
+ * Fetches all transactions from the GraphQL Supergraph.
  */
 const useTransactions = () => {
-    return useQuery<Transaction[], Error>({
+    return useQuery<Transaction[], Error>({        
         queryKey: ['transactions'],
-        queryFn: fetchTransactions,
-        staleTime: 1000 * 60 * 5, // Data is considered fresh for 5 minutes
-        refetchOnWindowFocus: false,
+        queryFn: async () => {
+            const data = await graphqlRequest<{ userData: { transactions: Transaction[] } }>(GET_TRANSACTIONS_QUERY);
+            return data.userData.transactions;
+        },
+        staleTime: 1000 * 60 * 5, // 5 minutes
     });
 };
 
 /**
- * Custom hook to generate an AI insight for transactions using React Query's useMutation.
- * This encapsulates the server-side action of generating an insight.
+ * Hook to generate an AI insight for transactions via a GraphQL mutation.
  */
 const useTransactionInsight = (insightType: string, transactions?: Transaction[]) => {
-    return useMutation<any, Error>({
-        mutationFn: () => fetchTransactionInsight(insightType, transactions || []),
+    return useMutation<{ askAIAdvisor: { messages: any[] } }, Error>({        
+        mutationFn: () => {
+            // In a real scenario, you might pass transaction IDs or a summary.
+            // For this demo, we just send a descriptive prompt.
+            const prompts = {
+                'subscription_hunter': 'Analyze my recent transactions and identify any recurring payments that are likely subscriptions. List their name and estimated monthly amount in a markdown list.',
+                'anomaly_detection': "Analyze my recent transactions and identify any spending anomalies or outliers compared to typical patterns. Describe one significant anomaly.",
+                'tax_deduction_finder': 'Review my transactions for any potential tax-deductible expenses and list a few examples.',
+                'savings_finder': 'Based on my spending habits shown in these transactions, suggest one specific area where I could save money.'
+            };
+            const message = prompts[insightType as keyof typeof prompts] || 'Analyze my transactions and provide an insight.';
+            return graphqlRequest(ASK_AI_ADVISOR_MUTATION, { message });
+        },
     });
 };
 
@@ -107,7 +115,7 @@ const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClos
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Date:</span> <span className="text-white">{transaction.date}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Category:</span> <span className="text-white">{transaction.category}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Transaction ID:</span> <span className="text-white font-mono text-xs">{transaction.id}</span></div>
-                    {transaction.carbonFootprint && <div className="flex justify-between text-sm"><span className="text-gray-400">Carbon Footprint:</span> <span className="text-green-300">{transaction.carbonFootprint.toFixed(1)} kg CO₂</span></div>}
+                    {transaction.carbonFootprint && <div className="flex justify-between text-sm"><span className="text-gray-400">Carbon Footprint:</span> <span className="text-green-300">{transaction.carbonFootprint.toFixed(1)} kg COâ‚‚</span></div>}
                 </div>
             </div>
         </div>
@@ -121,8 +129,11 @@ interface AITransactionWidgetProps {
 }
 
 const AITransactionWidget: React.FC<AITransactionWidgetProps> = ({ title, mutation, children }) => {
-    const { mutate, data: result, isPending: isLoading, error } = mutation;
+    const { mutate, data, isPending: isLoading, error } = mutation;
     
+    // The AI response is now nested within the GraphQL mutation result.
+    const result = data?.askAIAdvisor.messages.find((m: any) => m.role === 'model')?.parts[0]?.text;
+
     return (
         <div className="p-3 bg-gray-900/40 rounded-lg border border-gray-700/50">
             <h4 className="font-semibold text-gray-200 text-sm mb-2">{title}</h4>
@@ -135,8 +146,8 @@ const AITransactionWidget: React.FC<AITransactionWidgetProps> = ({ title, mutati
                          <div className="h-2 w-2 bg-cyan-400 rounded-full animate-pulse"></div>
                     </div>
                 )}
-                {!isLoading && result && children && children(result.result)}
-                {!isLoading && result && !children && <p className="text-gray-300 text-xs">{result.result}</p>}
+                {!isLoading && result && children && children(result)}
+                {!isLoading && result && !children && <p className="text-gray-300 text-xs italic">"{result}"</p>}
                 {!isLoading && !result && !error && (
                     <button onClick={() => mutate()} className="text-xs font-medium text-cyan-300 hover:text-cyan-200">
                         Generate Insight
@@ -148,16 +159,16 @@ const AITransactionWidget: React.FC<AITransactionWidgetProps> = ({ title, mutati
 };
 
 const TransactionTableSkeleton: React.FC = () => (
-    <div className="animate-pulse">
+    <tbody>
         {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="flex justify-between items-center px-6 py-4 border-b border-gray-800">
-                <div className="h-4 bg-gray-700 rounded w-1/3"></div>
-                <div className="h-4 bg-gray-700 rounded w-1/6"></div>
-                <div className="h-4 bg-gray-700 rounded w-1/6"></div>
-                <div className="h-4 bg-gray-700 rounded w-1/6"></div>
-            </div>
+            <tr key={i} className="animate-pulse border-b border-gray-800">
+                <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-3/4"></div></td>
+                <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-1/2"></div></td>
+                <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-1/2"></div></td>
+                <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-1/3 ml-auto"></div></td>
+            </tr>
         ))}
-    </div>
+    </tbody>
 );
 
 
@@ -169,7 +180,7 @@ const TransactionsView: React.FC = () => {
 
     const { data: transactions, isLoading, error } = useTransactions();
     
-    // AI Insight mutations
+    // AI Insight mutations using the GraphQL hook
     const subscriptionInsight = useTransactionInsight('subscription_hunter', transactions);
     const anomalyInsight = useTransactionInsight('anomaly_detection', transactions);
     const taxInsight = useTransactionInsight('tax_deduction_finder', transactions);
@@ -191,12 +202,13 @@ const TransactionsView: React.FC = () => {
     return (
         <>
             <div className="space-y-6">
+                 <h2 className="text-3xl font-bold text-white tracking-wider">Transaction History</h2>
                  <Card title="Plato's Intelligence Suite" isCollapsible>
                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <AITransactionWidget title="Subscription Hunter" mutation={subscriptionInsight}>
-                           {(result: { subscriptions: DetectedSubscription[] }) => (
-                                <ul className="text-xs text-gray-300 space-y-1">
-                                    {result.subscriptions.map(sub => <li key={sub.name}>- {sub.name} (~${sub.estimatedAmount.toFixed(2)})</li>)}
+                           {(result: string) => (
+                                <ul className="text-xs text-gray-300 list-disc list-inside space-y-1">
+                                    {result.split('\n').map((line, i) => line.trim() && <li key={i}>{line.replace(/^- /, '')}</li>)}
                                 </ul>
                            )}
                         </AITransactionWidget>
@@ -230,26 +242,29 @@ const TransactionsView: React.FC = () => {
                                     <th scope="col" className="px-6 py-3 text-right">Amount</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                {isLoading && <TransactionTableSkeleton />}
-                                {error && (
-                                    <tr>
-                                        <td colSpan={4} className="text-center py-8 text-red-400">
-                                            Error loading transactions: {error.message}
-                                        </td>
-                                    </tr>
-                                )}
-                                {!isLoading && !error && filteredTransactions.map(tx => (
-                                    <tr key={tx.id} onClick={() => setSelectedTransaction(tx)} className="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer">
-                                        <th scope="row" className="px-6 py-4 font-medium text-white whitespace-nowrap">{tx.description}</th>
-                                        <td className="px-6 py-4">{tx.category}</td>
-                                        <td className="px-6 py-4">{tx.date}</td>
-                                        <td className={`px-6 py-4 text-right font-mono ${tx.type === 'income' ? 'text-green-400' : 'text-red-400'}`}>
-                                            {tx.type === 'income' ? '+' : '-'}${tx.amount.toFixed(2)}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
+                            {isLoading ? (
+                                <TransactionTableSkeleton />
+                            ) : (
+                                <tbody>
+                                    {error && (
+                                        <tr>
+                                            <td colSpan={4} className="text-center py-8 text-red-400">
+                                                Error loading transactions: {error.message}
+                                            </td>
+                                        </tr>
+                                    )}
+                                    {!error && filteredTransactions.map(tx => (
+                                        <tr key={tx.id} onClick={() => setSelectedTransaction(tx)} className="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer">
+                                            <th scope="row" className="px-6 py-4 font-medium text-white whitespace-nowrap">{tx.description}</th>
+                                            <td className="px-6 py-4">{tx.category}</td>
+                                            <td className="px-6 py-4">{tx.date}</td>
+                                            <td className={`px-6 py-4 text-right font-mono ${tx.type === 'income' ? 'text-green-400' : 'text-red-400'}`}>
+                                                {tx.type === 'income' ? '+' : '-'}${tx.amount.toFixed(2)}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            )}
                         </table>
                     </div>
                 </Card>
@@ -259,4 +274,15 @@ const TransactionsView: React.FC = () => {
     );
 };
 
-export default TransactionsView;
+// To use this component in the main app, it must be wrapped in a QueryClientProvider.
+// This is typically done at the root of the application (e.g., in App.tsx).
+// For isolated demonstration, we can wrap it here.
+const queryClient = new QueryClient();
+
+const TransactionsViewWithProvider: React.FC = () => (
+    <QueryClientProvider client={queryClient}>
+        <TransactionsView />
+    </QueryClientProvider>
+);
+
+export default TransactionsViewWithProvider;

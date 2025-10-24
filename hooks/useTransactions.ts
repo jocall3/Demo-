@@ -1,78 +1,91 @@
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import type { Transaction } from '../types';
 
 // ====================================================================================
-// Data Fetching Service Layer
-// In a larger application, this fetching logic would reside in a dedicated
-// `services/bankingService.ts` file to separate data fetching from hooks.
-// It is co-located here to provide a complete, self-contained implementation for this task.
+// Data Fetching Service Layer (GraphQL)
+// As per the new architecture, all data fetching is directed to a single GraphQL endpoint.
+// This function encapsulates the query and network request logic.
 // ====================================================================================
 
-const API_BASE_URL = '/api'; // Vite proxy handles redirecting this to the BFF
-
-interface GetTransactionsParams {
-  accountId?: string;
-}
+const GQL_ENDPOINT = '/graphql'; // The single endpoint for the GraphQL supergraph
 
 /**
- * Fetches transactions from the BFF API endpoint.
- * This function encapsulates the actual network request.
- * @param params - Optional parameters for the transaction query, such as `accountId`.
- * @returns A promise that resolves to an array of transactions.
+ * GraphQL query to fetch all user transactions via the `userData` root query.
+ * This aligns with the architectural directive to fetch all data for a view
+ * declaratively in a single network request.
  */
-const getTransactions = async (params: GetTransactionsParams = {}): Promise<Transaction[]> => {
-  const { accountId } = params;
-
-  // In a real application, the userId would be retrieved from an authentication context
-  // (e.g., a Redux store or an auth hook) rather than being hardcoded.
-  const userId = 'user-123';
-
-  const url = new URL(`${API_BASE_URL}/banking/transactions`);
-  url.searchParams.append('userId', userId);
-
-  if (accountId) {
-    url.searchParams.append('accountId', accountId);
+const GET_TRANSACTIONS_QUERY = `
+  query GetUserTransactions {
+    userData {
+      transactions {
+        id
+        type
+        category
+        description
+        amount
+        date
+        carbonFootprint
+      }
+    }
   }
+`;
 
-  const response = await fetch(url.toString());
+/**
+ * Fetches all transactions from the BFF's GraphQL endpoint.
+ * @returns A promise that resolves to an array of all user transactions.
+ */
+const fetchTransactions = async (): Promise<Transaction[]> => {
+  const response = await fetch(GQL_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: GET_TRANSACTIONS_QUERY }),
+  });
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({ message: 'An unknown network error occurred' }));
-    throw new Error(errorBody.message || 'Failed to fetch transactions');
+    throw new Error(errorBody.message || `GraphQL request failed with status ${response.status}`);
   }
 
-  return response.json();
+  const jsonResponse = await response.json();
+  if (jsonResponse.errors) {
+    throw new Error(jsonResponse.errors.map((e: any) => e.message).join('\n'));
+  }
+
+  const transactions = jsonResponse.data?.userData?.transactions;
+  if (!transactions) {
+    throw new Error("Invalid data structure returned from GraphQL API: expected `data.userData.transactions`");
+  }
+
+  return transactions;
 };
 
 // ====================================================================================
 // Custom Hook: useTransactions
-// This hook acts as the interface between UI components and the React Query cache.
+// Refactored to use the new GraphQL supergraph.
 // ====================================================================================
 
 /**
  * Custom hook to fetch financial transactions for the current user.
  * It leverages React Query to handle caching, background refetching, and server state management,
  * abstracting all data-fetching logic away from the UI components.
+ *
+ * NOTE: The previous filtering by `accountId` has been removed as it is not
+ * supported by the new `userData` GraphQL query. The schema would need to be updated
+ * to re-introduce server-side filtering capabilities.
  * 
- * @param {GetTransactionsParams} params - Optional parameters for filtering transactions, such as `accountId`.
  * @returns An object containing the transaction data, loading states, and error information from React Query.
  */
-export const useTransactions = (params: GetTransactionsParams = {}) => {
-  const { accountId } = params;
-
-  // The query key is an array that uniquely identifies this query for caching purposes.
-  // When `accountId` changes, React Query will automatically trigger a refetch.
-  const queryKey = ['transactions', { accountId }];
+export const useTransactions = () => {
+  // The query key uniquely identifies this query in the React Query cache.
+  const queryKey = ['transactions'];
 
   const query = useQuery<Transaction[], Error>({
-    queryKey: queryKey,
-    
-    // The query function is the async function that fetches the data.
-    // It calls our abstracted service layer function.
-    queryFn: () => getTransactions({ accountId }),
+    queryKey,
+    queryFn: fetchTransactions,
     
     // --- React Query Configuration ---
-    // Configure the behavior of this query to optimize user experience.
+    // Configure the behavior of this query to optimize user experience for financial data.
     staleTime: 1000 * 60 * 5, // Data is considered fresh for 5 minutes, preventing unnecessary refetches.
     refetchOnWindowFocus: true, // Automatically refetch when the user returns to the app.
     retry: 1, // Attempt to refetch once on failure before showing an error.
@@ -80,7 +93,8 @@ export const useTransactions = (params: GetTransactionsParams = {}) => {
 
   return {
     ...query,
-    // Provide a convenient, non-nullable alias for the data.
+    // Provide a convenient, non-nullable alias for the data, which is useful for components
+    // to avoid checking for `undefined` before mapping over the array.
     transactions: query.data ?? [],
   };
 };

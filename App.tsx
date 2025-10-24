@@ -1,7 +1,15 @@
-import React, { useState, useMemo, useEffect, useCallback, FC, ReactNode } from 'react';
+import React, { useState, FC, ReactNode, useEffect, useCallback } from 'react';
 import { Provider, useSelector, useDispatch } from 'react-redux';
 import { configureStore, createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { QueryClient, QueryClientProvider, useQuery, useMutation } from '@tanstack/react-query';
+import {
+  ApolloClient,
+  InMemoryCache,
+  ApolloProvider,
+  createHttpLink,
+  gql,
+  useQuery,
+  useMutation
+} from '@apollo/client';
 
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -21,51 +29,27 @@ import FinancialDemocracyView from './components/FinancialDemocracyView';
 import AIAdStudioView from './components/AIAdStudioView';
 import CryptoView from './components/CryptoView';
 import FinancialGoalsView from './components/FinancialGoalsView';
-import { View, IllusionType, APIStatus, RewardPoints, GamificationState, CreditScore, CreditFactor, RewardItem } from './types';
-import { GoogleGenAI } from "@google/genai";
+import { View, IllusionType, APIStatus, RewardItem, GamificationState, CreditFactor, RewardPoints } from './types';
 import Card from './components/Card';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip as RechartsTooltip, AreaChart, Area } from 'recharts';
-import { MOCK_API_STATUS, MOCK_REWARD_ITEMS, MOCK_CREDIT_SCORE, MOCK_CREDIT_FACTORS } from './data/mockData';
 
 // ================================================================================================
-// MOCK DATA & SERVICES (Simulating new architecture)
-// In a real application, services would be in `services/` and hooks in `hooks/`.
+// APOLLO CLIENT SETUP (NEW)
 // ================================================================================================
 
-const MOCK_GAMIFICATION_STATE: GamificationState = {
-    score: 450, level: 3, levelName: "Savings Specialist",
-    progress: 25, credits: 225,
-};
+const httpLink = createHttpLink({
+  // The URI of the GraphQL gateway. This should be an environment variable.
+  // In a Vite setup, this can be proxied.
+  uri: import.meta.env.VITE_GRAPHQL_URI || '/graphql',
+});
 
-const MOCK_REWARD_POINTS: RewardPoints = {
-    balance: 85250, lastEarned: 320, lastRedeemed: 5000, currency: 'Points',
-};
-
-// --- Mock Service Layer ---
-const apiService = {
-    fetchApiStatus: async (): Promise<APIStatus[]> => MOCK_API_STATUS,
-    fetchRewardPoints: async (): Promise<RewardPoints> => MOCK_REWARD_POINTS,
-    fetchGamificationState: async (): Promise<GamificationState> => MOCK_GAMIFICATION_STATE,
-    fetchRewardItems: async (): Promise<RewardItem[]> => MOCK_REWARD_ITEMS,
-    fetchCreditScore: async (): Promise<CreditScore> => MOCK_CREDIT_SCORE,
-    fetchCreditFactors: async (): Promise<CreditFactor[]> => MOCK_CREDIT_FACTORS,
-    redeemReward: async (itemId: string): Promise<{ success: boolean }> => {
-        console.log(`Redeeming item ${itemId}`);
-        return { success: true };
-    },
-};
-
-// --- Custom Hooks (React Query Selectors) ---
-const useApiStatus = () => useQuery({ queryKey: ['apiStatus'], queryFn: apiService.fetchApiStatus });
-const useRewardPoints = () => useQuery({ queryKey: ['rewardPoints'], queryFn: apiService.fetchRewardPoints });
-const useGamification = () => useQuery({ queryKey: ['gamification'], queryFn: apiService.fetchGamificationState });
-const useRewardItems = () => useQuery({ queryKey: ['rewardItems'], queryFn: apiService.fetchRewardItems });
-const useCreditScore = () => useQuery({ queryKey: ['creditScore'], queryFn: apiService.fetchCreditScore });
-const useCreditFactors = () => useQuery({ queryKey: ['creditFactors'], queryFn: apiService.fetchCreditFactors });
-const useRedeemReward = () => useMutation({ mutationFn: (itemId: string) => apiService.redeemReward(itemId) });
+const client = new ApolloClient({
+  link: httpLink,
+  cache: new InMemoryCache(),
+});
 
 // ================================================================================================
-// REDUX TOOLKIT SETUP (For Global UI State)
+// REDUX TOOLKIT SETUP (For Global UI State - UNCHANGED)
 // ================================================================================================
 
 interface UiState {
@@ -135,13 +119,66 @@ const useAppSelector = <TSelected extends unknown>(
 ): TSelected => useSelector<RootState, TSelected>(selector);
 
 // ================================================================================================
-// REACT QUERY CLIENT SETUP
+// GRAPHQL DEFINITIONS (NEW)
 // ================================================================================================
 
-const queryClient = new QueryClient();
+const GET_SHARED_WIDGET_DATA = gql`
+  query GetSharedWidgetData {
+    userData {
+      apiStatus {
+        provider
+        status
+        responseTime
+      }
+      rewards {
+        points {
+          balance
+          currency
+        }
+        items {
+          id
+          name
+          cost
+          type
+          description
+          iconName
+        }
+      }
+      gamification {
+        score
+        level
+        levelName
+        progress
+      }
+      creditHealth {
+        score {
+          score
+          rating
+        }
+        factors {
+          name
+          status
+          description
+        }
+      }
+    }
+  }
+`;
+
+const REDEEM_REWARD_MUTATION = gql`
+  mutation RedeemReward($itemId: ID!) {
+    redeemReward(itemId: $itemId)
+  }
+`;
+
+const GET_AI_SUGGESTION_MUTATION = gql`
+    mutation GetAISuggestion($prompt: String!) {
+        generateCardStory(prompt: $prompt)
+    }
+`;
 
 // ================================================================================================
-// INLINE VIEW COMPONENTS (Refactored to use new state management)
+// INLINE VIEW COMPONENTS (Refactored to use Apollo Client)
 // ================================================================================================
 
 const TheVisionView: React.FC = () => (
@@ -174,13 +211,14 @@ const SettingsIcon: FC<React.SVGProps<SVGSVGElement>> = (props) => (
 );
 
 const APIIntegrationView: FC = () => {
-    const { data: apiStatus, isLoading } = useApiStatus();
+    const { loading, error, data } = useQuery(GET_SHARED_WIDGET_DATA);
+    const apiStatus = data?.userData?.apiStatus;
+    
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    
     const geminiApiKey = useAppSelector(state => state.ui.geminiApiKey);
     const dispatch = useAppDispatch();
-
-    const [isModalOpen, setIsModalOpen] = useState(false);
     const [apiKeyInput, setApiKeyInput] = useState(geminiApiKey || '');
-
     const handleSaveKey = () => {
         dispatch(uiSlice.actions.setGeminiApiKey(apiKeyInput));
         setIsModalOpen(false);
@@ -193,7 +231,7 @@ const APIIntegrationView: FC = () => {
             'Partial Outage': { bg: 'bg-orange-500/20', text: 'text-orange-300', dot: 'bg-orange-400' },
             'Major Outage': { bg: 'bg-red-500/20', text: 'text-red-300', dot: 'bg-red-400' },
         };
-        const style = colors[status];
+        const style = colors[status] || colors['Operational'];
         return (
             <div className={`flex items-center gap-2 px-2 py-1 rounded-full text-xs font-medium ${style.bg} ${style.text}`}>
                 <div className={`w-2 h-2 rounded-full ${style.dot}`}></div>
@@ -218,9 +256,9 @@ const APIIntegrationView: FC = () => {
             )}
             <div className="space-y-6">
                 <h2 className="text-3xl font-bold text-white tracking-wider">System & API Status</h2>
-                <Card isLoading={isLoading}>
+                <Card isLoading={loading} errorState={error?.message}>
                     <div className="space-y-3">
-                        {apiStatus?.map(api => (
+                        {apiStatus?.map((api: APIStatus) => (
                             <div key={api.provider} className="flex flex-col sm:flex-row justify-between items-center p-3 bg-gray-800/50 rounded-lg">
                                 <h4 className="font-semibold text-lg text-white mb-2 sm:mb-0">{api.provider}</h4>
                                 <div className="flex items-center gap-4">
@@ -251,22 +289,26 @@ const APIIntegrationView: FC = () => {
 };
 
 const RewardsView: FC = () => {
-    const { data: rewardPoints, isLoading: isLoadingPoints } = useRewardPoints();
-    const { data: gamification, isLoading: isLoadingGamification } = useGamification();
-    const { data: rewardItems, isLoading: isLoadingItems } = useRewardItems();
-    const { mutate: redeemRewardMutation } = useRedeemReward();
-
+    const { loading, data } = useQuery(GET_SHARED_WIDGET_DATA);
+    const rewardPoints = data?.userData?.rewards?.points;
+    const gamification = data?.userData?.gamification;
+    const rewardItems = data?.userData?.rewards?.items;
+    
+    const [redeemReward, { loading: redeeming }] = useMutation(REDEEM_REWARD_MUTATION);
+    
     const [message, setMessage] = useState('');
 
-    const handleRedeem = (item: RewardItem) => {
+    const handleRedeem = async (item: RewardItem) => {
         if (rewardPoints && rewardPoints.balance >= item.cost) {
-            redeemRewardMutation(item.id, {
-                onSuccess: () => {
-                    setMessage(`Successfully redeemed ${item.name}!`);
-                    queryClient.invalidateQueries({ queryKey: ['rewardPoints'] }); // Refetch points
-                },
-                onError: () => setMessage(`Failed to redeem ${item.name}.`),
-            });
+            try {
+                await redeemReward({
+                    variables: { itemId: item.id },
+                    refetchQueries: [{ query: GET_SHARED_WIDGET_DATA }],
+                });
+                setMessage(`Successfully redeemed ${item.name}!`);
+            } catch (e: any) {
+                setMessage(`Failed to redeem ${item.name}: ${e.message}`);
+            }
         } else {
             setMessage(`Not enough points for ${item.name}.`);
         }
@@ -283,13 +325,13 @@ const RewardsView: FC = () => {
         <div className="space-y-6">
              <h2 className="text-3xl font-bold text-white tracking-wider">Rewards Hub</h2>
              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card title="Your Points" className="md:col-span-1" isLoading={isLoadingPoints}>
+                <Card title="Your Points" className="md:col-span-1" isLoading={loading}>
                      <div className="text-center">
                         <p className="text-5xl font-bold text-cyan-300">{rewardPoints?.balance.toLocaleString() || 0}</p>
                         <p className="text-gray-400">{rewardPoints?.currency || 'Points'}</p>
                      </div>
                 </Card>
-                 <Card title="Your Level" className="md:col-span-2" isLoading={isLoadingGamification}>
+                 <Card title="Your Level" className="md:col-span-2" isLoading={loading}>
                     {gamification && <div className="flex items-center gap-6">
                          <h3 className="text-2xl font-semibold text-white flex-1">{gamification.levelName} <span className="text-base text-gray-400">(Level {gamification.level})</span></h3>
                          <div className="w-full max-w-xs">
@@ -300,19 +342,19 @@ const RewardsView: FC = () => {
                      </div>}
                  </Card>
              </div>
-             <Card title="Redeem Your Points" isLoading={isLoadingItems}>
+             <Card title="Redeem Your Points" isLoading={loading}>
                  {message && <p className="text-center mb-4 text-cyan-200">{message}</p>}
                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                     {rewardItems?.map(item => {
+                     {rewardItems?.map((item: RewardItem) => {
                          const Icon = REWARD_ICONS[item.iconName];
                          return (
                             <div key={item.id} className="p-4 bg-gray-800/50 rounded-lg flex flex-col">
-                                 <Icon className="w-8 h-8 text-cyan-400 mb-2" />
+                                 {Icon && <Icon className="w-8 h-8 text-cyan-400 mb-2" />}
                                  <h4 className="font-semibold text-white flex-grow">{item.name}</h4>
                                  <p className="text-xs text-gray-400 my-2">{item.description}</p>
                                  <div className="flex justify-between items-center mt-auto">
                                      <p className="font-mono text-cyan-300">{item.cost.toLocaleString()} pts</p>
-                                     <button onClick={() => handleRedeem(item)} disabled={!rewardPoints || rewardPoints.balance < item.cost} className="px-3 py-1 bg-cyan-600/50 hover:bg-cyan-600 text-white rounded-lg text-xs disabled:opacity-50">Redeem</button>
+                                     <button onClick={() => handleRedeem(item)} disabled={!rewardPoints || rewardPoints.balance < item.cost || redeeming} className="px-3 py-1 bg-cyan-600/50 hover:bg-cyan-600 text-white rounded-lg text-xs disabled:opacity-50">Redeem</button>
                                  </div>
                             </div>
                          );
@@ -324,34 +366,19 @@ const RewardsView: FC = () => {
 };
 
 const CreditHealthView: FC = () => {
-    const { data: creditScore, isLoading: isLoadingScore } = useCreditScore();
-    const { data: creditFactors, isLoading: isLoadingFactors } = useCreditFactors();
-    const geminiApiKey = useAppSelector(state => state.ui.geminiApiKey);
-    const [insight, setInsight] = useState('');
-    const [isLoadingInsight, setIsLoadingInsight] = useState(false);
+    const { loading, data } = useQuery(GET_SHARED_WIDGET_DATA);
+    const creditScore = data?.userData?.creditHealth?.score;
+    const creditFactors = data?.userData?.creditHealth?.factors;
 
-    const getAIInsight = useCallback(async () => {
-        if (!creditScore || !creditFactors) return;
-        setIsLoadingInsight(true);
-        if (!geminiApiKey) {
-            setInsight("Please set your Gemini API key in the API Status view to get insights.");
-            setIsLoadingInsight(false);
-            return;
-        }
-        try {
-            const ai = new GoogleGenAI({apiKey: geminiApiKey});
-            const prompt = `A user has a credit score of ${creditScore.score}. Their credit factors are: ${creditFactors.map(f => `${f.name}: ${f.status}`).join(', ')}. Provide one concise, actionable tip to help them improve their score.`;
-            const response = await ai.models.generateContent({model: 'gemini-1.5-flash-latest', content: prompt});
-            setInsight(response.response.text());
-        } catch (err) {
-            setInsight("Could not generate a personalized tip at this time.");
-        } finally {
-            setIsLoadingInsight(false);
-        }
-    }, [creditScore, creditFactors, geminiApiKey]);
+    const [getAIInsight, { loading: isLoadingInsight, data: insightData }] = useMutation(GET_AI_SUGGESTION_MUTATION);
     
-    useEffect(() => { getAIInsight() }, [getAIInsight]);
-
+    useEffect(() => {
+        if (creditScore && creditFactors) {
+            const prompt = `A user has a credit score of ${creditScore.score}. Their credit factors are: ${creditFactors.map((f: CreditFactor) => `${f.name}: ${f.status}`).join(', ')}. Provide one concise, actionable tip to help them improve their score.`;
+            getAIInsight({ variables: { prompt } });
+        }
+    }, [creditScore, creditFactors, getAIInsight]);
+    
     const StatusIndicator: FC<{ status: 'Excellent' | 'Good' | 'Fair' | 'Poor' }> = ({ status }) => {
         const colors = { Excellent: 'bg-green-500', Good: 'bg-cyan-500', Fair: 'bg-yellow-500', Poor: 'bg-red-500' };
         return <div className={`w-3 h-3 rounded-full ${colors[status]}`}></div>
@@ -361,18 +388,18 @@ const CreditHealthView: FC = () => {
         <div className="space-y-6">
             <h2 className="text-3xl font-bold text-white tracking-wider">Credit Health</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card title="Your Credit Score" subtitle={`Rating: ${creditScore?.rating}`} isLoading={isLoadingScore}>
+                <Card title="Your Credit Score" subtitle={`Rating: ${creditScore?.rating}`} isLoading={loading}>
                      <p className="text-7xl font-bold text-center text-white my-8">{creditScore?.score}</p>
                 </Card>
                 <Card title="AI-Powered Tip">
                      <div className="flex flex-col justify-center items-center h-full text-center">
-                         {isLoadingInsight ? <p>Analyzing...</p> : <p className="text-gray-300 italic">"{insight}"</p>}
+                         {isLoadingInsight ? <p>Analyzing...</p> : <p className="text-gray-300 italic">"{insightData?.generateCardStory}"</p>}
                      </div>
                 </Card>
             </div>
-            <Card title="Factors Impacting Your Score" isLoading={isLoadingFactors}>
+            <Card title="Factors Impacting Your Score" isLoading={loading}>
                 <div className="space-y-3">
-                    {creditFactors?.map(factor => (
+                    {creditFactors?.map((factor: CreditFactor) => (
                         <div key={factor.name} className="p-3 bg-gray-800/50 rounded-lg">
                             <div className="flex justify-between items-center">
                                 <h4 className="font-semibold text-white">{factor.name}</h4>
@@ -403,64 +430,12 @@ const SettingsView: FC = () => (
     </div>
 );
 
-const PersonalizationView: FC = () => {
-    const dispatch = useAppDispatch();
-    const { activeIllusion, geminiApiKey } = useAppSelector(state => state.ui);
-    const [prompt, setPrompt] = useState('An isolated lighthouse on a stormy sea, with a powerful beam of light cutting through the darkness.');
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState('');
-    const [suggestedTheme, setSuggestedTheme] = useState<{ name: string, justification: string, type: IllusionType | 'image', url?: string } | null>(null);
-
-    const handleGenerate = async () => {
-        if (!prompt || !geminiApiKey) {
-            setError(geminiApiKey ? "Prompt is empty." : "Please set your Gemini API key.");
-            return;
-        }
-        setIsLoading(true); setError('');
-        try {
-            // In a real app, this would call a BFF endpoint that handles image generation securely.
-            const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-            // This feature is illustrative; the actual image generation model might differ.
-            setCustomBackgroundUrl(''); // Placeholder for generated image URL
-        } catch (err) {
-            setError("Sorry, I couldn't generate the image.");
-        } finally { setIsLoading(false); }
-    };
-    
-    const illusionOptions: { id: IllusionType, name: string }[] = [{ id: 'none', name: 'None' }, { id: 'aurora', name: 'Aurora' }];
-    const handleSuggestion = () => setSuggestedTheme({ name: "Tropical Sunset", justification: "Inspired by your 'Cyberpunk Vacation' goal.", type: 'image', url: '/IMG_5610.webp' });
-    const applySuggestion = () => {
-        if (suggestedTheme) {
-            if (suggestedTheme.type === 'image' && suggestedTheme.url) dispatch(uiSlice.actions.setCustomBackgroundUrl(suggestedTheme.url));
-            else if (suggestedTheme.type !== 'image') dispatch(uiSlice.actions.setActiveIllusion(suggestedTheme.type));
-        }
-    }
-
-    return (
-        <div className="space-y-6">
-            <Card title="Heuristic API Theme Suggestions">
-                <div className="flex flex-col items-center text-center">
-                    {!suggestedTheme ? (
-                        <><p className="text-gray-400 mb-4">Let our AI suggest a personalized theme based on your financial goals.</p><button onClick={handleSuggestion} className="px-4 py-2 bg-cyan-600/50 hover:bg-cyan-600 text-white rounded-lg text-sm">Suggest a Theme</button></>
-                    ) : (
-                        <div>
-                             <h4 className="font-semibold text-cyan-300">Theme Suggestion: {suggestedTheme.name}</h4>
-                             <p className="text-sm text-gray-400 italic my-2">"{suggestedTheme.justification}"</p>
-                             <button onClick={applySuggestion} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm">Apply Theme</button>
-                        </div>
-                    )}
-                </div>
-            </Card>
-            {/* Other personalization components... */}
-        </div>
-    );
-};
-
-const CardCustomizationView: FC = () => {
-    const geminiApiKey = useAppSelector(state => state.ui.geminiApiKey);
-    // Component logic remains but uses `geminiApiKey` from Redux instead of context.
-    return <Card title="Card Customization"><p className="text-gray-400">Feature coming soon. Requires Gemini API Key: {geminiApiKey ? 'Set' : 'Not Set'}</p></Card>;
-};
+const PersonalizationView: FC = () => (
+    <Card title="Personalization"><p className="text-gray-400">Feature coming soon.</p></Card>
+);
+const CardCustomizationView: FC = () => (
+    <Card title="Card Customization"><p className="text-gray-400">Feature coming soon.</p></Card>
+);
 
 // ================================================================================================
 // MAIN APP COMPONENT
@@ -532,11 +507,11 @@ const App: FC = () => {
 };
 
 const AppWrapper: FC = () => (
-    <Provider store={store}>
-        <QueryClientProvider client={queryClient}>
+    <ApolloProvider client={client}>
+        <Provider store={store}>
             <App />
-        </QueryClientProvider>
-    </Provider>
+        </Provider>
+    </ApolloProvider>
 );
 
 export default AppWrapper;

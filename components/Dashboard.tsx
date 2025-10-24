@@ -7,30 +7,36 @@ import WealthTimeline from './WealthTimeline';
 import Card from './Card';
 import PlaidLinkButton from './PlaidLinkButton';
 import { View } from '../types';
-import type { GamificationState, Subscription, CreditScore, SavingsGoal, MarketMover, UpcomingBill, Transaction, BudgetCategory, RewardPoints, PlaidLinkSuccessMetadata } from '../types';
+import type { GamificationState, Subscription, CreditScore, SavingsGoal, MarketMover as MoverType, UpcomingBill, Transaction, BudgetCategory, RewardPoints, PlaidLinkSuccessMetadata } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, Legend, AreaChart, Area } from 'recharts';
 
 // ================================================================================================
-// MOCK DATA & HOOKS (Simulating the New Architecture)
+// MOCK DATA & HOOKS (Simulating the New GraphQL/React-Query Architecture)
 // In a real application, hooks would be in feature folders (e.g., /features/banking/hooks)
 // and Redux selectors would be imported from the store.
 // ================================================================================================
 
-const useMockQuery = (data, options = { isLoading: false, error: null }) => ({
+// Simulates a React Query `useQuery` hook
+const useMockQuery = (data: any, options = { isLoading: false, isError: false, error: null }) => ({
     data,
     isLoading: options.isLoading,
+    isError: options.isError,
     error: options.error,
 });
 
+// Simulates a React Query `useMutation` hook
 const useMockMutation = (options: { onSuccess: (vars: any) => void; }) => ({
-    mutate: (vars) => options.onSuccess(vars),
-    isPending: false,
+    mutate: (vars: any) => {
+        // Simulate async operation and then call onSuccess
+        setTimeout(() => options.onSuccess(vars), 2500);
+    },
+    isPending: false, // In a real hook, this would track mutation state
 });
 
-const useMockSelector = (selector) => selector();
+// Simulates a Redux `useSelector` hook
+const useMockSelector = (selector: () => any) => selector();
 
-// Fictional hooks following the new architectural pattern
-const useFinancialSummary = () => useMockQuery({ totalBalance: 125389.54, change30d: 1203.45 });
+// Fictional hooks following the new architectural pattern, fetching data from the GraphQL supergraph.
 const useTransactions = (options: { limit?: number } = {}) => useMockQuery(MOCK_TRANSACTIONS.slice(0, options.limit || MOCK_TRANSACTIONS.length));
 const useImpactData = () => useMockQuery({ treesPlanted: 12, progressToNextTree: 70 });
 const useSubscriptions = () => useMockQuery(MOCK_SUBSCRIPTIONS);
@@ -40,24 +46,33 @@ const useFinancialGoals = () => useMockQuery(MOCK_SAVINGS_GOALS);
 const useMarketMovers = () => useMockQuery(MOCK_MARKET_MOVERS);
 const useBudgets = () => useMockQuery(MOCK_BUDGETS);
 const useRewards = () => useMockQuery(MOCK_REWARD_POINTS);
-const usePlaidLink = (options) => useMockMutation(options);
-const useAIPredictiveBundle = () => useMockQuery({ 
-    title: "Smart Home Upgrade Pack", 
-    description: "Based on your recent tech purchases, Plato recommends this bundle to enhance your smart home ecosystem.", 
-    images: ["/IMG_5610.webp", "/IMG_5610.webp"] 
+const usePlaidLink = (options: { onSuccess: (data: any) => void }) => useMockMutation(options);
+
+// This hook simulates fetching a personalized, AI-generated product bundle from the GraphQL API.
+type BundleType = { title: string; description: string; images: string[] };
+const useAIPredictiveBundle = () => useMockQuery<BundleType>({
+    title: "Smart Home Upgrade Pack",
+    description: "Based on your recent tech purchases, Plato recommends this bundle to enhance your smart home ecosystem.",
+    images: ["/IMG_5610.webp", "/IMG_5610.webp"]
 });
 
-// Fictional Redux selectors
-const selectGamificationState = () => ({ score: 450, level: 3, levelName: "Savings Specialist", progress: 25 });
-const selectLinkedAccounts = (accounts) => () => accounts;
+// Fictional Redux selectors for global UI state
+const selectGamificationState = (): GamificationState => ({ score: 450, level: 3, levelName: "Savings Specialist", progress: 25, credits: 0 });
+const selectLinkedAccounts = (accounts: any[]) => () => accounts;
 
-// MOCK DATA (moved from data/mockData.ts for self-containment of this example)
-const MOCK_TRANSACTIONS: Transaction[] = [{ id: '1', type: 'expense', category: 'Dining', description: 'Coffee Shop', amount: 12.50, date: '2024-07-21' }];
+// MOCK DATA (centralized for this component's demonstration)
+const MOCK_TRANSACTIONS: Transaction[] = [
+    { id: '1', type: 'expense', category: 'Dining', description: 'Coffee Shop', amount: 12.50, date: '2024-07-21', carbonFootprint: 1.2 },
+    { id: '2', type: 'income', category: 'Salary', description: 'Paycheck', amount: 2500.00, date: '2024-07-20' },
+    { id: '3', type: 'expense', category: 'Shopping', description: 'Online Store', amount: 89.99, date: '2024-07-19', carbonFootprint: 8.5 },
+    { id: '4', type: 'expense', category: 'Utilities', description: 'Electricity Bill', amount: 75.30, date: '2024-07-18' },
+    { id: '5', type: 'expense', category: 'Transport', description: 'Gas Station', amount: 55.00, date: '2024-07-18' },
+];
 const MOCK_SUBSCRIPTIONS: Subscription[] = [{ id: 'sub1', name: 'QuantumFlix', amount: 15.99, nextPayment: '2024-08-01', iconName: 'video' }, { id: 'sub2', name: 'SynthWave Music', amount: 9.99, nextPayment: '2024-08-05', iconName: 'music' }, { id: 'sub3', name: 'CyberCloud Pro', amount: 24.99, nextPayment: '2024-08-10', iconName: 'cloud' }];
 const MOCK_CREDIT_SCORE: CreditScore = { score: 780, change: 5, rating: 'Excellent' };
 const MOCK_UPCOMING_BILLS: UpcomingBill[] = [{ id: 'bill1', name: 'Credit Card', amount: 345.80, dueDate: '2024-08-15' }, { id: 'bill2', name: 'Internet', amount: 80.00, dueDate: '2024-08-20' }];
 const MOCK_SAVINGS_GOALS: SavingsGoal[] = [{ id: 'goal1', name: 'Cyberpunk Vacation', target: 5000, saved: 3250, iconName: 'plane' }];
-const MOCK_MARKET_MOVERS: MarketMover[] = [{ ticker: 'QNTM', name: 'Quantum Corp', price: 450.75, change: 12.55 }, { ticker: 'CYBR', name: 'Cyberdyne Systems', price: 1024.10, change: 50.12 }];
+const MOCK_MARKET_MOVERS: MoverType[] = [{ ticker: 'QNTM', name: 'Quantum Corp', price: 450.75, change: 12.55 }, { ticker: 'CYBR', name: 'Cyberdyne Systems', price: 1024.10, change: 50.12 }];
 const MOCK_BUDGETS: BudgetCategory[] = [{ id: 'dining', name: 'Dining', limit: 400, spent: 280, color: '#f59e0b' }, { id: 'shopping', name: 'Shopping', limit: 600, spent: 410.50, color: '#6366f1' }];
 const MOCK_REWARD_POINTS: RewardPoints = { balance: 85250, currency: 'Points', lastEarned: 0, lastRedeemed: 0 };
 
@@ -98,7 +113,7 @@ const DataImportingOverlay: React.FC<{ isImporting: boolean; bankName: string | 
             }, 1500);
             return () => clearInterval(interval);
         }
-    }, [isImporting, bankName]);
+    }, [isImporting, bankName, messages.length]);
 
     if (!isImporting) return null;
 
@@ -218,14 +233,9 @@ const CreditScoreMonitor: React.FC<{ creditScore: CreditScore; onClick: () => vo
 };
 
 const SecurityStatus: React.FC<{ onClick: () => void }> = ({ onClick }) => {
-    // This component remains stateful as it's purely for UI effect.
-    const [statusText, setStatusText] = useState('All Systems Secure');
-    const [subText, setSubText] = useState(`Last scan: ${new Date().toLocaleTimeString()}`);
-    const [iconColor, setIconColor] = useState('text-green-400');
-    useEffect(() => {
-        const interval = setInterval(() => setStatusText('Running Threat Scan...'), 7000);
-        return () => clearInterval(interval);
-    }, []);
+    const [statusText] = useState('All Systems Secure');
+    const [subText] = useState(`Last scan: ${new Date().toLocaleTimeString()}`);
+    const [iconColor] = useState('text-green-400');
     return (
         <Card title="Security Status" variant="interactive" onClick={onClick}>
             <div className="flex items-center justify-center h-full"><div className="text-center"><svg xmlns="http://www.w3.org/2000/svg" className={`h-12 w-12 ${iconColor} mx-auto transition-colors`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 20.944a11.955 11.955 0 019-2.606m0-15.394v15.394" /></svg><p className="mt-2 font-semibold text-white">{statusText}</p><p className="text-xs text-gray-400">{subText}</p></div></div>
@@ -254,7 +264,7 @@ const UpcomingBills: React.FC<{ bills: UpcomingBill[]; onPay: (bill: UpcomingBil
         <div className="space-y-3">
             {bills.map(bill => (
                 <div key={bill.id} className="flex items-center justify-between text-sm p-2 rounded-lg hover:bg-gray-700/50">
-                    <div><p className="text-gray-200">{bill.name}</p><p className="text-xs text-gray-400">{bill.dueDate}</p></div>
+                    <div><p className="text-gray-200">{bill.name}</p><p className="text-xs text-gray-400">Due: {bill.dueDate}</p></div>
                     <div className="text-right"><p className="font-mono text-white">${bill.amount.toFixed(2)}</p></div>
                     <button onClick={() => onPay(bill)} className="ml-4 px-3 py-1 bg-cyan-600/50 hover:bg-cyan-600 text-white rounded-lg text-xs">Pay</button>
                 </div>
@@ -341,9 +351,8 @@ const MarketMovers: React.FC<{ movers: MoverType[]; onSelect: (mover: MoverType)
     </Card>
 );
 
-const AIPredictiveBundle: React.FC<{ bundle: BundleType | undefined; isLoading: boolean; error: Error | null }> = ({ bundle, isLoading, error }) => (
+const AIPredictiveBundle: React.FC<{ bundle: BundleType | undefined; isLoading: boolean; }> = ({ bundle, isLoading }) => (
     <Card title="AI Predictive Product Bundle" isLoading={isLoading}>
-        {error && <p className="text-red-400 text-center">Plato AI couldn't generate a bundle at this time.</p>}
         {bundle && (
             <div className="flex flex-col md:flex-row items-center gap-6">
                 <div className="flex-1">
@@ -352,8 +361,8 @@ const AIPredictiveBundle: React.FC<{ bundle: BundleType | undefined; isLoading: 
                     <button className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm">View Bundle</button>
                 </div>
                 <div className="flex gap-4">
-                    <div className="w-24 h-24 bg-gray-700 rounded-lg"><img src={bundle.images[0]} className="object-cover w-full h-full rounded-lg" /></div>
-                    <div className="w-24 h-24 bg-gray-700 rounded-lg"><img src={bundle.images[1]} className="object-cover w-full h-full rounded-lg" /></div>
+                    <div className="w-24 h-24 bg-gray-700 rounded-lg"><img src={bundle.images[0]} alt="Bundle item 1" className="object-cover w-full h-full rounded-lg" /></div>
+                    <div className="w-24 h-24 bg-gray-700 rounded-lg"><img src={bundle.images[1]} alt="Bundle item 2" className="object-cover w-full h-full rounded-lg" /></div>
                 </div>
             </div>
         )}
@@ -361,37 +370,36 @@ const AIPredictiveBundle: React.FC<{ bundle: BundleType | undefined; isLoading: 
 );
 
 // ================================================================================================
-// MAIN DASHBOARD COMPONENT (Refactored)
+// MAIN DASHBOARD COMPONENT (Refactored to use hooks and selectors)
 // ================================================================================================
 
 interface DashboardProps { setActiveView: (view: View) => void; }
 
 const Dashboard: React.FC<DashboardProps> = ({ setActiveView }) => {
     const [modal, setModal] = useState<{ type: string; data: any } | null>(null);
-    const [localLinkedAccounts, setLocalLinkedAccounts] = useState<any[]>([]); // UI state for demo purposes
+    const [localLinkedAccounts, setLocalLinkedAccounts] = useState<any[]>([]);
+    const [isLinking, setIsLinking] = useState(false);
 
     // --- Data Fetching with Custom Hooks (New Architecture) ---
-    const { data: transactionsData, isLoading: isTransactionsLoading } = useTransactions({ limit: 5 });
-    const { data: impactData, isLoading: isImpactLoading } = useImpactData();
-    const { data: subscriptionsData, isLoading: isSubscriptionsLoading } = useSubscriptions();
-    const { data: creditScoreData, isLoading: isCreditScoreLoading } = useCreditScore();
-    const { data: upcomingBillsData, isLoading: isBillsLoading } = useUpcomingBills();
-    const { data: savingsGoalsData, isLoading: isGoalsLoading } = useFinancialGoals();
-    const { data: marketMoversData, isLoading: isMarketLoading } = useMarketMovers();
-    const { data: budgetsData, isLoading: isBudgetsLoading } = useBudgets();
-    const { data: rewardsData, isLoading: isRewardsLoading } = useRewards();
-    const { data: bundleData, isLoading: isBundleLoading, error: bundleError } = useAIPredictiveBundle();
+    const { data: transactionsData } = useTransactions({ limit: 5 });
+    const { data: impactData } = useImpactData();
+    const { data: subscriptionsData } = useSubscriptions();
+    const { data: creditScoreData } = useCreditScore();
+    const { data: upcomingBillsData } = useUpcomingBills();
+    const { data: savingsGoalsData } = useFinancialGoals();
+    const { data: marketMoversData } = useMarketMovers();
+    const { data: budgetsData } = useBudgets();
+    const { data: rewardsData } = useRewards();
+    const { data: bundleData, isLoading: isBundleLoading } = useAIPredictiveBundle();
 
-    // --- Global State from Redux (New Architecture) ---
+    // --- Global State from Redux (Simulated) ---
     const gamification = useMockSelector(selectGamificationState);
     const linkedAccounts = useMockSelector(selectLinkedAccounts(localLinkedAccounts));
     const hasLinkedAccounts = linkedAccounts && linkedAccounts.length > 0;
 
-    // --- Mutations (New Architecture) ---
-    const { mutate: linkAccount, isPending: isLinkingAccount } = usePlaidLink({
-        onSuccess: (data: { metadata: any }) => {
-            // In a real app, React Query would auto-refetch queries.
-            // For this demo, we'll manually update a local state to show the change.
+    // --- Mutations (Simulated) ---
+    const { mutate: linkAccount } = usePlaidLink({
+        onSuccess: (data: { metadata: PlaidLinkSuccessMetadata }) => {
             const newAccount = {
                 id: data.metadata.institution.institution_id,
                 name: data.metadata.institution.name,
@@ -400,8 +408,14 @@ const Dashboard: React.FC<DashboardProps> = ({ setActiveView }) => {
             if (!localLinkedAccounts.some(acc => acc.id === newAccount.id)) {
                 setLocalLinkedAccounts(prev => [...prev, newAccount]);
             }
+            setIsLinking(false);
         }
     });
+
+    const handlePlaidSuccess = (publicToken: string, metadata: PlaidLinkSuccessMetadata) => {
+        setIsLinking(true);
+        linkAccount({ publicToken, metadata });
+    }
 
     const handleQuickAction = (action: string) => {
         if (action === 'Send Money') setActiveView(View.SendMoney); else setModal({ type: action, data: null });
@@ -411,29 +425,29 @@ const Dashboard: React.FC<DashboardProps> = ({ setActiveView }) => {
 
     return (
         <>
-            <DataImportingOverlay isImporting={isLinkingAccount} bankName={linkedAccounts[linkedAccounts.length -1]?.name} />
+            <DataImportingOverlay isImporting={isLinking} bankName={localLinkedAccounts[localLinkedAccounts.length -1]?.name} />
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-6">
                 
-                {!hasLinkedAccounts && !isLinkingAccount && (
-                    <div className="lg:col-span-12"><LinkAccountPrompt onSuccess={linkAccount} /></div>
+                {!hasLinkedAccounts && !isLinking && (
+                    <div className="lg:col-span-12"><LinkAccountPrompt onSuccess={handlePlaidSuccess} /></div>
                 )}
 
                 {hasLinkedAccounts && (
                     <>
                         <div className="lg:col-span-9"><BalanceSummary /></div>
                         <div className="lg:col-span-3"><GamificationProfile gamification={gamification} onClick={() => setActiveView(View.Rewards)} /></div>
-                        <div className="lg:col-span-12"><AIPredictiveBundle bundle={bundleData} isLoading={isBundleLoading} error={bundleError} /></div>
+                        <div className="lg:col-span-12"><AIPredictiveBundle bundle={bundleData} isLoading={isBundleLoading} /></div>
                         <div className="lg:col-span-3"><QuickActions onAction={handleQuickAction} /></div>
                         <div className="lg:col-span-3"><CreditScoreMonitor creditScore={creditScoreData} onClick={() => setActiveView(View.CreditHealth)} /></div>
                         <div className="lg:col-span-3"><RewardPointsWidget rewards={rewardsData} onClick={() => setActiveView(View.Rewards)} /></div>
                         <div className="lg:col-span-3"><SecurityStatus onClick={() => setActiveView(View.Security)} /></div>
                         <div className="lg:col-span-5"><SubscriptionTracker subscriptions={subscriptionsData} onClick={() => setActiveView(View.Budgets)} /></div>
                         <div className="lg:col-span-7"><SavingsGoals goals={savingsGoalsData} onClick={() => setActiveView(View.Goals)} /></div>
-                        <div className="lg:col-span-8"><CashFlowAnalysis transactions={transactionsData} onClick={() => setActiveView(View.Transactions)} /></div>
+                        <div className="lg:col-span-8"><CashFlowAnalysis transactions={MOCK_TRANSACTIONS} onClick={() => setActiveView(View.Transactions)} /></div>
                         <div className="lg:col-span-4"><CategorySpending budgets={budgetsData} onClick={() => setActiveView(View.Budgets)} /></div>
                         <div className="lg:col-span-6"><MarketMovers movers={marketMoversData} onSelect={(mover) => setModal({ type: 'StockDetail', data: mover })} /></div>
                         <div className="lg:col-span-6"><UpcomingBills bills={upcomingBillsData} onPay={(bill) => setModal({ type: 'Pay Bill', data: bill })} /></div>
-                        <div className="lg:col-span-8"><RecentTransactions transactions={transactionsData || []} setActiveView={setActiveView} /></div>
+                        <div className="lg:col-span-8"><RecentTransactions setActiveView={setActiveView} /></div>
                         <div className="lg:col-span-4"><ImpactTracker treesPlanted={impactData?.treesPlanted || 0} progress={impactData?.progressToNextTree || 0} /></div>
                         <div className="lg:col-span-12"><AIInsights /></div>
                         <div className="lg:col-span-12"><WealthTimeline /></div>

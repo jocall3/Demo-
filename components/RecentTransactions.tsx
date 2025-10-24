@@ -1,89 +1,44 @@
 // components/RecentTransactions.tsx
-// REFACTORED: This component is now self-contained and data-aware.
-// It fetches its own data via a custom hook, manages its own loading/error states,
-// and encapsulates its detail view modal, adhering to the new architectural directive.
+// REFACTORED: This component has been updated to fetch data using GraphQL
+// as per the new federated architecture. It uses Apollo Client's useQuery hook
+// to declaratively fetch its data requirements.
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { gql, useQuery } from '@apollo/client';
 import Card from './Card';
 import { Transaction, View } from '../types';
-import { MOCK_TRANSACTIONS } from '../data/mockData';
 
 // ===================================================================================
-// ARCHITECTURAL NOTE: In a real React Query implementation, the service layer and
-// custom hook would exist in separate files. They are included here for demonstration.
-//
-// --- Service Layer (e.g., /services/transactionService.ts) ---
-/*
-  export const transactionService = {
-    getRecent: async (limit: number = 5): Promise<Transaction[]> => {
-      // The BFF is expected to sort by date descending.
-      const response = await fetch(`/api/transactions?_limit=${limit}`);
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-      return response.json();
-    }
-  };
-*/
-//
-// --- Custom Hook (e.g., /hooks/useTransactions.ts) ---
-/*
-  import { useQuery } from '@tanstack/react-query';
-  import { transactionService } from '../services/transactionService';
-  
-  export const useTransactions = (limit: number = 5) => {
-    return useQuery<Transaction[], Error>({
-      queryKey: ['transactions', 'recent', limit],
-      queryFn: () => transactionService.getRecent(limit),
-    });
-  };
-*/
+// GraphQL Query Definition
 // ===================================================================================
 
 /**
- * MOCK useQuery HOOK for DEMONSTRATION
- * This simulates the behavior of React Query for this file.
+ * GraphQL query to fetch the user's transactions.
+ * The supergraph combines data from multiple services. In this case, 'transactions'
+ * would come from the banking subgraph.
+ * NOTE: The schema doesn't support pagination/limiting on the transactions field directly.
+ * We fetch all and slice the most recent ones on the client-side for this component.
+ * A production-ready implementation would include arguments for pagination.
  */
-const useQuery = (queryKey: any[]) => {
-  const [data, setData] = useState<Transaction[] | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isError, setIsError] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      setIsError(false);
-      setError(null);
-      try {
-        // Simulate network delay
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Simulate API call success/failure
-        if (Math.random() < 0.1) { // 10% chance of failure
-          throw new Error("Failed to fetch from simulated API.");
-        }
-        
-        // Return sorted and limited mock data
-        const sorted = [...MOCK_TRANSACTIONS].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        setData(sorted.slice(0, 5));
-
-      } catch (err) {
-        setIsError(true);
-        setError(err as Error);
-      } finally {
-        setIsLoading(false);
+const GET_RECENT_TRANSACTIONS = gql`
+  query GetRecentTransactions {
+    userData {
+      transactions {
+        id
+        type
+        category
+        description
+        amount
+        date
+        carbonFootprint
       }
-    };
-    fetchData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(queryKey)]); // Re-run if queryKey changes
+    }
+  }
+`;
 
-  return { data, isLoading, isError, error };
-};
-
-
-// --- UI Sub-components ---
+// ===================================================================================
+// UI Sub-components (Largely unchanged, as they are presentational)
+// ===================================================================================
 
 const TransactionIcon: React.FC<{ category: string }> = ({ category }) => {
     let iconPath;
@@ -165,22 +120,31 @@ const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClos
 };
 
 
-// --- Main Component ---
+// ===================================================================================
+// Main Component
+// ===================================================================================
 
 interface RecentTransactionsProps {
   setActiveView: (view: View) => void;
 }
 
 const RecentTransactions: React.FC<RecentTransactionsProps> = ({ setActiveView }) => {
-  const { data: transactions, isLoading, isError, error } = useQuery(['transactions', 'recent', 5]);
+  // Fetch data using Apollo Client's useQuery hook.
+  const { data, loading, error } = useQuery(GET_RECENT_TRANSACTIONS);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
   const onViewAllClick = () => {
     setActiveView(View.Transactions);
   };
   
+  // Sort and slice the transactions once the data is available.
+  const transactions = data?.userData?.transactions
+    ?.slice() // Create a shallow copy to avoid mutating the cache
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5);
+
   const renderContent = () => {
-    if (isLoading) {
+    if (loading) {
       return (
         <div className="space-y-4">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -197,7 +161,7 @@ const RecentTransactions: React.FC<RecentTransactionsProps> = ({ setActiveView }
       );
     }
 
-    if (isError) {
+    if (error) {
       return (
         <div className="text-center py-8 text-red-400">
           <p>Could not load transactions.</p>

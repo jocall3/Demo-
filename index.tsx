@@ -2,6 +2,9 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 
+// Apollo Client for GraphQL integration
+import { ApolloClient, InMemoryCache, ApolloProvider } from '@apollo/client';
+
 // Import OpenTelemetry packages for client-side web instrumentation
 import { WebTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-web';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
@@ -30,18 +33,13 @@ const initializeOpenTelemetry = () => {
     });
 
     // Configure an OTLP exporter to send trace data to an OpenTelemetry Collector.
-    // The collector URL should be configured via environment variables.
-    // For local development, this might point to a collector running in Docker.
     const exporter = new OTLPTraceExporter({
         url: import.meta.env.VITE_OTEL_COLLECTOR_URL || 'http://localhost:4318/v1/traces',
     });
 
-    // Use a SimpleSpanProcessor for development, which sends spans as they are created.
     // For production, BatchSpanProcessor is recommended for better performance.
     provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
 
-    // Register the provider. A ZoneContextManager is used to correctly
-    // propagate context across asynchronous operations in the browser.
     provider.register({
         contextManager: new ZoneContextManager(),
     });
@@ -50,26 +48,18 @@ const initializeOpenTelemetry = () => {
     registerInstrumentations({
         instrumentations: [
             getWebAutoInstrumentations({
-                // Configures the document load instrumentation.
                 '@opentelemetry/instrumentation-document-load': {},
-                // Configures user interaction instrumentation (e.g., clicks).
                 '@opentelemetry/instrumentation-user-interaction': {
                     enabled: true,
                 },
-                // Configures fetch and XHR instrumentation to trace API calls.
+                // This will automatically instrument GraphQL calls made over HTTP.
                 '@opentelemetry/instrumentation-fetch': {
                     enabled: true,
-                    // This ensures the trace context header (traceparent) is added
-                    // to outgoing requests, allowing the backend to continue the trace.
-                    propagateTraceHeaderCorsUrls: [
-                        /.+/g, // In production, restrict this to your API domains.
-                    ],
+                    propagateTraceHeaderCorsUrls: [/.+/g], // In production, restrict this to your API domains.
                 },
                 '@opentelemetry/instrumentation-xml-http-request': {
                     enabled: true,
-                    propagateTraceHeaderCorsUrls: [
-                        /.+/g, // In production, restrict this to your API domains.
-                    ],
+                    propagateTraceHeaderCorsUrls: [/.+/g],
                 },
             }),
         ],
@@ -81,6 +71,11 @@ const initializeOpenTelemetry = () => {
 // Initialize OpenTelemetry as early as possible in the application lifecycle.
 initializeOpenTelemetry();
 
+// Configure the Apollo Client to connect to the GraphQL Supergraph Gateway.
+const client = new ApolloClient({
+    uri: import.meta.env.VITE_GRAPHQL_GATEWAY_URL || 'http://localhost:4000/', // The URL of the Apollo Gateway
+    cache: new InMemoryCache(),
+});
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -90,6 +85,8 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <ApolloProvider client={client}>
+      <App />
+    </ApolloProvider>
   </React.StrictMode>
 );

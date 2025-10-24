@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   Configuration,
@@ -9,35 +9,88 @@ import {
   TransactionsGetRequest,
 } from 'plaid';
 
+// --- DTOs would typically be in their own files under a `dto` directory --- //
+// These are included here to make the service self-contained for this example.
+
+export class AccountDto {
+  account_id: string;
+  name: string;
+  official_name: string | null;
+  subtype: string | null;
+  type: string;
+  balance: {
+    available: number | null;
+    current: number | null;
+    iso_currency_code: string | null;
+  };
+}
+
+export class TransactionDto {
+  transaction_id: string;
+  account_id: string;
+  amount: number;
+  iso_currency_code: string | null;
+  category: string[] | null;
+  date: string;
+  name: string;
+  merchant_name: string | null;
+  pending: boolean;
+}
+
+export class FinancialSummaryDto {
+  totalBalance: number;
+  totalLiabilities: number;
+  netWorth: number;
+  incomeLast30Days: number;
+  expensesLast30Days: number;
+  lastUpdated: string;
+}
+
+// In-memory store for user access tokens. In a production app, this would be a database (e.g., PostgreSQL, Redis).
+const userAccessTokens = new Map<string, { accessToken: string; itemId: string }>();
+
 @Injectable()
 export class BankingService {
   private readonly logger = new Logger(BankingService.name);
   private readonly plaidClient: PlaidApi;
 
   constructor(private configService: ConfigService) {
+    const plaidEnv = this.configService.get<string>('plaid.env', 'sandbox');
     const configuration = new Configuration({
-      basePath: PlaidEnvironments[this.configService.get('PLAID_ENV')],
+      basePath: PlaidEnvironments[plaidEnv],
       baseOptions: {
         headers: {
-          'PLAID-CLIENT-ID': this.configService.get('PLAID_CLIENT_ID'),
-          'PLAID-SECRET': this.configService.get('PLAID_SECRET'),
+          'PLAID-CLIENT-ID': this.configService.get<string>('plaid.clientId'),
+          'PLAID-SECRET': this.configService.get<string>('plaid.secret'),
         },
       },
     });
 
     this.plaidClient = new PlaidApi(configuration);
-    this.logger.log(`Plaid client initialized for ${this.configService.get('PLAID_ENV')} environment`);
+    this.logger.log(`Plaid client initialized for ${plaidEnv} environment`);
   }
 
-  async createLinkToken(userId: string) {
+  private getAccessTokenForUser(userId: string): string {
+    const tokenInfo = userAccessTokens.get(userId);
+    if (!tokenInfo) {
+      this.logger.warn(`No access token found for user: ${userId}`);
+      throw new HttpException(
+        'User has not linked a bank account.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return tokenInfo.accessToken;
+  }
+
+  async createLinkToken(userId: string): Promise<{ link_token: string; expiration: string }> {
     this.logger.log(`Creating Plaid link token for user: ${userId}`);
     try {
       const response = await this.plaidClient.linkTokenCreate({
         user: {
           client_user_id: userId,
         },
-        client_name: 'Demo Bank BFF',
-        products: [Products.Auth, Products.Transactions],
+        client_name: 'Demo Bank',
+        products: [Products.Transactions, Products.Auth],
         country_codes: [CountryCode.Us],
         language: 'en',
       });
@@ -48,91 +101,188 @@ export class BankingService {
         'Failed to create Plaid link token',
         error.response?.data || error.message,
       );
-      // In a real app, you would throw a proper NestJS HttpException
-      throw new Error('Could not create Plaid link token.');
+      throw new HttpException(
+        'Could not create Plaid link token.',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
-  async exchangePublicToken(publicToken: string) {
-    this.logger.log('Exchanging public token for access token.');
+  async exchangeAndStorePublicToken(
+    publicToken: string,
+    userId: string,
+    metadata: any, // In a real app, this would be a typed DTO
+  ): Promise<void> {
+    this.logger.log(`Exchanging public token for user: ${userId}`);
     try {
       const response = await this.plaidClient.itemPublicTokenExchange({
         public_token: publicToken,
       });
 
-      this.logger.log(`Successfully exchanged token for item ID: ${response.data.item_id}`);
-      // IMPORTANT: In a real application, you must securely store the access_token
-      // and item_id in a database associated with the user.
-      // The access token should NEVER be sent back to the client.
-      // It is returned here to be used by other services within the BFF layer.
-      return {
-        item_id: response.data.item_id,
-        access_token: response.data.access_token,
-      };
+      const { access_token, item_id } = response.data;
+      this.logger.log(`Successfully exchanged token for item ID: ${item_id}`);
+
+      userAccessTokens.set(userId, { accessToken: access_token, itemId: item_id });
+      this.logger.log(`Access token for user ${userId} stored successfully.`);
     } catch (error) {
       this.logger.error(
         'Failed to exchange public token',
         error.response?.data || error.message,
       );
-      throw new Error('Could not exchange public token.');
+      throw new HttpException(
+        'Could not exchange public token.',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
-  async getAccounts(accessToken: string) {
-    this.logger.log('Fetching accounts for an item.');
+  async getAccounts(userId: string): Promise<AccountDto[]> {
+    const accessToken = this.getAccessTokenForUser(userId);
+    this.logger.log(`Fetching accounts for user: ${userId}`);
+
     try {
       const response = await this.plaidClient.accountsGet({
         access_token: accessToken,
       });
-      this.logger.log(`Found ${response.data.accounts.length} accounts.`);
-      return response.data;
+
+      return response.data.accounts.map(
+        (acc) =>
+          ({
+            account_id: acc.account_id,
+            name: acc.name,
+            official_name: acc.official_name,
+            subtype: acc.subtype,
+            type: acc.type,
+            balance: {
+              available: acc.balances.available,
+              current: acc.balances.current,
+              iso_currency_code: acc.balances.iso_currency_code,
+            },
+          } as AccountDto),
+      );
     } catch (error) {
       this.logger.error(
-        'Failed to fetch accounts',
+        `Failed to fetch accounts for user ${userId}`,
         error.response?.data || error.message,
       );
-      throw new Error('Could not fetch accounts.');
+      throw new HttpException('Could not fetch accounts.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
-  async getTransactions(accessToken: string, startDate: string, endDate: string) {
-    this.logger.log(`Fetching transactions from ${startDate} to ${endDate}.`);
+  async getTransactions(
+    userId: string,
+    accountId?: string,
+  ): Promise<TransactionDto[]> {
+    const accessToken = this.getAccessTokenForUser(userId);
+    this.logger.log(`Fetching transactions for user: ${userId}`);
+
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - 90);
+
+    const formatDate = (date: Date) => date.toISOString().split('T')[0];
+
     try {
       const request: TransactionsGetRequest = {
         access_token: accessToken,
-        start_date: startDate,
-        end_date: endDate,
+        start_date: formatDate(startDate),
+        end_date: formatDate(endDate),
         options: {
           count: 250,
           offset: 0,
+          account_ids: accountId ? [accountId] : undefined,
         },
       };
+
       const response = await this.plaidClient.transactionsGet(request);
-      this.logger.log(`Found ${response.data.transactions.length} transactions.`);
-      return response.data;
+      this.logger.log(`Fetched ${response.data.transactions.length} transactions.`);
+
+      return response.data.transactions.map(
+        (tx) =>
+          ({
+            transaction_id: tx.transaction_id,
+            account_id: tx.account_id,
+            amount: tx.amount,
+            iso_currency_code: tx.iso_currency_code,
+            category: tx.category,
+            date: tx.date,
+            name: tx.name,
+            merchant_name: tx.merchant_name,
+            pending: tx.pending,
+          } as TransactionDto),
+      );
     } catch (error) {
       this.logger.error(
-        'Failed to fetch transactions',
+        `Failed to fetch transactions for user ${userId}`,
         error.response?.data || error.message,
       );
-      throw new Error('Could not fetch transactions.');
+      throw new HttpException(
+        'Could not fetch transactions.',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
-  async getBalance(accessToken: string) {
-    this.logger.log('Fetching balance for accounts.');
+  async getFinancialSummary(userId: string): Promise<FinancialSummaryDto> {
+    const accessToken = this.getAccessTokenForUser(userId);
+    this.logger.log(`Generating financial summary for user: ${userId}`);
+
     try {
-      const response = await this.plaidClient.accountsBalanceGet({
-        access_token: accessToken,
+      const [accountsResponse, transactionsResponse] = await Promise.all([
+        this.plaidClient.accountsGet({ access_token: accessToken }),
+        this.plaidClient.transactionsGet({
+          access_token: accessToken,
+          start_date: new Date(new Date().setDate(new Date().getDate() - 30))
+            .toISOString()
+            .split('T')[0],
+          end_date: new Date().toISOString().split('T')[0],
+        }),
+      ]);
+
+      const accounts = accountsResponse.data.accounts;
+      const transactions = transactionsResponse.data.transactions;
+
+      let totalBalance = 0;
+      let totalLiabilities = 0;
+      let incomeLast30Days = 0;
+      let expensesLast30Days = 0;
+
+      accounts.forEach((acc) => {
+        if (['depository', 'investment', 'brokerage'].includes(acc.type)) {
+          totalBalance += acc.balances.current || 0;
+        } else if (['credit', 'loan'].includes(acc.type)) {
+          totalLiabilities += acc.balances.current || 0;
+        }
       });
-      this.logger.log(`Successfully fetched balances.`);
-      return response.data;
+
+      transactions.forEach((tx) => {
+        if (tx.amount < 0) {
+          incomeLast30Days += Math.abs(tx.amount);
+        } else {
+          expensesLast30Days += tx.amount;
+        }
+      });
+
+      const summary: FinancialSummaryDto = {
+        totalBalance,
+        totalLiabilities,
+        netWorth: totalBalance - totalLiabilities,
+        incomeLast30Days,
+        expensesLast30Days,
+        lastUpdated: new Date().toISOString(),
+      };
+
+      this.logger.log(`Financial summary generated for user ${userId}`);
+      return summary;
     } catch (error) {
       this.logger.error(
-        'Failed to fetch balance',
+        `Failed to generate financial summary for user ${userId}`,
         error.response?.data || error.message,
       );
-      throw new Error('Could not fetch balance.');
+      throw new HttpException(
+        'Could not generate financial summary.',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }
