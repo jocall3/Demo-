@@ -1,12 +1,45 @@
 // --- 1. Observability Setup (MUST be imported and executed before ANY other module) ---
-import './opentelemetry';
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
+import { Resource } from '@opentelemetry/resources';
+import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { diag, DiagConsoleLogger, DiagLogLevel, trace, context } from '@opentelemetry/api';
+
+// For troubleshooting OpenTelemetry, set the log level to DiagLogLevel.DEBUG
+diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
+
+const SERVICE_NAME = process.env.OTEL_SERVICE_NAME || 'api-gateway';
+const PROMETHEUS_PORT = parseInt(process.env.PROMETHEUS_PORT || '9464', 10);
+
+const otelSDK = new NodeSDK({
+  resource: new Resource({
+    [SemanticResourceAttributes.SERVICE_NAME]: SERVICE_NAME,
+  }),
+  traceExporter: new OTLPTraceExporter(),
+  metricReader: new PrometheusExporter({
+    port: PROMETHEUS_PORT,
+  }),
+  instrumentations: [getNodeAutoInstrumentations()],
+});
+
+// Gracefully shut down the SDK on process exit to flush telemetry data.
+process.on('SIGTERM', () => {
+  otelSDK
+    .shutdown()
+    .then(() => console.log(`OpenTelemetry SDK for ${SERVICE_NAME} shut down successfully.`))
+    .catch((error) => console.log('Error shutting down OpenTelemetry SDK.', error))
+    .finally(() => process.exit(0));
+});
+
+otelSDK.start();
 
 // --- 2. NestJS Application Imports (after OTel setup) ---
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { trace, context } from '@opentelemetry/api';
 import pino from 'pino';
 
 // --- 3. Structured Logging with OpenTelemetry Context ---
@@ -16,7 +49,6 @@ import pino from 'pino';
  */
 class StructuredLogger implements LoggerService {
   private readonly pino: pino.Logger;
-  private readonly serviceName = 'api-gateway';
 
   constructor() {
     this.pino = pino({
@@ -27,7 +59,7 @@ class StructuredLogger implements LoggerService {
           const span = trace.getSpan(context.active());
           const logObject: { [key: string]: any } = {
             ...object,
-            service: this.serviceName,
+            service: SERVICE_NAME,
           };
           if (span) {
             const spanContext = span.spanContext();
@@ -107,6 +139,7 @@ async function bootstrap() {
   await app.listen(port);
 
   logger.log(`🚀 API Gateway is running on: http://localhost:${port}/graphql`);
+  logger.log(`Prometheus metrics available on port ${PROMETHEUS_PORT}`);
 }
 
 bootstrap();
