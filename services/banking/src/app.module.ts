@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GraphQLModule } from '@nestjs/graphql';
 import {
   ApolloFederationDriver,
@@ -22,17 +22,26 @@ import { BankingModule } from './banking.module';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
+      cache: true,
     }),
 
-    // GraphQL module configured for Apollo Federation.
-    GraphQLModule.forRoot<ApolloFederationDriverConfig>({
+    // GraphQL module configured for Apollo Federation, set up asynchronously
+    // to allow for dependency injection of the ConfigService.
+    GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      // Automatically generate the schema file which will be consumed by the gateway.
-      // `federation: 2` enables support for the latest Apollo Federation features.
-      autoSchemaFile: {
-        federation: 2,
-        path: join(process.cwd(), 'src/schema.gql'),
-      },
+      imports: [ConfigModule], // Make ConfigService available to the factory
+      useFactory: (configService: ConfigService) => ({
+        // Automatically generate the schema file which will be consumed by the gateway.
+        autoSchemaFile: {
+          federation: 2,
+          path: join(process.cwd(), 'src/schema.gql'),
+        },
+        // Sort the schema alphabetically for consistent schema generation.
+        sortSchema: true,
+        // Enable the GraphQL playground/sandbox UI only in non-production environments.
+        playground: configService.get<string>('NODE_ENV') !== 'production',
+      }),
+      inject: [ConfigService],
     }),
 
     // The primary feature module for this service.
