@@ -1,20 +1,64 @@
-
-
-import React, { useContext, useMemo } from 'react';
+import React from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import Card from './Card';
-import { DataContext } from '../context/DataContext';
+import { useInvestmentPortfolio } from '../hooks/useInvestmentPortfolio'; // Decoupled from DataContext
 
+/**
+ * A custom tooltip component for the pie chart for improved styling and data presentation.
+ */
+const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+        const data = payload[0].payload;
+        return (
+            <div className="bg-gray-900/80 p-3 border border-gray-600 rounded-md shadow-lg backdrop-blur-sm">
+                <p className="text-gray-200 font-semibold">{data.name}</p>
+                <p className="text-cyan-400">
+                    Value: ${data.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                {data.performanceYTD !== undefined && (
+                    <p className={`text-sm ${data.performanceYTD >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        YTD: {data.performanceYTD.toFixed(2)}%
+                    </p>
+                )}
+            </div>
+        );
+    }
+    return null;
+};
+
+/**
+ * Displays the user's investment portfolio breakdown.
+ * This component has been refactored to fetch its data via the `useInvestmentPortfolio`
+ * custom hook, which uses React Query. This decouples the component from the global DataContext
+ * and makes it a self-contained feature that manages its own server state.
+ */
 const InvestmentPortfolio: React.FC = () => {
-    const context = useContext(DataContext);
-    if (!context) throw new Error("InvestmentPortfolio must be within a DataProvider");
-    const { assets } = context;
+    // The component is now completely decoupled from the global context for its data.
+    // It relies on a dedicated hook that manages fetching, caching, and state.
+    const { data: portfolio, isLoading, isError, error } = useInvestmentPortfolio();
 
-    const { totalValue, weightedPerformance } = useMemo(() => {
-        const total = assets.reduce((sum, asset) => sum + asset.value, 0);
-        const weightedPerf = total > 0 ? assets.reduce((sum, asset) => sum + asset.value * (asset.performanceYTD || 0), 0) / total : 0;
-        return { totalValue: total, weightedPerformance: weightedPerf };
-    }, [assets]);
+    // Use the Card component's built-in loading and error states for a consistent UX.
+    if (isLoading) {
+        // Provide a specific height to prevent layout shift during loading.
+        return <Card title="Investment Portfolio" isLoading={true} className="min-h-[380px]" />;
+    }
+
+    if (isError) {
+        return <Card title="Investment Portfolio" errorState={error?.message || "Failed to load portfolio data."} className="min-h-[380px]" />;
+    }
+    
+    // Handle the case where data fetching is successful but returns no data.
+    if (!portfolio || portfolio.assets.length === 0) {
+         return (
+            <Card title="Investment Portfolio" className="min-h-[380px]">
+                <div className="flex items-center justify-center h-full text-center text-gray-500">
+                    <p>No investment data available.<br/>Start investing to see your portfolio here.</p>
+                </div>
+            </Card>
+        );
+    }
+
+    const { assets, totalValue, weightedPerformance } = portfolio;
 
   return (
     <Card title="Investment Portfolio">
@@ -36,12 +80,7 @@ const InvestmentPortfolio: React.FC = () => {
                   <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
               </Pie>
-              <Tooltip
-                 contentStyle={{
-                    backgroundColor: 'rgba(31, 41, 55, 0.8)',
-                    borderColor: '#4b5563'
-                 }}
-              />
+              <Tooltip content={<CustomTooltip />} />
               <Legend iconSize={10} layout="vertical" verticalAlign="middle" align="right" />
             </PieChart>
           </ResponsiveContainer>
@@ -49,8 +88,10 @@ const InvestmentPortfolio: React.FC = () => {
         <div className="text-center md:text-left">
             <p className="text-gray-400 text-sm">Total Value</p>
             <p className="text-5xl font-bold text-white">${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-            <p className="text-gray-400 text-sm mt-4">Performance (YTD)</p>
-            <p className="text-2xl font-semibold text-green-400">+{weightedPerformance.toFixed(2)}%</p>
+            <p className="text-gray-400 text-sm mt-4">Weighted Performance (YTD)</p>
+            <p className={`text-2xl font-semibold ${weightedPerformance >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {weightedPerformance >= 0 ? '+' : ''}{weightedPerformance.toFixed(2)}%
+            </p>
         </div>
       </div>
     </Card>
