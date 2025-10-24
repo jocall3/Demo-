@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
-import { PlaidModule } from './plaid/plaid.module';
+import { PlaidModule } from './plaid.module';
 import configuration from './config/configuration';
 import { join } from 'path';
 

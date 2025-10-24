@@ -1,18 +1,18 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  AccountBase,
+  AccountsBalanceGetRequest,
+  AccountsGetRequest,
   Configuration,
+  CountryCode,
+  ItemPublicTokenExchangeRequest,
+  LinkTokenCreateRequest,
   PlaidApi,
   PlaidEnvironments,
-  CountryCode,
   Products,
-  LinkTokenCreateRequest,
-  ItemPublicTokenExchangeRequest,
-  TransactionsGetRequest,
-  AccountBase,
   Transaction,
-  AccountsGetRequest,
-  AccountsBalanceGetRequest,
+  TransactionsGetRequest,
 } from 'plaid';
 
 /**
@@ -91,7 +91,8 @@ export class PlaidService {
       this.logger.log(`Creating Plaid Link token for user: ${userId}`);
       const response = await this.plaidClient.linkTokenCreate(request);
       this.logger.log(`Successfully created Plaid Link token for user: ${userId}`);
-      return response.data;
+      const { link_token, expiration } = response.data;
+      return { link_token, expiration };
     } catch (error) {
       this.logger.error('Failed to create Plaid Link token.', error.response?.data || error.message);
       throw new HttpException('Could not create Plaid Link token.', HttpStatus.INTERNAL_SERVER_ERROR);
@@ -103,9 +104,8 @@ export class PlaidService {
    * The access token is then stored securely, associated with the user.
    * @param publicToken - The public token from the Plaid Link `onSuccess` callback.
    * @param userId - The user ID to associate with the new Plaid Item.
-   * @returns A success status object.
    */
-  async exchangePublicToken(publicToken: string, userId: string): Promise<{ success: boolean; item_id: string }> {
+  async exchangeAndStorePublicToken(publicToken: string, userId: string): Promise<void> {
     const request: ItemPublicTokenExchangeRequest = { public_token: publicToken };
 
     try {
@@ -117,8 +117,6 @@ export class PlaidService {
       // In a real application, persist the access_token and item_id in a secure, encrypted database.
       this.itemsByUser.set(userId, { accessToken: access_token, itemId: item_id });
       this.logger.log(`Successfully exchanged and stored access token for item ID: ${item_id}`);
-
-      return { success: true, item_id };
     } catch (error) {
       this.logger.error('Failed to exchange public token.', error.response?.data || error.message);
       throw new HttpException('Could not exchange public token.', HttpStatus.INTERNAL_SERVER_ERROR);
@@ -145,52 +143,81 @@ export class PlaidService {
   }
 
   /**
-   * Fetches account balances for a given user.
-   * @param userId - The ID of the user.
-   * @returns An object containing accounts and their balance information.
+   * Finds the access token that can access a given account ID.
+   * NOTE: This is an inefficient mock for demonstration purposes.
+   * A real implementation would use a database to map account IDs to user IDs/access tokens.
+   * @param accountId The Plaid account ID.
+   * @returns The access token.
    */
-  async getBalances(userId: string): Promise<AccountBase[]> {
-    const accessToken = this.getAccessToken(userId);
-    const request: AccountsBalanceGetRequest = { access_token: accessToken };
-
-    try {
-      this.logger.log(`Fetching balances for user: ${userId}`);
-      const response = await this.plaidClient.accountsBalanceGet(request);
-      return response.data.accounts;
-    } catch (error) {
-      this.logger.error(`Failed to fetch balances for user ${userId}.`, error.response?.data || error.message);
-      throw new HttpException('Could not fetch balance information.', HttpStatus.INTERNAL_SERVER_ERROR);
+  private async findAccessTokenForAccount(accountId: string): Promise<string | null> {
+    for (const item of this.itemsByUser.values()) {
+      try {
+        await this.plaidClient.accountsGet({
+          access_token: item.accessToken,
+          options: { account_ids: [accountId] },
+        });
+        return item.accessToken; // Found the token that works
+      } catch (error) {
+        // Ignore errors, this token just can't see the account
+        continue;
+      }
     }
+    return null;
   }
 
-  /**
-   * Fetches transactions for a given user over a specified date range.
-   * @param userId - The ID of the user.
-   * @param startDate - The start date in 'YYYY-MM-DD' format.
-   * @param endDate - The end date in 'YYYY-MM-DD' format.
-   * @returns A list of transactions.
-   */
-  async getTransactions(userId: string, startDate: string, endDate: string): Promise<Transaction[]> {
-    const accessToken = this.getAccessToken(userId);
+  async getAccountById(accountId: string): Promise<AccountBase> {
+    const accessToken = await this.findAccessTokenForAccount(accountId);
+    if (!accessToken) {
+      throw new HttpException(`Account with ID ${accountId} not found or inaccessible.`, HttpStatus.NOT_FOUND);
+    }
+    const response = await this.plaidClient.accountsGet({
+      access_token: accessToken,
+      options: { account_ids: [accountId] },
+    });
+    return response.data.accounts[0];
+  }
+
+  async getBalanceForAccount(accountId: string): Promise<AccountBase['balances']> {
+    const accessToken = await this.findAccessTokenForAccount(accountId);
+    if (!accessToken) {
+      throw new HttpException(`Account with ID ${accountId} not found or inaccessible.`, HttpStatus.NOT_FOUND);
+    }
+
+    const request: AccountsBalanceGetRequest = {
+      access_token: accessToken,
+      options: { account_ids: [accountId] },
+    };
+
+    const response = await this.plaidClient.accountsBalanceGet(request);
+    if (response.data.accounts.length === 0) {
+      throw new HttpException(`Balance for account ${accountId} not found.`, HttpStatus.NOT_FOUND);
+    }
+    return response.data.accounts[0].balances;
+  }
+
+  async getTransactionsForAccount(accountId: string, options: { count: number }): Promise<Transaction[]> {
+    const accessToken = await this.findAccessTokenForAccount(accountId);
+    if (!accessToken) {
+      throw new HttpException(`Account with ID ${accountId} not found or inaccessible.`, HttpStatus.NOT_FOUND);
+    }
+
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - 90); // Default to last 90 days
+
+    const formatDate = (date: Date) => date.toISOString().split('T')[0];
 
     const request: TransactionsGetRequest = {
       access_token: accessToken,
-      start_date: startDate,
-      end_date: endDate,
+      start_date: formatDate(startDate),
+      end_date: formatDate(endDate),
       options: {
-        count: 250,
-        offset: 0,
+        account_ids: [accountId],
+        count: options.count,
       },
     };
 
-    try {
-      this.logger.log(`Fetching transactions for user: ${userId} from ${startDate} to ${endDate}`);
-      const response = await this.plaidClient.transactionsGet(request);
-      this.logger.log(`Successfully fetched ${response.data.transactions.length} transactions.`);
-      return response.data.transactions;
-    } catch (error) {
-      this.logger.error(`Failed to fetch transactions for user ${userId}.`, error.response?.data || error.message);
-      throw new HttpException('Could not fetch transaction information.', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
+    const response = await this.plaidClient.transactionsGet(request);
+    return response.data.transactions;
   }
 }

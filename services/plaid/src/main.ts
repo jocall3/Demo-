@@ -27,7 +27,7 @@ const otelSDK = new NodeSDK({
   traceExporter: new OTLPTraceExporter(),
   // Use a different port for Prometheus to avoid conflicts with other services.
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.PLAID_PROMETHEUS_PORT || '9465', 10),
+    port: parseInt(process.env.PLAID_PROMETHEUS_PORT || '9466', 10),
   }),
   instrumentations: [getNodeAutoInstrumentations()],
 });
@@ -112,8 +112,9 @@ async function bootstrap() {
   const logger = app.get(StructuredLogger);
   const configService = app.get(ConfigService);
 
-  // A GraphQL-only subgraph does not need a global REST API prefix or CORS.
-  // It will be accessed via the Apollo Gateway, not directly by browsers.
+  // Enable CORS for local development, allowing tools like Apollo Studio to connect.
+  app.enableCors();
+  logger.log('CORS has been enabled for all origins.');
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -127,12 +128,13 @@ async function bootstrap() {
   );
   logger.log('Global ValidationPipe configured.');
 
-  const port = configService.get<number>('PORT') || 4001; // Default port for Plaid service
-  const prometheusPort = process.env.PLAID_PROMETHEUS_PORT || '9465';
+  const port = configService.get<number>('port') || 4003; // Default port for Plaid service
+  const prometheusPort = process.env.PLAID_PROMETHEUS_PORT || '9466';
 
   await app.listen(port);
 
-  logger.log(`🚀 Plaid subgraph is running on: http://localhost:${port}/graphql`);
+  const appUrl = await app.getUrl();
+  logger.log(`🚀 Plaid subgraph is running on: ${appUrl}/graphql`);
   logger.log(
     `Prometheus metrics available on port ${prometheusPort}`,
   );
