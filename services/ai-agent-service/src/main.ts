@@ -22,9 +22,9 @@ const otelSDK = new NodeSDK({
   traceExporter: new OTLPTraceExporter(),
   // PrometheusExporter exposes a /metrics endpoint for Prometheus to scrape.
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.PROMETHEUS_PORT || '9464', 10),
+    port: parseInt(process.env.PROMETHEUS_PORT || '9466', 10),
   }),
-  // Auto-instrument popular libraries (Express, HTTP, Axios, gRPC, etc.)
+  // Auto-instrument popular libraries (e.g., @nestjs/core, http, graphql)
   instrumentations: [getNodeAutoInstrumentations()],
 });
 
@@ -32,8 +32,8 @@ const otelSDK = new NodeSDK({
 process.on('SIGTERM', () => {
   otelSDK
     .shutdown()
-    .then(() => console.log('OpenTelemetry SDK shut down successfully for ai-agent-service.'))
-    .catch((error) => console.log('Error shutting down OpenTelemetry SDK for ai-agent-service.', error))
+    .then(() => console.log(`OpenTelemetry SDK for ${SERVICE_NAME} shut down successfully.`))
+    .catch((error) => console.log('Error shutting down OpenTelemetry SDK.', error))
     .finally(() => process.exit(0));
 });
 
@@ -117,33 +117,32 @@ async function bootstrap() {
   const logger = app.get(StructuredLogger);
   const configService = app.get(ConfigService);
 
-  // Enable CORS - Important for local development with Apollo Studio Sandbox.
-  // The Gateway will be the primary consumer in production.
+  // Enable CORS - useful for allowing Apollo Studio to introspect the subgraph in development
   app.enableCors();
-  logger.log(`CORS enabled for all origins.`);
+  logger.log('CORS has been enabled.');
 
-  // Global pipes for validation and transformation of inputs in GraphQL resolvers.
+  // Global pipes for validation and transformation of DTOs
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
+      whitelist: true, // Strip properties that do not have any decorators
+      forbidNonWhitelisted: true, // Throw an error if non-whitelisted values are provided
+      transform: true, // Automatically transform payloads to be objects typed according to their DTO classes
       transformOptions: {
         enableImplicitConversion: true,
       },
     }),
   );
-  logger.log('Global ValidationPipe configured for GraphQL inputs.');
+  logger.log('Global ValidationPipe configured.');
 
-  // Get port from environment variables, with a fallback.
-  const port = configService.get<number>('PORT') || 4003;
+  // Get port from environment variables, with a fallback
+  const port = configService.get<number>('PORT') || 4004;
 
   await app.listen(port);
 
-  const appUrl = await app.getUrl();
-  logger.log(`AI Agent Subgraph is running on: ${appUrl}/graphql`);
+  logger.log(`AI Agent subgraph is running on: http://localhost:${port}`);
+  logger.log(`GraphQL endpoint available at: http://localhost:${port}/graphql`);
   logger.log(
-    `Prometheus metrics available on port ${process.env.PROMETHEUS_PORT || '9464'}`,
+    `Prometheus metrics available on port ${process.env.PROMETHEUS_PORT || '9466'}`,
   );
 }
 
