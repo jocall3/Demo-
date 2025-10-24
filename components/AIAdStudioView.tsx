@@ -1,9 +1,8 @@
 // components/AIAdStudioView.tsx
 import React, { useState, useEffect, useCallback, useMemo, useRef, Reducer, useReducer } from 'react';
-import { GoogleGenAI } from "@google/genai";
 import Card from './Card';
 
-const pollingMessages = [ "Initializing Veo 2.0 model...", "Analyzing prompt semantics...", "Generating initial keyframes...", "Rendering motion vectors...", "Upscaling to high resolution...", "Adding audio layer...", "Finalizing video file..." ];
+const pollingMessages = [ "Initializing generation on backend...", "Analyzing prompt semantics...", "Generating initial keyframes...", "Rendering motion vectors...", "Upscaling to high resolution...", "Adding audio layer...", "Finalizing video file..." ];
 
 // SECTION: Type Definitions for a real-world application
 // =======================================================
@@ -51,8 +50,9 @@ export interface AdProject {
     assets: VideoAsset[];
 }
 
+// BFF Integration: The API Key is now managed by the Backend-for-Frontend service.
+// The client-side AppConfig no longer needs to store it.
 export interface AppConfig {
-    apiKey: string | null;
     theme: AppTheme;
     autoSave: boolean;
     defaultSettings: GenerationSettings;
@@ -61,7 +61,7 @@ export interface AppConfig {
 // SECTION: Mock API and Data Layer
 // ===================================
 // In a real application, this would be in a separate file and make real network requests.
-// For this exercise, it's included here to simulate a backend.
+// For this exercise, it's included here to simulate a backend for project management.
 
 export class MockBackendAPI {
     private projects: AdProject[] = [];
@@ -265,7 +265,6 @@ const initialState: AppState = {
     isLoading: true,
     error: null,
     config: {
-        apiKey: null,
         theme: 'dark',
         autoSave: true,
         defaultSettings: {
@@ -633,15 +632,12 @@ export const StoryboardEditor: React.FC<{
 // =========================
 
 const AIAdStudioView: React.FC = () => {
-    // Original state
     const [prompt, setPrompt] = useState('A neon hologram of a cat driving a futuristic car at top speed through a cyberpunk city.');
     const [generationState, setGenerationState] = useState<GenerationState>('idle');
     const [videoUrl, setVideoUrl] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [pollingMessageIndex, setPollingMessageIndex] = useState(0);
-    const [pollingIntervalId, setPollingIntervalId] = useState<number | null>(null);
 
-    // New state for the full application
     const [appState, dispatch] = useReducer(appReducer, initialState);
     const [generationSettings, setGenerationSettings] = useState<GenerationSettings>(initialState.config.defaultSettings);
     const [generationMode, setGenerationMode] = useState<GenerationMode>('single');
@@ -649,50 +645,32 @@ const AIAdStudioView: React.FC = () => {
     const [selectedAsset, setSelectedAsset] = useState<VideoAsset | null>(null);
     const isGenerating = generationState === 'generating' || generationState === 'polling';
     
-    // API Key management
-    const apiKeyInputRef = useRef<HTMLInputElement>(null);
+    const pollingIntervalRef = useRef<number | null>(null);
 
-    // Derived state
     const currentProject = useMemo(() => {
         return appState.projects.find(p => p.id === appState.currentProjectId);
     }, [appState.projects, appState.currentProjectId]);
 
-    // Effects
     useEffect(() => {
-        // Load initial projects from mock API
         mockApi.getProjects().then(projects => {
             dispatch({ type: 'SET_PROJECTS', payload: projects });
         }).catch(err => {
             dispatch({ type: 'SET_ERROR', payload: 'Failed to load projects.' });
             console.error(err);
         });
-
-        // Load API key from local storage
-        const storedApiKey = process.env.API_KEY || localStorage.getItem('google_genai_api_key');
-        if (storedApiKey) {
-            dispatch({ type: 'UPDATE_CONFIG', payload: { apiKey: storedApiKey } });
-        }
     }, []);
 
     useEffect(() => {
-        // Cleanup interval on component unmount or when polling stops
-        return () => {
-            if (pollingIntervalId) {
-                clearInterval(pollingIntervalId);
-            }
-        };
-    }, [pollingIntervalId]);
-
-    useEffect(() => {
-        // Cleanup blob URL on component unmount or when videoUrl changes
         return () => {
             if (videoUrl && videoUrl.startsWith('blob:')) {
                 URL.revokeObjectURL(videoUrl);
             }
+            if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current);
+            }
         };
     }, [videoUrl]);
     
-    // Project management handlers
     const handleCreateProject = useCallback(async (name: string) => {
         try {
             const newProject = await mockApi.createProject(name);
@@ -723,7 +701,6 @@ const AIAdStudioView: React.FC = () => {
         }
     }, []);
 
-    // Asset management handlers
     const handleDeleteAsset = useCallback(async (assetId: string) => {
         if (!currentProject) return;
         if (!window.confirm("Are you sure you want to delete this video asset?")) return;
@@ -750,24 +727,8 @@ const AIAdStudioView: React.FC = () => {
         }
     }, [currentProject]);
 
-    // API Key handler
-    const handleApiKeySave = () => {
-        const key = apiKeyInputRef.current?.value;
-        if (key) {
-            localStorage.setItem('google_genai_api_key', key);
-            dispatch({ type: 'UPDATE_CONFIG', payload: { apiKey: key } });
-            alert("API Key saved. Please refresh the page if you experience issues.");
-        }
-    };
-
-    // Main Generation Logic (adapted from original)
+    // Main Generation Logic - Refactored for BFF architecture
     const handleGenerate = async () => {
-        if (!appState.config.apiKey) {
-            setError('API Key is not set. Please add it in the settings.');
-            setGenerationState('error');
-            return;
-        }
-
         if(!currentProject) {
             setError('No project selected. Please create or select a project first.');
             setGenerationState('error');
@@ -781,114 +742,72 @@ const AIAdStudioView: React.FC = () => {
         }
         setVideoUrl(null);
         setPollingMessageIndex(0);
-        if (pollingIntervalId) {
-            clearInterval(pollingIntervalId);
+
+        if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
         }
         
+        pollingIntervalRef.current = window.setInterval(() => {
+            setPollingMessageIndex(prev => (prev + 1) % pollingMessages.length);
+        }, 2500);
+
         const finalPrompt = generationMode === 'single' ? prompt : scenes.map(s => s.prompt).join(' | ');
 
         try {
-            const ai = new GoogleGenAI({ apiKey: appState.config.apiKey });
-            
-            // This is a simplified representation. A real API call would include all settings.
-            const apiPayload: any = {
-                model: generationSettings.model,
+            const bffPayload = {
                 prompt: finalPrompt,
-                config: {
-                    numberOfVideos: 1,
-                    aspectRatio: generationSettings.aspectRatio,
-                    resolution: '720p',
-                    //... other settings
-                },
+                settings: generationSettings,
+                mode: generationMode,
+                scenes: generationMode === 'storyboard' ? scenes : undefined,
             };
-            console.log("Sending to AI API:", apiPayload);
 
-            let operation = await ai.models.generateVideos(apiPayload);
-
+            console.log("Sending to BFF:", bffPayload);
             setGenerationState('polling');
-            
-            const intervalId: number = window.setInterval(() => {
-                setPollingMessageIndex(prev => (prev + 1) % pollingMessages.length);
-            }, 2500);
-            setPollingIntervalId(intervalId);
 
-            while (!operation.done) {
-                await new Promise(resolve => setTimeout(resolve, 10000)); // Poll every 10 seconds
-                operation = await ai.operations.getVideosOperation({ operation: operation });
-            }
-            
-            clearInterval(intervalId);
-            setPollingIntervalId(null);
+            // The frontend calls the BFF and waits for the final video.
+            // The BFF handles the entire multi-step process with the Google GenAI API.
+            const response = await fetch('/api/ai/generate-video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(bffPayload),
+            });
 
-            if (operation.error) {
-                 throw new Error(String(operation.error.message) || 'Video generation failed after polling.');
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || `BFF Error: ${response.statusText}`);
             }
 
-            const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+            const videoBlob = await response.blob();
+            const objectURL = URL.createObjectURL(videoBlob);
+            setVideoUrl(objectURL);
+            setGenerationState('done');
 
-            if (downloadLink) {
-                setPollingMessageIndex(pollingMessages.length - 1);
-                const videoResponse = await fetch(`${downloadLink}&key=${appState.config.apiKey}`);
-                if (!videoResponse.ok) {
-                    throw new Error(`Failed to download the generated video. Status: ${videoResponse.statusText}`);
-                }
-                const videoBlob = await videoResponse.blob();
-                const objectURL = URL.createObjectURL(videoBlob);
-                setVideoUrl(objectURL);
-                setGenerationState('done');
+            const newAssetData = {
+                url: objectURL,
+                prompt: finalPrompt,
+                settings: generationSettings,
+                generationMode,
+                storyboard: generationMode === 'storyboard' ? scenes : undefined,
+                isFavorite: false,
+            };
 
-                // Add the new asset to the current project
-                const newAssetData = {
-                    url: objectURL,
-                    prompt: finalPrompt,
-                    settings: generationSettings,
-                    generationMode,
-                    storyboard: generationMode === 'storyboard' ? scenes : undefined,
-                    isFavorite: false,
-                };
-
-                const newAsset = await mockApi.addAssetToProject(currentProject.id, newAssetData);
-                dispatch({ type: 'ADD_ASSET', payload: { projectId: currentProject.id, asset: newAsset } });
-
-            } else {
-                throw new Error('Video generation completed, but no download link was found in the response.');
-            }
+            const newAsset = await mockApi.addAssetToProject(currentProject.id, newAssetData);
+            dispatch({ type: 'ADD_ASSET', payload: { projectId: currentProject.id, asset: newAsset } });
 
         } catch (err: any) {
             console.error("Video generation failed:", err);
             setError(String(err?.message || 'An error occurred during video generation.'));
             setGenerationState('error');
-            if (pollingIntervalId) {
-                clearInterval(pollingIntervalId);
-                setPollingIntervalId(null);
+        } finally {
+            if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current);
+                pollingIntervalRef.current = null;
             }
         }
     };
 
     if (appState.isLoading) {
         return <div className="text-white text-center p-10">Loading Ad Studio...</div>;
-    }
-
-    if (!appState.config.apiKey) {
-        return (
-            <div className="h-screen w-screen flex items-center justify-center bg-gray-900">
-                <div className="max-w-md w-full bg-gray-800 p-8 rounded-lg shadow-lg">
-                    <h2 className="text-2xl font-bold text-white mb-4">API Key Required</h2>
-                    <p className="text-gray-400 mb-6">Please enter your Google GenAI API key to use the AI Ad Studio.</p>
-                    <div className="space-y-4">
-                        <input
-                            ref={apiKeyInputRef}
-                            type="password"
-                            placeholder="Enter your API key here"
-                            className="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-white"
-                        />
-                        <button onClick={handleApiKeySave} className="w-full py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg">
-                            Save API Key
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
     }
     
     return (

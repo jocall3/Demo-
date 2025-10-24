@@ -1,5 +1,4 @@
 import React, { createContext, useState, ReactNode, useEffect, useCallback } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
 import type { Transaction, Asset, BudgetCategory, GamificationState, IllusionType, LinkedAccount, QuantumWeaverState, AIPlan, AIQuestion, Subscription, CreditScore, UpcomingBill, SavingsGoal, MarketMover, MarketplaceProduct, FinancialGoal, AIGoalPlan, CryptoAsset, VirtualCard, PaymentOperation, AIInsight, CorporateCard, CorporateTransaction, RewardPoints, Notification, NFTAsset, RewardItem, APIStatus, CreditFactor, CorporateCardControls } from '../types';
 import { View, WeaverStage } from '../types';
 import { MOCK_TRANSACTIONS, MOCK_ASSETS, MOCK_IMPACT_INVESTMENTS, MOCK_BUDGETS, MOCK_SUBSCRIPTIONS, MOCK_CREDIT_SCORE, MOCK_UPCOMING_BILLS, MOCK_SAVINGS_GOALS, MOCK_MARKET_MOVERS, MOCK_FINANCIAL_GOALS, MOCK_CRYPTO_ASSETS, MOCK_PAYMENT_OPERATIONS, MOCK_CORPORATE_CARDS, MOCK_CORPORATE_TRANSACTIONS, MOCK_REWARD_POINTS, MOCK_NOTIFICATIONS, MOCK_REWARD_ITEMS, MOCK_API_STATUS, MOCK_CREDIT_FACTORS } from '../data/mockData';
@@ -31,7 +30,7 @@ interface IDataContext {
   setActiveIllusion: (illusion: IllusionType) => void;
   linkedAccounts: LinkedAccount[];
   unlinkAccount: (id: string) => void;
-  handlePlaidSuccess: (publicToken: string, metadata: any) => void;
+  handlePlaidSuccess: (publicToken: string, metadata: any) => Promise<void>;
   weaverState: QuantumWeaverState;
   pitchBusinessPlan: (plan: string) => Promise<void>;
   simulateTestPass: () => Promise<void>;
@@ -69,8 +68,6 @@ interface IDataContext {
   redeemReward: (item: RewardItem) => boolean;
   apiStatus: APIStatus[];
   creditFactors: CreditFactor[];
-  geminiApiKey: string | null;
-  setGeminiApiKey: (key: string) => void;
 }
 
 export const DataContext = createContext<IDataContext | undefined>(undefined);
@@ -108,20 +105,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     error: null,
   });
 
-  const [geminiApiKey, setGeminiApiKeyState] = useState<string | null>(() => {
-      return localStorage.getItem('geminiApiKey');
-  });
-
-  const setGeminiApiKey = (key: string) => {
-      if (key) {
-          localStorage.setItem('geminiApiKey', key);
-          setGeminiApiKeyState(key);
-      } else {
-          localStorage.removeItem('geminiApiKey');
-          setGeminiApiKeyState(null);
-      }
-  };
-
   // State for new dashboard widgets
   const [subscriptions] = useState<Subscription[]>(MOCK_SUBSCRIPTIONS);
   const [creditScore] = useState<CreditScore>(MOCK_CREDIT_SCORE);
@@ -154,15 +137,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   
   // State for new views
   const [rewardItems] = useState<RewardItem[]>(MOCK_REWARD_ITEMS);
-  const [apiStatus, setApiStatus] = useState<APIStatus[]>(MOCK_API_STATUS);
+  const [apiStatus] = useState<APIStatus[]>(MOCK_API_STATUS);
   const [creditFactors] = useState<CreditFactor[]>(MOCK_CREDIT_FACTORS);
-
-  useEffect(() => {
-    setApiStatus(prev => prev.map(s => 
-        s.provider === 'Google Gemini' ? { ...s, status: geminiApiKey ? 'Operational' : 'Major Outage' } : s
-    ));
-  }, [geminiApiKey]);
-
 
   const setCustomBackgroundUrl = (url: string) => {
       localStorage.setItem('customBackgroundUrl', url);
@@ -194,226 +170,114 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const generateDashboardInsights = useCallback(async () => {
     setIsInsightsLoading(true);
-     if (!geminiApiKey) {
-        setAiInsights([{ id: 'error_no_key', title: 'API Key Not Set', description: 'Please configure your Google Gemini API key in the API Status view.', urgency: 'high' }]);
-        setIsInsightsLoading(false);
-        return;
-    }
     try {
-        const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-        const recentTransactionsSummary = transactions.slice(0, 10).map(t => `${t.description}: $${t.amount.toFixed(2)} (${t.type})`).join(', ');
-        
-        const prompt = `You are Quantum, a proactive AI financial advisor. Analyze the user's recent transactions to generate 3 diverse, actionable insights. Your insights must be concise. If an insight is about high spending, provide chartData for the top 3 items. Format your response as a JSON object that strictly adheres to the provided schema. Do not include any text outside of the JSON object.
-
-Recent Transactions: ${recentTransactionsSummary}`;
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        insights: {
-                            type: Type.ARRAY,
-                            description: "A list of 3 diverse financial insights.",
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    id: { type: Type.STRING, description: "A unique identifier for the insight, e.g., 'insight_1'." },
-                                    title: { type: Type.STRING, description: "A short, catchy title for the insight (max 10 words)." },
-                                    description: { type: Type.STRING, description: "A concise, user-friendly description of the insight (max 2 sentences)." },
-                                    urgency: { type: Type.STRING, description: "The urgency level of the insight.", enum: ['low', 'medium', 'high'] },
-                                    chartData: {
-                                        type: Type.ARRAY,
-                                        description: "Optional. If the insight is about spending, provide data for a bar chart. Include the top 3 items.",
-                                        nullable: true,
-                                        items: {
-                                            type: Type.OBJECT,
-                                            properties: {
-                                                name: { type: Type.STRING, description: "The name of the item for the chart (e.g., a specific transaction description)." },
-                                                value: { type: Type.NUMBER, description: "The value (amount) for the chart." }
-                                            },
-                                            required: ["name", "value"]
-                                        }
-                                    }
-                                },
-                                required: ["id", "title", "description", "urgency"]
-                            }
-                        }
-                    },
-                    required: ["insights"]
-                }
-            }
-        });
-        
-        const parsedResponse = JSON.parse(response.text);
-        if (parsedResponse.insights) {
-            setAiInsights(parsedResponse.insights);
+        // Fetch from the BFF endpoint instead of calling Gemini directly.
+        // The BFF is responsible for managing API keys and constructing the prompt.
+        const response = await fetch('/api/insights/dashboard');
+        if (!response.ok) {
+            throw new Error(`BFF Error: ${response.statusText}`);
         }
-
+        const data = await response.json();
+        setAiInsights(data.insights);
     } catch (error) {
-        console.error("Failed to generate AI insights:", error);
-        // Fallback to a default insight on error
-        setAiInsights([{ id: 'error_1', title: 'Analysis Paused', description: 'Could not fetch fresh insights at this time. Displaying last known data.', urgency: 'low' }]);
+        console.error("Failed to fetch AI insights from BFF:", error);
+        setAiInsights([{ id: 'error_1', title: 'Analysis Paused', description: 'Could not fetch fresh insights at this time. Please check your connection.', urgency: 'low' }]);
     } finally {
         setIsInsightsLoading(false);
     }
-}, [transactions, geminiApiKey]); // Dependency on transactions ensures it can re-run with new data
+  }, []);
 
-useEffect(() => {
-    generateDashboardInsights(); // Initial generation
-    const intervalId = setInterval(generateDashboardInsights, 35000); // Auto-refresh every 35 seconds
-    return () => clearInterval(intervalId);
-}, [generateDashboardInsights]);
+  useEffect(() => {
+    // generateDashboardInsights(); // Initial generation on mount is disabled for demo purposes
+    // const intervalId = setInterval(generateDashboardInsights, 35000); // Auto-refresh
+    // return () => clearInterval(intervalId);
+  }, [generateDashboardInsights]);
 
-  const handlePlaidSuccess = (publicToken: string, metadata: any) => {
+  const handlePlaidSuccess = async (publicToken: string, metadata: any) => {
     setIsImportingData(true);
-    console.log("Plaid Link Success!", { publicToken, metadata });
+    try {
+      const response = await fetch('/api/plaid/exchange-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ publicToken, metadata }),
+      });
 
-    const newAccount: LinkedAccount = {
-        id: metadata.institution.institution_id,
-        name: metadata.institution.name,
-        mask: metadata.accounts[0].mask,
-    };
-    
-    if (!linkedAccounts.some(acc => acc.id === newAccount.id)) {
+      if (!response.ok) throw new Error('Token exchange with BFF failed');
+      
+      const { newAccount, newTransactions } = await response.json();
+      
+      // Update state based on BFF response
+      if (!linkedAccounts.some(acc => acc.id === newAccount.id)) {
         setLinkedAccounts(prev => [...prev, newAccount]);
+      }
+      setTransactions(prev => [...newTransactions, ...prev]);
+      updateGamification(100);
+      generateDashboardInsights();
+
+    } catch (error) {
+      console.error("Plaid integration error:", error);
+      // Fallback to client-side simulation for demo purposes if BFF call fails
+      const newAccount: LinkedAccount = {
+          id: metadata.institution.institution_id,
+          name: metadata.institution.name,
+          mask: metadata.accounts[0].mask,
+      };
+      if (!linkedAccounts.some(acc => acc.id === newAccount.id)) {
+          setLinkedAccounts(prev => [...prev, newAccount]);
+      }
+      setTransactions(prev => [ ...MOCK_TRANSACTIONS.slice(0,5).map(t => ({...t, id: `plaid_${t.id}_${Date.now()}`})), ...prev]);
+      updateGamification(100);
+    } finally {
+      // Use a timeout to simulate data processing
+      setTimeout(() => setIsImportingData(false), 2000);
     }
-    
-    setTimeout(() => {
-        const plaidTransactions: Transaction[] = [
-            { id: `plaid_${Date.now()}`, type: 'expense', category: 'Shopping', description: `Zara`, amount: 152.34, date: '2024-03-22', carbonFootprint: 10.1 },
-            { id: `plaid_${Date.now()+1}`, type: 'expense', category: 'Dining', description: `The Cheesecake Factory`, amount: 85.50, date: '2024-03-21', carbonFootprint: 8.2 },
-            { id: `plaid_${Date.now()+2}`, type: 'income', category: 'Salary', description: `Paycheck`, amount: 2500.00, date: '2024-03-20' },
-            { id: `plaid_${Date.now()+3}`, type: 'expense', category: 'Groceries', description: `Whole Foods`, amount: 210.40, date: '2024-03-19', carbonFootprint: 21.8 },
-            { id: `plaid_${Date.now()+4}`, type: 'expense', category: 'Transport', description: `Uber`, amount: 25.10, date: '2024-03-18', carbonFootprint: 2.1 },
-            { id: `plaid_${Date.now()+5}`, type: 'expense', category: 'Utilities', description: `Con Edison`, amount: 112.00, date: '2024-03-15', carbonFootprint: 25.3 },
-            { id: `plaid_${Date.now()+6}`, type: 'expense', category: 'Entertainment', description: `Netflix Subscription`, amount: 15.99, date: '2024-03-12', carbonFootprint: 0.5 },
-            { id: `plaid_${Date.now()+7}`, type: 'expense', category: 'Dining', description: `Starbucks`, amount: 7.80, date: '2024-03-11', carbonFootprint: 0.8 },
-        ];
-        
-        setTransactions(prev => [...plaidTransactions, ...prev]);
-        
-        updateGamification(100);
-        
-        // The generateDashboardInsights function will automatically re-run due to the dependency change,
-        // but we can call it here to ensure immediate feedback after import simulation.
-        generateDashboardInsights();
-        
-        setIsImportingData(false);
-    }, 4000);
   };
 
   const unlinkAccount = (id: string) => {
       setLinkedAccounts(prev => prev.filter(acc => acc.id !== id));
+      // Fire-and-forget request to the BFF to update the backend
+      fetch('/api/plaid/unlink-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: id })
+      }).catch(err => console.error('Failed to unlink account on server:', err));
   };
 
   const pitchBusinessPlan = async (plan: string) => {
     setWeaverState(prev => ({ ...prev, stage: WeaverStage.Analysis, businessPlan: plan, error: null }));
-    if (!geminiApiKey) {
-        setWeaverState(prev => ({ ...prev, stage: WeaverStage.Error, error: "Google Gemini API Key is not set. Please add it in the API Status view." }));
-        return;
-    }
-    
     try {
-      const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-      const prompt = `Analyze the following business plan. Provide brief, constructive initial feedback (1-2 sentences) and generate exactly 5 sample assessment questions based on the plan's potential weaknesses or key areas. The questions should cover different categories like Market, Finance, Operations, etc.
-
-Business Plan: "${plan}"`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    feedback: { type: Type.STRING },
-                    questions: {
-                        type: Type.ARRAY,
-                        items: {
-                            type: Type.OBJECT,
-                            properties: {
-                                id: { type: Type.STRING },
-                                question: { type: Type.STRING },
-                                category: { type: Type.STRING }
-                            },
-                            required: ["id", "question", "category"]
-                        }
-                    }
-                },
-                 required: ["feedback", "questions"]
-            }
-        }
+      const response = await fetch('/api/weaver/pitch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan }),
       });
-      
-      const parsedResponse = JSON.parse(response.text);
+      if (!response.ok) throw new Error('BFF returned an error during pitch analysis');
+
+      const data = await response.json();
       setWeaverState(prev => ({
         ...prev,
         stage: WeaverStage.Test,
-        feedback: parsedResponse.feedback,
-        questions: parsedResponse.questions,
+        feedback: data.feedback,
+        questions: data.questions,
       }));
-
     } catch (err) {
-      console.error("Error analyzing business plan:", err);
-      setWeaverState(prev => ({ ...prev, stage: WeaverStage.Error, error: "Plato AI encountered an issue analyzing your plan. Please try again." }));
+      console.error("Error analyzing business plan via BFF:", err);
+      setWeaverState(prev => ({ ...prev, stage: WeaverStage.Error, error: "The AI encountered an issue analyzing your plan. Please try again." }));
     }
   };
 
   const simulateTestPass = async () => {
     setWeaverState(prev => ({ ...prev, stage: WeaverStage.FinalReview, error: null }));
-    if (!geminiApiKey) {
-        setWeaverState(prev => ({ ...prev, stage: WeaverStage.Error, error: "Google Gemini API Key is not set. Please add it in the API Status view." }));
-        return;
-    }
-
     try {
-        const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-        const prompt = `Based on this business plan, you have approved a seed loan. Determine a realistic loan amount (between $50,000 and $250,000). Then, generate a 3-step coaching plan to guide the founder. The plan should be high-level and encouraging.
-
-Business Plan: "${weaverState.businessPlan}"`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    loanAmount: { type: Type.NUMBER },
-                    coachingPlan: {
-                        type: Type.OBJECT,
-                        properties: {
-                            title: { type: Type.STRING },
-                            summary: { type: Type.STRING },
-                            steps: {
-                                type: Type.ARRAY,
-                                items: {
-                                    type: Type.OBJECT,
-                                    properties: {
-                                        title: { type: Type.STRING },
-                                        description: { type: Type.STRING },
-                                        timeline: { type: Type.STRING }
-                                    },
-                                    required: ["title", "description", "timeline"]
-                                }
-                            }
-                        },
-                        required: ["title", "summary", "steps"]
-                    }
-                },
-                required: ["loanAmount", "coachingPlan"]
-            }
-        }
+      const response = await fetch('/api/weaver/finalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ businessPlan: weaverState.businessPlan }),
       });
+      if (!response.ok) throw new Error('BFF returned an error during final review');
 
-      const parsedResponse = JSON.parse(response.text);
-      const { loanAmount, coachingPlan } = parsedResponse;
+      const data = await response.json();
+      const { loanAmount, coachingPlan } = data;
 
       setWeaverState(prev => ({
         ...prev,
@@ -433,8 +297,8 @@ Business Plan: "${weaverState.businessPlan}"`;
       addTransaction(loanTx);
 
     } catch (err) {
-        console.error("Error finalizing loan:", err);
-        setWeaverState(prev => ({ ...prev, stage: WeaverStage.Error, error: "Plato AI couldn't finalize the funding package. Please try again." }));
+        console.error("Error finalizing loan via BFF:", err);
+        setWeaverState(prev => ({ ...prev, stage: WeaverStage.Error, error: "The AI couldn't finalize the funding package. Please try again." }));
     }
   };
 
@@ -456,6 +320,8 @@ Business Plan: "${weaverState.businessPlan}"`;
         }
     }
     updateGamification(tx.type === 'income' ? 20 : 10);
+    // Fire-and-forget request to BFF
+    fetch('/api/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(tx) }).catch(console.error);
   };
 
   const addBudget = (budget: Omit<BudgetCategory, 'id' | 'spent' | 'color'>) => {
@@ -466,6 +332,8 @@ Business Plan: "${weaverState.businessPlan}"`;
           color: `#${Math.floor(Math.random()*16777215).toString(16)}`
       };
       setBudgets(prev => [...prev, newBudget]);
+      // Fire-and-forget request to BFF
+      fetch('/api/budgets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newBudget) }).catch(console.error);
   };
 
   const addFinancialGoal = (goalData: Omit<FinancialGoal, 'id' | 'plan' | 'currentAmount'>) => {
@@ -476,6 +344,8 @@ Business Plan: "${weaverState.businessPlan}"`;
         plan: null,
     };
     setFinancialGoals(prev => [...prev, newGoal]);
+    // Fire-and-forget request to BFF
+    fetch('/api/goals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newGoal) }).catch(console.error);
   };
 
   const contributeToGoal = (goalId: string, amount: number) => {
@@ -488,74 +358,36 @@ Business Plan: "${weaverState.businessPlan}"`;
           amount: amount,
           date: new Date().toLocaleDateString('en-CA'),
       };
-      addTransaction(tx);
+      addTransaction(tx); // This will also call the BFF for the transaction
   };
 
   const generateGoalPlan = async (goalId: string) => {
     const goal = financialGoals.find(g => g.id === goalId);
     if (!goal) return;
-    if (!geminiApiKey) {
-        console.error("Gemini API key not set.");
-        return;
-    }
 
     try {
-        const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-        const prompt = `Generate a feasible financial plan for the following goal. Provide a brief feasibility summary, a recommended monthly contribution, and 3 actionable steps across different categories (Savings, Budgeting, Investing, Income).
-        
-Goal: ${goal.name}
-Target Amount: $${goal.targetAmount}
-Target Date: ${goal.targetDate}
-Current Savings for this goal: $${goal.currentAmount}`;
-
-         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        feasibilitySummary: { type: Type.STRING },
-                        monthlyContribution: { type: Type.NUMBER },
-                        steps: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    title: { type: Type.STRING },
-                                    description: { type: Type.STRING },
-                                    category: { type: Type.STRING, enum: ['Savings', 'Budgeting', 'Investing', 'Income'] }
-                                },
-                                required: ["title", "description", "category"]
-                            }
-                        }
-                    },
-                    required: ["feasibilitySummary", "monthlyContribution", "steps"]
-                }
-            }
+        const response = await fetch('/api/goals/generate-plan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ goalId, goalDetails: goal })
         });
+        if (!response.ok) throw new Error('BFF failed to generate goal plan');
 
-        const plan: AIGoalPlan = JSON.parse(response.text);
+        const plan: AIGoalPlan = await response.json();
         setFinancialGoals(prev => prev.map(g => g.id === goalId ? { ...g, plan } : g));
     } catch (err) {
-        console.error("Error generating goal plan:", err);
+        console.error("Error generating goal plan via BFF:", err);
     }
   };
   
     // --- CRYPTO & WEB3 FUNCTIONS ---
   const connectWallet = () => {
-      // Simulate Metamask connection
       setTimeout(() => {
-          setWalletInfo({
-              address: '0x1a2b...c3d4',
-              balance: 12.5
-          });
+          setWalletInfo({ address: '0x1a2b...c3d4', balance: 12.5 });
       }, 500);
   };
 
   const issueCard = () => {
-       // Simulate Marqeta card issuance
        setTimeout(() => {
           setVirtualCard({
               cardNumber: '5555 1234 5678 9012',
@@ -567,7 +399,6 @@ Current Savings for this goal: $${goal.currentAmount}`;
   };
 
   const buyCrypto = (usdAmount: number, cryptoTicker: string) => {
-      // Simulate Stripe on-ramp and Modern Treasury ledger update
       setTimeout(() => {
           const cryptoAmount = usdAmount / 3000; // Mock ETH price
           setCryptoAssets(prev => prev.map(asset => asset.ticker === cryptoTicker ? { ...asset, amount: asset.amount + cryptoAmount, value: asset.value + usdAmount } : asset));
@@ -575,16 +406,12 @@ Current Savings for this goal: $${goal.currentAmount}`;
             id: `crypto_buy_${Date.now()}`,
             type: 'expense',
             category: 'Investments',
-            description: `Buy ${cryptoTicker} via Stripe`,
+            description: `Buy ${cryptoTicker}`,
             amount: usdAmount,
             date: new Date().toLocaleDateString('en-CA'),
             carbonFootprint: 0.2
           };
           addTransaction(tx);
-          setAiInsights(prev => [
-              { id: 'crypto_insight_1', title: 'Crypto Purchase Detected', description: `Our systems noticed your recent purchase of ${cryptoTicker}. We recommend monitoring market volatility.`, urgency: 'medium' },
-              ...prev
-          ]);
       }, 1000);
   };
 
@@ -733,8 +560,6 @@ Current Savings for this goal: $${goal.currentAmount}`;
     redeemReward,
     apiStatus,
     creditFactors,
-    geminiApiKey,
-    setGeminiApiKey,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

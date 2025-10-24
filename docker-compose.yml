@@ -1,0 +1,56 @@
+version: "3.8"
+
+# Defines the network that allows services to communicate with each other.
+networks:
+  demobank-net:
+    driver: bridge
+
+services:
+  # The Frontend service (Vite + React)
+  # This service runs the existing user interface.
+  frontend:
+    container_name: demobank-frontend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      # Expose the Vite dev server to the host machine on port 3000.
+      - "3000:3000"
+    volumes:
+      # Mount the project directory for hot-reloading during development.
+      - .:/app
+      # Use the node_modules from within the container, not the host machine.
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      # Ensures the Vite dev server is accessible outside the container.
+      - HOST=0.0.0.0
+      # Points the frontend to the BFF's API endpoint.
+      - VITE_API_URL=http://bff:3001
+    # Ensures the BFF starts up before the frontend does.
+    depends_on:
+      - bff
+    networks:
+      - demobank-net
+
+  # The Backend-for-Frontend service (NestJS)
+  # This is the new service that will act as an intermediary between the
+  # frontend and all downstream APIs.
+  bff:
+    container_name: demobank-bff
+    # NOTE: This service will fail to build until the 'bff' directory and its
+    # Dockerfile are created. This is an expected part of the architectural transformation.
+    build:
+      context: ./bff
+      dockerfile: Dockerfile
+    ports:
+      # Expose the BFF port to the host for direct API testing.
+      - "3001:3001"
+    volumes:
+      - ./bff:/app
+      - /app/node_modules
+    env_file:
+      # API Keys and other secrets will be stored in this file.
+      - ./bff/.env
+    networks:
+      - demobank-net

@@ -1,8 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import { banks } from '../constants'; // Import the centralized bank list
 
-interface PlaidLinkButtonProps {
-    onSuccess: (publicToken: string, metadata: any) => void;
+// --- TYPE DEFINITIONS ---
+// These types are aligned with the Plaid API to provide a realistic developer experience.
+
+export type PlaidProduct = 'transactions' | 'auth' | 'identity' | 'investments' | 'assets' | 'liabilities' | 'income' | 'payment_initiation' | 'employment';
+export type AccountType = 'depository' | 'credit' | 'loan' | 'investment' | 'brokerage' | 'other';
+export type AccountSubType = 'checking' | 'savings' | 'cd' | 'money market' | 'prepaid' | 'cash management' | 'credit card' | 'paypal' | 'mortgage' | 'auto' | 'student' | 'personal' | 'commercial' | 'ira' | '401k' | 'pension' | 'stock' | 'mutual fund' | 'etf' | 'crypto' | 'other';
+
+export interface PlaidLinkSuccessMetadata {
+    institution: {
+        name: string;
+        institution_id: string;
+    };
+    accounts: Array<{
+        id: string;
+        name: string;
+        mask: string;
+        type: AccountType;
+        subtype: AccountSubType;
+        verification_status?: string;
+    }>;
+    link_session_id: string;
+    products: PlaidProduct[];
+}
+
+export interface PlaidLinkButtonProps {
+    onSuccess: (publicToken: string, metadata: PlaidLinkSuccessMetadata) => void;
+    products?: PlaidProduct[];
 }
 
 // ================================================================================================
@@ -17,8 +42,9 @@ const PlaidLogo = () => <svg width="88" height="34" viewBox="0 0 88 34" fill="no
 const PlaidModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
-    onSuccess: (publicToken: string, metadata: any) => void;
-}> = ({ isOpen, onClose, onSuccess }) => {
+    onSuccess: (publicToken: string, metadata: PlaidLinkSuccessMetadata) => void;
+    products?: PlaidProduct[];
+}> = ({ isOpen, onClose, onSuccess, products = ['transactions'] as PlaidProduct[] }) => {
     const [step, setStep] = useState<'select' | 'connecting' | 'connected'>('select');
     const [selectedBank, setSelectedBank] = useState<typeof banks[0] | null>(null);
 
@@ -42,10 +68,11 @@ const PlaidModal: React.FC<{
 
         setTimeout(() => {
             const mockPublicToken = `public-sandbox-${Math.random().toString(36).substring(7)}`;
-            const mockMetadata = {
+            const mockMetadata: PlaidLinkSuccessMetadata = {
                 institution: { name: bank.name, institution_id: bank.institution_id },
-                accounts: [{ id: `acct_${Math.random().toString(36).substring(7)}`, name: 'Plaid Checking', mask: Math.floor(1000 + Math.random() * 9000).toString(), type: 'checking', subtype: 'checking' }],
+                accounts: [{ id: `acct_${Math.random().toString(36).substring(7)}`, name: `${bank.name} Checking`, mask: Math.floor(1000 + Math.random() * 9000).toString(), type: 'depository', subtype: 'checking' }],
                 link_session_id: `link-session-${Math.random().toString(36).substring(7)}`,
+                products: products,
             };
             onSuccess(mockPublicToken, mockMetadata);
             onClose();
@@ -110,7 +137,7 @@ const PlaidModal: React.FC<{
 }
 
 
-const PlaidLinkButton: React.FC<PlaidLinkButtonProps> = ({ onSuccess }) => {
+const PlaidLinkButton: React.FC<PlaidLinkButtonProps> = ({ onSuccess, products }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     
     return (
@@ -122,7 +149,7 @@ const PlaidLinkButton: React.FC<PlaidLinkButtonProps> = ({ onSuccess }) => {
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="mr-2"><path d="M16.5 10.5c0 .828-.672 1.5-1.5 1.5s-1.5-.672-1.5-1.5.672-1.5 1.5-1.5 1.5.672 1.5 1.5Z" fill="#fff"></path><path d="M12.75 10.5c0 2.761-2.239 5-5 5s-5-2.239-5-5 2.239-5 5-5 5 2.239 5 5ZM7.75 12.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="#fff"></path><path d="M21.25 10.5c0 2.761-2.239 5-5 5s-5-2.239-5-5 2.239-5 5-5 5 2.239 5 5ZM16.25 12.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="#fff"></path></svg>
                 Securely Link with Plaid
             </button>
-            <PlaidModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSuccess={onSuccess} />
+            <PlaidModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSuccess={onSuccess} products={products} />
         </>
     );
 };

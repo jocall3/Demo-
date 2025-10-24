@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef, useContext, useReducer, useCallback, useMemo } from 'react';
-import { View } from '../types';
+import { View, Transaction } from '../types';
 import Card from './Card';
-// FIX: Removed FunctionCallingMode as it's not a valid export. The mode will be set with a string literal.
-import { GoogleGenAI, Chat, Content, Part, FunctionDeclaration, Tool } from "@google/genai";
 import { DataContext } from '../context/DataContext';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, LineChart, Line, CartesianGrid } from 'recharts';
 
@@ -116,19 +114,6 @@ export type ChatAction =
 
 // --- CONSTANTS AND CONFIGURATIONS ---
 
-export const DETAILED_SYSTEM_INSTRUCTION = `You are Quantum, an advanced AI financial advisor for Demo Bank. Your persona is helpful, professional, witty, and slightly futuristic. Be concise but informative.
-
-You have access to a set of powerful tools to retrieve user data and perform financial calculations. Your primary goal is to assist the user with their financial inquiries by using these tools.
-
-Tool Usage Rules:
-1.  **Always Inform:** Before using a tool, tell the user what you are about to do. E.g., "I'll just access your recent transactions to check on that..."
-2.  **Acknowledge Results:** After a tool runs, briefly acknowledge the result before presenting your analysis. E.g., "Okay, I've got the data. It looks like..."
-3.  **Synthesize, Don't Dump:** Do not just output raw JSON data from tools. Analyze the data and present the key insights in a human-readable format. Use rich content components like tables and charts where appropriate.
-4.  **Error Handling:** If a tool returns an error, apologize to the user, state that you couldn't retrieve the information, and ask if they'd like to try something else.
-5.  **Proactive Suggestions:** Based on the user's data, provide proactive suggestions. Use the 'actionable_suggestion' rich content type for this.
-6.  **Multi-turn Conversations:** Remember the context of the conversation. If a user asks a follow-up question, use the previous messages and tool results to answer.
-7.  **Safety First:** Never ask for or store sensitive personal information like passwords or full social security numbers. All data access is handled securely through your tools.`;
-
 export const examplePrompts = {
     [View.Dashboard]: ["Summarize my financial health.", "Are there any anomalies I should be aware of?", "Project my balance for the next 6 months."],
     [View.Transactions]: ["Find all my transactions over $100.", "What was my biggest expense last month?", "Show my spending by category in a bar chart."],
@@ -175,202 +160,51 @@ export const initialChatState: ChatState = {
 };
 
 
-// --- TOOL DEFINITIONS AND IMPLEMENTATIONS ---
+// --- CUSTOM HOOK FOR AI CHAT LOGIC (BFF ARCHITECTURE) ---
 
 /**
- * Defines the tools available to the AI model.
- * This structure is sent to the AI to inform it of its capabilities.
- */
-export const toolDefinitions: Tool[] = [
-    {
-        functionDeclarations: [
-            {
-                name: "getFinancialSummary",
-                description: "Retrieves a high-level summary of the user's financial health, including total balances, assets, liabilities, and net worth.",
-                parameters: { type: "OBJECT", properties: {}, required: [] },
-            },
-            {
-                name: "getTransactions",
-                description: "Fetches a list of recent transactions. Can be filtered by various criteria.",
-                parameters: {
-                    type: "OBJECT",
-                    properties: {
-                        count: { type: "NUMBER", description: "The number of transactions to retrieve. Defaults to 20." },
-                        minAmount: { type: "NUMBER", description: "The minimum transaction amount to filter by." },
-                        maxAmount: { type: "NUMBER", description: "The maximum transaction amount to filter by." },
-                        category: { type: "STRING", description: "Filter transactions by a specific category (e.g., 'Groceries', 'Travel')." },
-                    },
-                    required: [],
-                },
-            },
-            {
-                name: "analyzeSpendingByCategory",
-                description: "Calculates and returns the total spending for each category over the last 30 days.",
-                parameters: { type: "OBJECT", properties: {}, required: [] },
-            },
-            {
-                name: "simulateInvestmentGrowth",
-                description: "Simulates the future value of an investment portfolio based on current holdings, additional monthly contributions, and an estimated annual return rate.",
-                parameters: {
-                    type: "OBJECT",
-                    properties: {
-                        additionalMonthlyContribution: { type: "NUMBER", description: "The extra amount to invest each month." },
-                        years: { type: "NUMBER", description: "The number of years to simulate. Defaults to 10." },
-                        annualReturnRate: { type: "NUMBER", description: "The estimated annual return rate as a percentage (e.g., 7 for 7%). Defaults to 7." },
-                    },
-                    required: ["additionalMonthlyContribution"],
-                },
-            },
-        ],
-    },
-];
-
-/**
- * Provides the actual implementations for the defined tools.
- * These functions interact with the application's DataContext.
- */
-export const useToolImplementations = () => {
-    // FIX: useContext returns the context value directly, not an object with a `data` property.
-    const context = useContext(DataContext);
-
-    return useMemo(() => ({
-        getFinancialSummary: async () => {
-            if (!context) return { error: "User data not available." };
-            // FIX: Re-implemented logic based on available context data.
-            const { transactions, assets } = context;
-            const sortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-            let runningBalance = 5000; // Assume starting balance from BalanceSummary component
-            for (const tx of sortedTx) {
-                runningBalance += tx.type === 'income' ? tx.amount : -tx.amount;
-            }
-            const totalBalance = runningBalance;
-            const totalAssetsValue = assets.reduce((sum, asset) => sum + asset.value, 0);
-            const totalAssets = totalBalance + totalAssetsValue;
-            const totalLiabilities = 0; // Liabilities data not available in context
-            const netWorth = totalAssets - totalLiabilities;
-            return { totalBalance, totalAssets, totalLiabilities, netWorth };
-        },
-        getTransactions: async ({ count = 20, minAmount, maxAmount, category }: { count?: number, minAmount?: number, maxAmount?: number, category?: string }) => {
-            if (!context) return { error: "User data not available." };
-            let filteredTransactions = context.transactions;
-            if (minAmount) {
-                filteredTransactions = filteredTransactions.filter(t => t.amount >= minAmount);
-            }
-            if (maxAmount) {
-                filteredTransactions = filteredTransactions.filter(t => t.amount <= maxAmount);
-            }
-            if (category) {
-                filteredTransactions = filteredTransactions.filter(t => t.category.toLowerCase() === category.toLowerCase());
-            }
-            return { transactions: filteredTransactions.slice(0, count) };
-        },
-        analyzeSpendingByCategory: async () => {
-            if (!context) return { error: "User data not available." };
-             // FIX: Corrected logic to filter by expense type.
-            const spending = context.transactions.reduce<Record<string, number>>((acc, t) => {
-                if (t.type === 'expense') {
-                    acc[t.category] = (acc[t.category] || 0) + t.amount;
-                }
-                return acc;
-            }, {});
-            const sortedSpending = Object.entries(spending)
-                .sort(([, a], [, b]) => b - a)
-                .map(([name, amount]) => ({ name, amount: parseFloat(amount.toFixed(2)) }));
-            return { spendingByCategory: sortedSpending };
-        },
-        simulateInvestmentGrowth: async ({ additionalMonthlyContribution, years = 10, annualReturnRate = 7 }: { additionalMonthlyContribution: any, years?: any, annualReturnRate?: any }) => {
-            if (!context) return { error: "User data not available." };
-            const P = context.assets.reduce((sum, asset) => sum + asset.value, 0); // Principal
-            
-            // FIX: The AI can pass non-numeric values. Ensure robust parsing to numbers and handle potential NaN results to prevent type errors in arithmetic operations.
-            const pmtValue = parseFloat(String(additionalMonthlyContribution));
-            const PMT = isNaN(pmtValue) ? 0 : pmtValue;
-
-            const rateValue = parseFloat(String(annualReturnRate));
-            const rate = isNaN(rateValue) ? 7.0 : rateValue;
-            const r = rate / 100 / 12;
-
-            const yearsValue = parseInt(String(years), 10);
-            const n = (isNaN(yearsValue) ? 10 : yearsValue) * 12;
-            
-            const simulationData = [];
-            let futureValue: number = P;
-
-            for (let i = 1; i <= n; i++) {
-                futureValue = (futureValue * (1 + r)) + PMT;
-                if (i % 12 === 0) { // Record data yearly
-                    simulationData.push({
-                        year: i / 12,
-                        value: parseFloat(futureValue.toFixed(2)),
-                    });
-                }
-            }
-
-            return { finalValue: parseFloat(futureValue.toFixed(2)), simulationData };
-        },
-    }), [context]);
-};
-
-
-// --- CUSTOM HOOK FOR AI CHAT LOGIC ---
-
-/**
- * A comprehensive hook to manage the entire AI Advisor chat lifecycle.
+ * A comprehensive hook to manage the entire AI Advisor chat lifecycle, 
+ * interacting with the Backend-for-Frontend (BFF) instead of directly with the AI SDK.
  */
 export const useAIAdvisorChat = () => {
     const [state, dispatch] = useReducer(chatReducer, initialChatState);
-    const chatRef = useRef<Chat | null>(null);
-    const toolImplementations = useToolImplementations();
-    // FIX: useContext returns the context value directly.
-    const context = useContext(DataContext);
-    const { geminiApiKey } = context || {};
+    const dataContext = useContext(DataContext);
 
+    // Effect to fetch initial welcome message from the BFF
     useEffect(() => {
-        if (!geminiApiKey) {
-            dispatch({ type: 'SET_ERROR', payload: 'Google Gemini API Key is not set. Please add it in the API Status view.' });
-            return;
-        }
-        if (!chatRef.current) {
+        const fetchWelcomeMessage = async () => {
+            if (state.messages.length > 0) return; // Only fetch if conversation is new
+
+            dispatch({ type: 'START_MESSAGE_SEND' });
             try {
-                const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-                chatRef.current = ai.chats.create({
-                    // FIX: Updated model name from deprecated version.
-                    model: 'gemini-2.5-pro',
-                    config: {
-                        systemInstruction: DETAILED_SYSTEM_INSTRUCTION
-                    },
-                    tools: toolDefinitions,
-                    // FIX: Use string literal "AUTO" for the mode.
-                    toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+                // This endpoint starts a new session on the BFF and gets a greeting
+                const response = await fetch('/api/advisor/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ isNewSession: true }),
                 });
-                 dispatch({ type: 'CLEAR_ERROR' });
+
+                if (!response.ok) {
+                    throw new Error('Failed to connect to AI Advisor.');
+                }
+
+                const newMessages: EnhancedMessage[] = await response.json();
+                
+                for (const msg of newMessages) {
+                    dispatch({ type: 'ADD_MODEL_RESPONSE', payload: msg });
+                }
+
             } catch (error) {
-                console.error("Failed to initialize GoogleGenAI:", error);
-                dispatch({ type: 'SET_ERROR', payload: 'Failed to initialize the AI model. Please check your API key.' });
-            }
-        }
-    }, [geminiApiKey]);
-    
-    // Prime the AI with initial context when data is available
-    useEffect(() => {
-        const primeAI = async () => {
-             // FIX: Use `context` directly. Simplified logic to just show a generic welcome.
-             if (context && chatRef.current && state.messages.length === 0) {
-                const welcomeMessage: EnhancedMessage = {
-                    id: `msg_${Date.now()}`,
-                    role: 'model',
-                    parts: [{ text: "Hello! I'm Quantum, your AI financial advisor. I've reviewed your current financial standing. How can I assist you today?" }],
-                    timestamp: new Date(),
-                };
-                dispatch({ type: 'ADD_MODEL_RESPONSE', payload: welcomeMessage });
+                console.error("AI Advisor initialization error:", error);
+                dispatch({ type: 'SET_ERROR', payload: "Failed to connect to the AI Advisor. Please try again later." });
             }
         };
-        if(geminiApiKey) primeAI();
-    }, [context, state.messages.length, geminiApiKey]);
 
+        fetchWelcomeMessage();
+    }, [state.conversationId]); // Re-fetch welcome message if chat is reset
 
     const sendMessage = useCallback(async (messageText: string) => {
-        if (!messageText.trim() || !chatRef.current) return;
+        if (!messageText.trim() || !dataContext) return;
 
         dispatch({ type: 'START_MESSAGE_SEND' });
 
@@ -382,77 +216,49 @@ export const useAIAdvisorChat = () => {
         };
         dispatch({ type: 'ADD_USER_MESSAGE', payload: userMessage });
         
+        const history = [...state.messages, userMessage];
+
         try {
-            // FIX: Removed incorrect `history` parameter. The Chat object manages its own history.
-            let response = await chatRef.current.sendMessage({ message: messageText });
+            const response = await fetch('/api/advisor/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // The BFF receives the entire history to maintain context
+                body: JSON.stringify({ history, conversationId: state.conversationId }),
+            });
 
-            while (response.functionCalls && response.functionCalls.length > 0) {
-                const toolCalls = response.functionCalls;
-                
-                const modelMessageWithToolCalls: EnhancedMessage = {
-                    id: `msg_model_${Date.now()}`,
-                    role: 'model',
-                    parts: [...(response.text ? [{text: response.text}] : []), ...toolCalls.map(tc => ({functionCall: tc}))],
-                    timestamp: new Date(),
-                };
-                dispatch({ type: 'ADD_MODEL_RESPONSE', payload: modelMessageWithToolCalls });
-
-                const toolResults: ToolResultPart[] = [];
-                for (const call of toolCalls) {
-                    dispatch({ type: 'START_TOOL_EXECUTION', payload: call.name });
-                    const toolImplementation = (toolImplementations as Record<string, Function>)[call.name];
-                    if (toolImplementation) {
-                        try {
-                            const toolResponseData = await toolImplementation(call.args);
-                            toolResults.push({
-                                functionResponse: { name: call.name, response: toolResponseData },
-                            });
-                        } catch (e) {
-                             console.error(`Error executing tool ${call.name}:`, e);
-                             toolResults.push({
-                                functionResponse: { name: call.name, response: { error: `Tool execution failed: ${(e as Error).message}` } },
-                            });
-                        }
-                    } else {
-                         toolResults.push({
-                            functionResponse: { name: call.name, response: { error: "Tool not found." } },
-                        });
-                    }
-                    dispatch({ type: 'END_TOOL_EXECUTION' });
-                }
-                
-                const toolResultMessage: EnhancedMessage = {
-                     id: `msg_tool_${Date.now()}`,
-                     role: 'system_tool',
-                     parts: toolResults,
-                     timestamp: new Date(),
-                };
-                dispatch({ type: 'ADD_MODEL_RESPONSE', payload: toolResultMessage });
-
-                // Send tool results back to the model
-                 // FIX: Pass the toolResults object directly instead of a stringified version.
-                 response = await chatRef.current.sendMessage({
-                     message: toolResults,
-                     isToolResponse: true
-                 });
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ message: 'The AI Advisor is currently unavailable.'}));
+                throw new Error(errorData.message);
             }
 
-            const finalModelMessage: EnhancedMessage = {
-                id: `msg_model_final_${Date.now()}`,
-                role: 'model',
-                parts: [{ text: response.text }],
-                timestamp: new Date(),
-            };
-            dispatch({ type: 'ADD_MODEL_RESPONSE', payload: finalModelMessage });
+            // The BFF returns an array of messages representing the AI's full turn
+            const newMessages: EnhancedMessage[] = await response.json();
+
+            for (const msg of newMessages) {
+                // Check for a special action from the BFF, e.g., to create a transaction
+                const toolResult = msg.parts.find(p => 'functionResponse' in p) as ToolResultPart | undefined;
+                if (toolResult?.functionResponse.name === 'send_money' && toolResult.functionResponse.response.success) {
+                    const { recipient, amount } = toolResult.functionResponse.response.details;
+                    dataContext.addTransaction({
+                        id: `tx_${Date.now()}`,
+                        type: 'expense',
+                        category: 'Transfer',
+                        description: `Sent to ${recipient}`,
+                        amount: amount,
+                        date: new Date().toISOString().split('T')[0],
+                    });
+                }
+                
+                dispatch({ type: 'ADD_MODEL_RESPONSE', payload: msg });
+            }
 
         } catch (error) {
             console.error("AI Advisor Error:", error);
-            dispatch({ type: 'SET_ERROR', payload: "I apologize, but I've encountered a system error. Please try your request again." });
+            dispatch({ type: 'SET_ERROR', payload: error instanceof Error ? error.message : "An unexpected error occurred." });
         }
-    }, [toolImplementations]);
+    }, [state.messages, state.conversationId, dataContext]);
     
     const resetChat = useCallback(() => {
-        chatRef.current = null; // Force re-initialization on next message
         dispatch({ type: 'RESET_CHAT' });
     }, []);
 
@@ -461,7 +267,6 @@ export const useAIAdvisorChat = () => {
 
 // --- RICH CONTENT RENDERER COMPONENTS ---
 
-// FIX: Corrected prop typing for all Rich Content components using `Extract` to avoid type errors.
 export const FinancialSummaryCard: React.FC<{ data: Extract<RichContent, { type: 'financial_summary' }>['data'] }> = ({ data }) => (
     <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
         <h4 className="text-lg font-bold text-cyan-300 mb-3">Financial Snapshot</h4>

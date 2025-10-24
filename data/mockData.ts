@@ -1,4 +1,4 @@
-import type { Transaction, Asset, BudgetCategory, Subscription, CreditScore, UpcomingBill, SavingsGoal, MarketMover, FinancialGoal, CryptoAsset, PaymentOperation, CorporateCard, CorporateTransaction, RewardPoints, Notification, RewardItem, APIStatus, CreditFactor } from '../types';
+import type { Transaction, Asset, BudgetCategory, Subscription, CreditScore, UpcomingBill, SavingsGoal, MarketMover, FinancialGoal, CryptoAsset, PaymentOperation, CorporateCard, CorporateTransaction, RewardPoints, Notification, RewardItem, APIStatus, CreditFactor, NFTAsset } from '../types';
 import { View } from '../types';
 
 export const MOCK_TRANSACTIONS: Transaction[] = [
@@ -110,6 +110,15 @@ export const MOCK_CRYPTO_ASSETS: CryptoAsset[] = [
   { ticker: 'SOL', name: 'Solana', value: 3500, amount: 25, color: '#00ffa3' },
 ];
 
+export const MOCK_NFT_ASSETS: NFTAsset[] = [
+    {
+        id: 'nft_1',
+        name: 'Quantum Vision Pass #001',
+        imageUrl: '/IMG_5610.webp',
+        contractAddress: '0x1a2b...c3d4'
+    }
+];
+
 export const MOCK_PAYMENT_OPERATIONS: PaymentOperation[] = [
     { id: 'po_1', description: 'Stripe On-Ramp Batch #A42', amount: 25000, status: 'Completed', type: 'ACH', date: '2024-07-22' },
     { id: 'po_2', description: 'Crypto Payout to 0x...b4A2', amount: 5000, status: 'Completed', type: 'Crypto', date: '2024-07-22' },
@@ -179,4 +188,247 @@ export const MOCK_CREDIT_FACTORS: CreditFactor[] = [
     { name: 'Credit Age', status: 'Good', description: 'Your average credit account age is 6 years. The longer, the better.' },
     { name: 'New Credit', status: 'Excellent', description: 'You have not opened any new credit lines recently, which is positive.' },
     { name: 'Credit Mix', status: 'Fair', description: 'Your credit mix could be improved with different types of loans, such as a mortgage.' },
+];
+
+// ================================================================================================
+// MOCK DATA MOVED FROM InvestmentsView.tsx FOR CENTRALIZATION
+// ================================================================================================
+
+// --- TYPES (Redefined here as they are not in the global types.ts) ---
+export type AssetClass = 'Stocks' | 'Bonds' | 'Real Estate' | 'Crypto' | 'Commodities' | 'Alternatives';
+export type MarketRegion = 'North America' | 'Europe' | 'Asia-Pacific' | 'Emerging Markets' | 'Global';
+export type AnalystRating = 'Strong Buy' | 'Buy' | 'Hold' | 'Sell' | 'Strong Sell';
+
+export interface HistoricalDataPoint {
+    date: string; // "YYYY-MM-DD"
+    price: number;
+}
+
+export interface NewsArticle {
+    id: string;
+    source: string;
+    headline: string;
+    summary: string;
+    url: string;
+    publishedAt: string;
+}
+
+export interface AdvancedAsset extends Asset {
+    assetClass: AssetClass;
+    ticker: string;
+    marketCap: number; // in USD
+    peRatio: number | null; // Price-to-Earnings
+    dividendYield: number | null; // in percentage
+    beta: number; // Market volatility
+    historicalData: {
+        '1D': HistoricalDataPoint[];
+        '1W': HistoricalDataPoint[];
+        '1M': HistoricalDataPoint[];
+        '1Y': HistoricalDataPoint[];
+        '5Y': HistoricalDataPoint[];
+    };
+    analystRatings: {
+        rating: AnalystRating;
+        targetPrice: number;
+        analystCount: number;
+    };
+    news: NewsArticle[];
+    region: MarketRegion;
+}
+
+// --- HELPERS ---
+const generateHistoricalData = (basePrice: number, days: number, volatility: number): HistoricalDataPoint[] => {
+    const data: HistoricalDataPoint[] = [];
+    let price = basePrice;
+    for (let i = days; i > 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const change = (Math.random() - 0.5) * volatility * price;
+        price += change;
+        if (price < 0) price = 0;
+        data.push({
+            date: date.toISOString().split('T')[0],
+            price: parseFloat(price.toFixed(2)),
+        });
+    }
+    return data;
+};
+
+// --- DATA ---
+export const MOCK_ADVANCED_ASSETS: AdvancedAsset[] = [
+    {
+        name: 'Tech Innovators Inc.',
+        value: 15000,
+        color: '#34d399',
+        performanceYTD: 25.5,
+        description: 'Leading technology conglomerate specializing in AI and cloud computing.',
+        esgRating: 4,
+        assetClass: 'Stocks',
+        ticker: 'TII',
+        marketCap: 2.1e12,
+        peRatio: 35.2,
+        dividendYield: 0.8,
+        beta: 1.2,
+        region: 'North America',
+        historicalData: {
+            '1D': generateHistoricalData(350, 1, 0.02),
+            '1W': generateHistoricalData(340, 7, 0.05),
+            '1M': generateHistoricalData(320, 30, 0.08),
+            '1Y': generateHistoricalData(250, 365, 0.15),
+            '5Y': generateHistoricalData(100, 365 * 5, 0.20),
+        },
+        analystRatings: { rating: 'Strong Buy', targetPrice: 400, analystCount: 25 },
+        news: [{ id: 'n1', source: 'FinNews', headline: 'TII announces breakthrough in quantum computing', summary: '...', url: '#', publishedAt: new Date().toISOString() }],
+    },
+    {
+        name: 'Green Energy Fund',
+        value: 8000,
+        color: '#22c55e',
+        performanceYTD: 18.2,
+        description: 'A fund focused on renewable energy sources like solar, wind, and hydro power.',
+        esgRating: 5,
+        assetClass: 'Alternatives',
+        ticker: 'GEF',
+        marketCap: 5e10,
+        peRatio: null,
+        dividendYield: 2.5,
+        beta: 0.8,
+        region: 'Global',
+        historicalData: {
+            '1D': generateHistoricalData(120, 1, 0.015),
+            '1W': generateHistoricalData(118, 7, 0.04),
+            '1M': generateHistoricalData(115, 30, 0.06),
+            '1Y': generateHistoricalData(95, 365, 0.12),
+            '5Y': generateHistoricalData(50, 365 * 5, 0.18),
+        },
+        analystRatings: { rating: 'Buy', targetPrice: 140, analystCount: 18 },
+        news: [{ id: 'n2', source: 'EcoInvest', headline: 'GEF portfolio companies report record energy production', summary: '...', url: '#', publishedAt: new Date().toISOString() }],
+    },
+    {
+        name: 'Global Bond Index',
+        value: 12000,
+        color: '#60a5fa',
+        performanceYTD: 4.1,
+        description: 'A diversified index of government and corporate bonds from around the world.',
+        esgRating: 3,
+        assetClass: 'Bonds',
+        ticker: 'GBI',
+        marketCap: 1e13,
+        peRatio: null,
+        dividendYield: 3.1,
+        beta: 0.2,
+        region: 'Global',
+        historicalData: {
+            '1D': generateHistoricalData(99, 1, 0.005),
+            '1W': generateHistoricalData(99.5, 7, 0.01),
+            '1M': generateHistoricalData(100, 30, 0.02),
+            '1Y': generateHistoricalData(98, 365, 0.04),
+            '5Y': generateHistoricalData(95, 365 * 5, 0.05),
+        },
+        analystRatings: { rating: 'Hold', targetPrice: 102, analystCount: 30 },
+        news: [{ id: 'n3', source: 'MacroView', headline: 'Central banks signal steady interest rates, boosting bond markets.', summary: '...', url: '#', publishedAt: new Date().toISOString() }],
+    },
+    {
+        name: 'Digital Currency Basket',
+        value: 5000,
+        color: '#facc15',
+        performanceYTD: 150.7,
+        description: 'A high-risk, high-reward basket of leading cryptocurrencies.',
+        esgRating: 1,
+        assetClass: 'Crypto',
+        ticker: 'DCB',
+        marketCap: 1.5e12,
+        peRatio: null,
+        dividendYield: null,
+        beta: 2.5,
+        region: 'Global',
+        historicalData: {
+            '1D': generateHistoricalData(2500, 1, 0.05),
+            '1W': generateHistoricalData(2300, 7, 0.12),
+            '1M': generateHistoricalData(1800, 30, 0.25),
+            '1Y': generateHistoricalData(500, 365, 0.8),
+            '5Y': generateHistoricalData(100, 365 * 5, 1.2),
+        },
+        analystRatings: { rating: 'Hold', targetPrice: 3000, analystCount: 12 },
+        news: [{ id: 'n4', source: 'CryptoWeekly', headline: 'DCB sees massive inflows amid institutional adoption.', summary: '...', url: '#', publishedAt: new Date().toISOString() }],
+    },
+    {
+        name: 'Urban Real Estate REIT',
+        value: 10000,
+        color: '#f87171',
+        performanceYTD: 8.9,
+        description: 'Real Estate Investment Trust focusing on commercial properties in major urban centers.',
+        esgRating: 3,
+        assetClass: 'Real Estate',
+        ticker: 'UREIT',
+        marketCap: 2e10,
+        peRatio: 18.5,
+        dividendYield: 4.2,
+        beta: 0.7,
+        region: 'North America',
+        historicalData: {
+            '1D': generateHistoricalData(85, 1, 0.01),
+            '1W': generateHistoricalData(84, 7, 0.03),
+            '1M': generateHistoricalData(82, 30, 0.05),
+            '1Y': generateHistoricalData(75, 365, 0.1),
+            '5Y': generateHistoricalData(60, 365 * 5, 0.12),
+        },
+        analystRatings: { rating: 'Buy', targetPrice: 95, analystCount: 15 },
+        news: [{ id: 'n5', source: 'Property Times', headline: 'UREIT reports high occupancy rates despite economic headwinds.', summary: '...', url: '#', publishedAt: new Date().toISOString() }],
+    }
+];
+
+interface InvestmentGoal {
+    id: string;
+    name: string;
+    targetAmount: number;
+    currentAmount: number;
+    targetDate: string; // ISO string
+    priority: 'High' | 'Medium' | 'Low';
+}
+
+export const MOCK_INVESTMENT_GOALS: InvestmentGoal[] = [
+    { id: 'g1', name: 'Retirement Fund', targetAmount: 1000000, currentAmount: 250000, targetDate: '2045-01-01T00:00:00.000Z', priority: 'High' },
+    { id: 'g2', name: 'House Down Payment', targetAmount: 100000, currentAmount: 45000, targetDate: '2028-06-01T00:00:00.000Z', priority: 'High' },
+    { id: 'g3', name: 'Dream Vacation', targetAmount: 15000, currentAmount: 11000, targetDate: '2025-12-20T00:00:00.000Z', priority: 'Medium' },
+];
+
+export const MOCK_RISK_QUIZ_QUESTIONS = [
+    {
+        question: "What is your primary goal for this investment portfolio?",
+        answers: [
+            { text: "Capital preservation", score: 1 },
+            { text: "Steady income with some growth", score: 2 },
+            { text: "A balance of growth and income", score: 3 },
+            { text: "Strong growth over the long term", score: 4 },
+            { text: "Aggressive, maximum growth", score: 5 },
+        ]
+    },
+    {
+        question: "How long do you plan to keep your money invested?",
+        answers: [
+            { text: "Less than 2 years", score: 1 },
+            { text: "2 to 5 years", score: 2 },
+            { text: "5 to 10 years", score: 3 },
+            { text: "More than 10 years", score: 4 },
+        ]
+    },
+    {
+        question: "If your portfolio lost 20% of its value in a single year, how would you react?",
+        answers: [
+            { text: "Sell all of my investments", score: 1 },
+            { text: "Sell some of my investments", score: 2 },
+            { text: "Do nothing and hold", score: 3 },
+            { text: "Invest more, it's a buying opportunity", score: 4 },
+        ]
+    },
+    {
+        question: "Which statement best describes your knowledge of investments?",
+        answers: [
+            { text: "None, I'm a complete beginner.", score: 1 },
+            { text: "Limited, I know the basics.", score: 2 },
+            { text: "Good, I'm comfortable with stocks and bonds.", score: 3 },
+            { text: "Expert, I understand advanced strategies.", score: 4 },
+        ]
+    }
 ];
