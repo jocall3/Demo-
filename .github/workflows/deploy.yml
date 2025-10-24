@@ -9,6 +9,7 @@
 #    - Subgraph services are deployed with internal-only ingress, preventing direct public access.
 #    - Secrets are managed via Google Secret Manager and injected at runtime, not passed as plaintext environment variables.
 # 4. Dependency Management: Deployment is sequenced to ensure subgraphs are available before the API Gateway that consumes them.
+# 5. Workflow Orchestration: Configures services to connect to a central workflow engine (e.g., Temporal) for managing long-running asynchronous business processes (Sagas).
 
 name: CI/CD for Monorepo Services
 
@@ -146,11 +147,19 @@ jobs:
               secret: USER_SERVICE_DB_URL
             - name: KAFKA_BROKERS
               secret: KAFKA_BROKERS
+            # --- Temporal Workflow Engine ---
+            - name: TEMPORAL_MTLS_CERT
+              secret: TEMPORAL_CLIENT_CERT
+            - name: TEMPORAL_MTLS_KEY
+              secret: TEMPORAL_CLIENT_KEY
           env_vars: |
             NODE_ENV=production
             PORT=8080
             OTEL_SERVICE_NAME=user-service
             OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+            # --- Temporal Workflow Engine ---
+            TEMPORAL_ADDRESS=${{ secrets.TEMPORAL_ADDRESS }}
+            TEMPORAL_NAMESPACE=${{ secrets.TEMPORAL_NAMESPACE }}
 
       - name: Deploy Accounts Service
         id: deploy-accounts-service
@@ -167,11 +176,19 @@ jobs:
               secret: KAFKA_BROKERS
             - name: JWT_SECRET
               secret: JWT_SECRET
+            # --- Temporal Workflow Engine ---
+            - name: TEMPORAL_MTLS_CERT
+              secret: TEMPORAL_CLIENT_CERT
+            - name: TEMPORAL_MTLS_KEY
+              secret: TEMPORAL_CLIENT_KEY
           env_vars: |
             NODE_ENV=production
             PORT=8080
             OTEL_SERVICE_NAME=accounts-service
             OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+            # --- Temporal Workflow Engine ---
+            TEMPORAL_ADDRESS=${{ secrets.TEMPORAL_ADDRESS }}
+            TEMPORAL_NAMESPACE=${{ secrets.TEMPORAL_NAMESPACE }}
 
       - name: Deploy Transactions Service
         id: deploy-transactions-service
@@ -186,13 +203,21 @@ jobs:
               secret: TRANSACTIONS_SERVICE_DB_URL
             - name: KAFKA_BROKERS
               secret: KAFKA_BROKERS
+            # --- Temporal Workflow Engine ---
+            - name: TEMPORAL_MTLS_CERT
+              secret: TEMPORAL_CLIENT_CERT
+            - name: TEMPORAL_MTLS_KEY
+              secret: TEMPORAL_CLIENT_KEY
           env_vars: |
             NODE_ENV=production
             PORT=8080
             OTEL_SERVICE_NAME=transactions-service
             OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+            # --- Temporal Workflow Engine ---
+            TEMPORAL_ADDRESS=${{ secrets.TEMPORAL_ADDRESS }}
+            TEMPORAL_NAMESPACE=${{ secrets.TEMPORAL_NAMESPACE }}
       
-      - name: Deploy AI Agent Service
+      - name: Deploy AI Agent Service (with Temporal Worker)
         id: deploy-ai-agent-service
         uses: google-github-actions/deploy-cloudrun@v2
         with:
@@ -205,11 +230,19 @@ jobs:
               secret: GOOGLE_GENAI_API_KEY
             - name: KAFKA_BROKERS
               secret: KAFKA_BROKERS
+            # --- Temporal Workflow Engine ---
+            - name: TEMPORAL_MTLS_CERT
+              secret: TEMPORAL_CLIENT_CERT
+            - name: TEMPORAL_MTLS_KEY
+              secret: TEMPORAL_CLIENT_KEY
           env_vars: |
             NODE_ENV=production
             PORT=8080
             OTEL_SERVICE_NAME=ai-agent-service
             OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+            # --- Temporal Workflow Engine ---
+            TEMPORAL_ADDRESS=${{ secrets.TEMPORAL_ADDRESS }}
+            TEMPORAL_NAMESPACE=${{ secrets.TEMPORAL_NAMESPACE }}
 
       - name: Deploy Plaid Integration Service
         id: deploy-plaid-integration-service
@@ -230,11 +263,19 @@ jobs:
               secret: PLAID_SECRET
             - name: PLAID_ENV
               secret: PLAID_ENV
+            # --- Temporal Workflow Engine ---
+            - name: TEMPORAL_MTLS_CERT
+              secret: TEMPORAL_CLIENT_CERT
+            - name: TEMPORAL_MTLS_KEY
+              secret: TEMPORAL_CLIENT_KEY
           env_vars: |
             NODE_ENV=production
             PORT=8080
             OTEL_SERVICE_NAME=plaid-integration-service
             OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+            # --- Temporal Workflow Engine ---
+            TEMPORAL_ADDRESS=${{ secrets.TEMPORAL_ADDRESS }}
+            TEMPORAL_NAMESPACE=${{ secrets.TEMPORAL_NAMESPACE }}
 
       - name: Deploy API Gateway
         id: deploy-api-gateway
@@ -249,6 +290,11 @@ jobs:
               secret: JWT_SECRET
             - name: SUBGRAPH_API_KEY
               secret: SUBGRAPH_API_KEY
+            # --- Temporal Workflow Engine ---
+            - name: TEMPORAL_MTLS_CERT
+              secret: TEMPORAL_CLIENT_CERT
+            - name: TEMPORAL_MTLS_KEY
+              secret: TEMPORAL_CLIENT_KEY
           env_vars: |
             NODE_ENV=production
             PORT=8080
@@ -260,6 +306,9 @@ jobs:
             TRANSACTIONS_SERVICE_URL=${{ steps.deploy-transactions-service.outputs.url }}/graphql
             AI_AGENT_SERVICE_URL=${{ steps.deploy-ai-agent-service.outputs.url }}/graphql
             PLAID_INTEGRATION_SERVICE_URL=${{ steps.deploy-plaid-integration-service.outputs.url }}/graphql
+            # --- Temporal Workflow Engine ---
+            TEMPORAL_ADDRESS=${{ secrets.TEMPORAL_ADDRESS }}
+            TEMPORAL_NAMESPACE=${{ secrets.TEMPORAL_NAMESPACE }}
 
   # =================================================================================
   # JOB 3: Build and Deploy Frontend

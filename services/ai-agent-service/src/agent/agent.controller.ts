@@ -1,33 +1,43 @@
-import { Controller, Logger, ValidationPipe } from '@nestjs/common';
+import { Controller, Logger, ValidationPipe, Inject } from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { AgentService } from './agent.service';
 import {
   RunBusinessPlanAnalysisEvent,
   TriggerFinancialAnalysisEvent,
 } from './events/agent.events';
+// --- New Imports for Workflow Orchestration ---
+import { Client } from '@temporalio/client';
+import { TEMPORAL_CLIENT } from '../temporal/temporal.constants'; // Assumed DI token
+import {
+  businessPlanAnalysisWorkflow,
+  proactiveFinancialAnalysisWorkflow,
+  cardStoryGenerationWorkflow,
+} from '../workflows'; // Assuming an index file for workflows
 
 /**
  * @class AgentController
  * @description This controller acts as the event-driven entry point for the AI Agent Service.
  * It subscribes to topics on the central message bus (e.g., Kafka) and triggers
- * the appropriate long-running agentic workflows within the AgentService.
+ * the appropriate long-running, durable workflows using a workflow orchestration engine.
  *
- * This adheres to the event-driven, choreography-based communication pattern of the
- * new microservices architecture. It does not expose any synchronous endpoints like REST or GraphQL.
+ * ARCHITECTURAL REFACTOR:
+ * This controller has been refactored to integrate with a workflow orchestration engine (e.g., Temporal).
+ * Instead of invoking service methods that manage complex state and retries (a "choreography" pattern),
+ * it now starts durable, stateful "workflows" ("orchestration" pattern). This provides better visibility,
+ * reliability, and scalability for long-running asynchronous processes like the Quantum Weaver analysis.
  */
 @Controller()
 export class AgentController {
   private readonly logger = new Logger(AgentController.name);
 
-  constructor(private readonly agentService: AgentService) {}
+  constructor(
+    private readonly agentService: AgentService, // Kept for potential use by workflow activities
+    @Inject(TEMPORAL_CLIENT) private readonly temporalClient: Client,
+  ) {}
 
   /**
-   * Listens for the 'agent.run.business_plan_analysis' event.
-   * This event is likely published by the API Gateway when a user submits a business plan
-   * through a feature like the 'Quantum Weaver'.
-   *
-   * Upon receiving the event, it delegates the complex, multi-step analysis process
-   * to the AgentService.
+   * Listens for the 'agent.run.business_plan_analysis' event (e.g., from the Quantum Weaver feature).
+   * This event triggers the start of a durable workflow to analyze the business plan.
    *
    * @param {RunBusinessPlanAnalysisEvent} payload - The event payload containing the user ID and business plan.
    */
@@ -36,17 +46,34 @@ export class AgentController {
     @Payload(new ValidationPipe()) payload: RunBusinessPlanAnalysisEvent,
   ) {
     this.logger.log(
-      `Received event 'agent.run.business_plan_analysis' for user: ${payload.userId}`,
+      `Received event 'agent.run.business_plan_analysis' for user: ${payload.userId}. Starting workflow.`,
     );
-    // The service method is intentionally not awaited, as this is a fire-and-forget
-    // event pattern. The service is responsible for managing the async workflow.
-    this.agentService.runBusinessPlanAnalysis(payload);
+
+    try {
+      const handle = await this.temporalClient.workflow.start(
+        businessPlanAnalysisWorkflow,
+        {
+          taskQueue: 'ai-agent-tasks', // The task queue workers are listening on
+          // A unique and deterministic workflow ID is useful for idempotency and querying.
+          workflowId: `biz-plan-${payload.userId}-${Date.now()}`,
+          args: [payload], // Arguments passed to the workflow function
+        },
+      );
+      this.logger.log(
+        `Started business plan analysis workflow with ID: ${handle.workflowId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to start business plan analysis workflow for user: ${payload.userId}`,
+        error.stack,
+      );
+      // In production, we might emit a failure event back to the bus or handle it via a dead-letter queue.
+    }
   }
 
   /**
-   * Listens for events indicating that a user's financial data has been updated,
-   * such as a new bank account being linked or a large batch of transactions being synced.
-   * This triggers a proactive, autonomous analysis by a financial agent.
+   * Listens for 'user.financial_data.updated' to trigger a proactive, autonomous analysis.
+   * This is now managed as a durable workflow.
    *
    * @param {TriggerFinancialAnalysisEvent} payload - The event payload, typically just the user ID.
    */
@@ -55,14 +82,36 @@ export class AgentController {
     @Payload(new ValidationPipe()) payload: TriggerFinancialAnalysisEvent,
   ) {
     this.logger.log(
-      `Received event 'user.financial_data.updated' for user: ${payload.userId}. Triggering proactive analysis.`,
+      `Received event 'user.financial_data.updated' for user: ${payload.userId}. Starting proactive analysis workflow.`,
     );
-    this.agentService.runProactiveFinancialAnalysis(payload);
+
+    try {
+      const handle = await this.temporalClient.workflow.start(
+        proactiveFinancialAnalysisWorkflow,
+        {
+          taskQueue: 'ai-agent-tasks',
+          // Using a business-meaningful workflow ID can prevent duplicate analyses if events are resent.
+          workflowId: `proactive-analysis-${payload.userId}`,
+          // Allows starting the workflow only if one with the same ID is not already running.
+          workflowIdReusePolicy: 'AllowDuplicate',
+          args: [payload],
+        },
+      );
+      this.logger.log(
+        `Started proactive financial analysis workflow with ID: ${handle.workflowId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to start proactive financial analysis workflow for user: ${payload.userId}`,
+        error.stack,
+      );
+    }
   }
 
   /**
-   * Listens for an event indicating a user has requested a custom card design.
-   * This triggers an AI agent to generate a narrative or 'story' for the card.
+   * Listens for 'ai.card.story.requested' to generate a narrative for a custom card design.
+   * This process is also now managed as a workflow.
+   *
    * @param payload - The event payload containing details for the story generation.
    */
   @EventPattern('ai.card.story.requested')
@@ -70,8 +119,26 @@ export class AgentController {
     @Payload(new ValidationPipe()) payload: { userId: string; prompt: string },
   ) {
     this.logger.log(
-      `Received event 'ai.card.story.requested' for user: ${payload.userId}`,
+      `Received event 'ai.card.story.requested' for user: ${payload.userId}. Starting workflow.`,
     );
-    this.agentService.runCardStoryGeneration(payload);
+
+    try {
+      const handle = await this.temporalClient.workflow.start(
+        cardStoryGenerationWorkflow,
+        {
+          taskQueue: 'ai-agent-tasks',
+          workflowId: `card-story-${payload.userId}-${Date.now()}`,
+          args: [payload],
+        },
+      );
+      this.logger.log(
+        `Started card story generation workflow with ID: ${handle.workflowId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to start card story generation workflow for user: ${payload.userId}`,
+        error.stack,
+      );
+    }
   }
 }

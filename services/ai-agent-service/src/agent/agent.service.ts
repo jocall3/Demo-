@@ -10,9 +10,12 @@ import {
   Part,
   InlineDataPart,
 } from '@google/generative-ai';
+// --- New imports for Workflow Orchestration ---
+import { WorkflowClient } from '@temporalio/client'; // Assuming usage of Temporal
+import { businessPlanAnalysisWorkflow } from '../workflows/business-plan-analysis.workflow'; // This is a conceptual import, as the workflow would be defined in its own file.
+import { v4 as uuidv4 } from 'uuid';
 
 // --- Input/Output DTOs for the service layer ---
-// These align with the inputs and outputs of the GraphQL layer (resolver).
 
 export interface GenerateTextInput {
   prompt: string;
@@ -41,7 +44,6 @@ export interface VideoGenerationResult {
 }
 
 // --- Event Payload Interfaces ---
-// These define the shape of data received from the message bus.
 
 export interface RunBusinessPlanAnalysisEvent {
   userId: string;
@@ -75,12 +77,11 @@ export class AgentService implements OnModuleInit {
     private readonly configService: ConfigService,
     @Inject('KAFKA_CLIENT') private readonly kafkaClient: ClientKafka,
     private readonly httpService: HttpService,
+    // Inject the workflow client. This assumes it's provided in a module (e.g., TemporalModule).
+    @Inject('TEMPORAL_WORKFLOW_CLIENT')
+    private readonly workflowClient: WorkflowClient,
   ) {}
 
-  /**
-   * Initializes the Google Generative AI client when the module is loaded.
-   * It fetches the API key and other configurations from the environment.
-   */
   onModuleInit() {
     const apiKey = this.configService.get<string>('GOOGLE_GEMINI_API_KEY');
     if (!apiKey) {
@@ -179,23 +180,73 @@ export class AgentService implements OnModuleInit {
 
   // --- Event-driven Workflow Methods ---
 
+  /**
+   * REFACTORED: This method now triggers a durable, stateful workflow instead of executing the logic directly.
+   * It receives the event and starts a new workflow execution with the payload.
+   * The workflow engine is now responsible for the orchestration, retries, and state management.
+   */
   async runBusinessPlanAnalysis(payload: RunBusinessPlanAnalysisEvent): Promise<void> {
-    this.logger.log(`Starting business plan analysis for user ${payload.userId}`);
     const { userId, businessPlan } = payload;
+    const workflowId = `business-plan-${userId}-${uuidv4()}`;
+    this.logger.log(`Triggering 'businessPlanAnalysis' workflow with ID: ${workflowId}`);
+    
     try {
-      const feedbackPrompt = `Provide concise, high-level feedback on the following business plan: "${businessPlan}"`;
-      const feedback = await this.generateText({ prompt: feedbackPrompt });
-
-      const questionsPrompt = `Based on the plan, generate 3 critical questions a VC might ask. Categorize each into 'Market', 'Finance', or 'Operations'. Format as a JSON array of objects with "question" and "category" keys. Plan: "${businessPlan}"`;
-      const questionsText = await this.generateText({ prompt: questionsPrompt });
-      const questions = JSON.parse(questionsText.replace(/```json|```/g, ''));
-
-      this.kafkaClient.emit('agent.business_plan_analysis.completed', { userId, feedback, questions, status: 'success' });
-      this.logger.log(`Successfully completed business plan analysis for user ${payload.userId}`);
+      await this.workflowClient.start(businessPlanAnalysisWorkflow, {
+        args: [{ userId, businessPlan }],
+        taskQueue: 'ai-agent-tasks',
+        workflowId: workflowId,
+      });
+      this.logger.log(`Workflow ${workflowId} for user ${payload.userId} started successfully.`);
     } catch (error) {
-      this.logger.error(`Error during business plan analysis for user ${payload.userId}`, error.stack);
-      this.kafkaClient.emit('agent.business_plan_analysis.failed', { userId, error: error.message });
+      this.logger.error(`Failed to start business plan analysis workflow for user ${payload.userId}`, error.stack);
+      this.kafkaClient.emit('agent.workflow.start_failed', {
+        workflowName: 'businessPlanAnalysisWorkflow',
+        workflowId,
+        userId,
+        error: error.message,
+      });
     }
+  }
+
+  // --- Activity Implementations ---
+  // The following methods implement the business logic for the activities that are orchestrated by the workflow.
+  // A Temporal Worker process within this service would be configured to listen on the 'ai-agent-tasks' task queue
+  // and execute these methods when a workflow calls for them.
+
+  /**
+   * @ActivityImplementation Generates feedback for a business plan.
+   */
+  async generateFeedback(businessPlan: string): Promise<string> {
+    this.logger.log(`[Activity: generateFeedback] Executing...`);
+    const prompt = `Provide concise, high-level feedback on the following business plan: "${businessPlan}"`;
+    return this.generateText({ prompt });
+  }
+
+  /**
+   * @ActivityImplementation Generates and parses critical questions for a business plan.
+   */
+  async generateAndParseQuestions(businessPlan: string): Promise<any[]> {
+    this.logger.log('[Activity: generateAndParseQuestions] Executing...');
+    const prompt = `Based on the plan, generate 3 critical questions a VC might ask. Categorize each into 'Market', 'Finance', or 'Operations'. Format as a valid JSON array of objects with "question" and "category" keys. Plan: "${businessPlan}"`;
+    const questionsText = await this.generateText({ prompt });
+    const questions = JSON.parse(questionsText.replace(/```json|```/g, '').trim());
+    return questions;
+  }
+
+  /**
+   * @ActivityImplementation Emits a completion event to Kafka.
+   */
+  async notifyAnalysisCompleted(payload: { userId: string, feedback: string, questions: any[] }): Promise<void> {
+    this.logger.log(`[Activity: notifyAnalysisCompleted] Notifying of completion for user ${payload.userId}`);
+    this.kafkaClient.emit('agent.business_plan_analysis.completed', { ...payload, status: 'success' });
+  }
+  
+  /**
+   * @ActivityImplementation Emits a failure event to Kafka. This would be part of a compensation/Saga pattern in the workflow.
+   */
+  async notifyAnalysisFailed(payload: { userId: string, error: string }): Promise<void> {
+    this.logger.log(`[Activity: notifyAnalysisFailed] Notifying of failure for user ${payload.userId}`);
+    this.kafkaClient.emit('agent.business_plan_analysis.failed', payload);
   }
 
   async runProactiveFinancialAnalysis(payload: TriggerFinancialAnalysisEvent): Promise<void> {

@@ -1,7 +1,7 @@
 {
   "name": "ai-agent-service",
   "version": "1.0.0",
-  "description": "AI Agent Subgraph for the Demo Bank Supergraph, handling the agent marketplace and execution.",
+  "description": "AI Agent Subgraph for the Demo Bank Supergraph, handling the agent marketplace, execution, and orchestration of long-running AI workflows.",
   "author": "Elite AI Implementation Team",
   "private": true,
   "license": "UNLICENSED",
@@ -37,6 +37,8 @@
     "@opentelemetry/resources": "^1.25.0",
     "@opentelemetry/sdk-node": "^0.52.0",
     "@opentelemetry/semantic-conventions": "^1.25.0",
+    "@temporalio/client": "^1.9.3",
+    "@temporalio/worker": "^1.9.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "graphql": "^16.8.1",

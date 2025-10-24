@@ -7,16 +7,18 @@ import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { diag, DiagConsoleLogger, DiagLogLevel, trace, context } from '@opentelemetry/api';
 
-// --- 2. NestJS Application Imports (after OTel setup) ---
+// --- 2. NestJS & Workflow Engine Imports (after OTel setup) ---
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Transport } from '@nestjs/microservices';
 import pino from 'pino';
+import { NativeConnection, Worker } from '@temporalio/worker';
+import { TransactionService } from './transaction/transaction.service';
+import * as activities from './transaction/activities';
 
 // --- 3. OpenTelemetry Initialization ---
-// For troubleshooting OpenTelemetry, set the log level to DiagLogLevel.DEBUG
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
 const SERVICE_NAME = 'transactions-service';
@@ -88,12 +90,50 @@ class StructuredLogger implements LoggerService {
 
 // --- 5. Application Bootstrap ---
 async function bootstrap() {
+  // Create the main NestJS application instance.
+  // This instance will be used for both the GraphQL server and to provide
+  // dependency injection for the Temporal Worker's activities.
   const app = await NestFactory.create(AppModule, {
     logger: new StructuredLogger(),
   });
 
   const logger = app.get(StructuredLogger);
   const configService = app.get(ConfigService);
+
+  /**
+   * Initializes and runs the Temporal Worker.
+   * The worker connects to the Temporal cluster and starts polling a specific task queue
+   * for workflows and activities to execute. This runs in the background.
+   */
+  const runTemporalWorker = async () => {
+    logger.log('Initializing Temporal Worker...');
+
+    // Resolve NestJS services to be used as activities
+    const transactionService = app.get(TransactionService);
+
+    const temporalAddress = configService.get<string>('TEMPORAL_ADDRESS', 'localhost:7233');
+    const taskQueue = configService.get<string>('TEMPORAL_TRANSACTIONS_TASK_QUEUE', 'transactions-task-queue');
+
+    const connection = await NativeConnection.create({ address: temporalAddress });
+
+    const worker = await Worker.create({
+      connection,
+      namespace: configService.get<string>('TEMPORAL_NAMESPACE', 'default'),
+      taskQueue,
+      workflowsPath: require.resolve('./workflows'), // Assumes workflows are in ./src/workflows/index.ts
+      activities: activities.createActivities(transactionService), // Create activities with DI
+    });
+
+    logger.log(`Starting Temporal Worker for task queue: "${taskQueue}"...`);
+    await worker.run();
+    logger.log('Temporal Worker has shut down.');
+  };
+
+  // Run the worker in the background; do not await its completion.
+  runTemporalWorker().catch((err) => {
+    logger.error('Temporal Worker failed to run', err.stack, 'Bootstrap');
+    process.exit(1);
+  });
 
   // Connect Kafka Microservice for event-driven communication
   app.connectMicroservice({
