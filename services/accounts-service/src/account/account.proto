@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package account;
+
+// Option for Go code generation, a good practice for protobuf files.
+option go_package = "github.com/demobank/accounts-service/proto/account";
+
+// The AccountService is responsible for managing all aspects of user financial accounts.
+// It serves as the single source of truth for account data within the microservices ecosystem.
+service AccountService {
+  // Retrieves all accounts associated with a specific user ID.
+  rpc GetAccountsByUserId(GetAccountsByUserIdRequest) returns (GetAccountsByUserIdResponse) {}
+
+  // Retrieves a single account by its unique ID.
+  rpc GetAccountById(GetAccountByIdRequest) returns (GetAccountByIdResponse) {}
+}
+
+// Represents a single financial account linked to a user.
+message Account {
+  // The unique identifier for the account (e.g., from Plaid).
+  string id = 1;
+
+  // The ID of the user who owns this account.
+  string user_id = 2;
+
+  // The user-friendly name of the account (e.g., "Chase Checking").
+  string name = 3;
+
+  // The last 2-4 alphanumeric characters of an account number.
+  optional string mask = 4;
+
+  // The high-level type of the account (e.g., "depository", "credit", "loan").
+  string type = 5;
+
+  // The specific subtype of the account (e.g., "checking", "savings", "credit card").
+  optional string subtype = 6;
+
+  // The balance information for the account.
+  Balance balance = 7;
+
+  // The name of the financial institution.
+  string institution_name = 8;
+}
+
+// Represents the balance of a financial account.
+message Balance {
+  // The amount of funds available for use. This can be null if not available.
+  optional double available = 1;
+
+  // The total amount of funds in the account.
+  double current = 2;
+
+  // The ISO-4217 currency code of the balance (e.g., "USD").
+  string iso_currency_code = 3;
+}
+
+// Request message for the GetAccountsByUserId RPC.
+message GetAccountsByUserIdRequest {
+  // The ID of the user whose accounts are to be retrieved.
+  string user_id = 1;
+}
+
+// Response message for the GetAccountsByUserId RPC.
+message GetAccountsByUserIdResponse {
+  // A list of accounts belonging to the user.
+  repeated Account accounts = 1;
+}
+
+// Request message for the GetAccountById RPC.
+message GetAccountByIdRequest {
+  // The unique ID of the account to retrieve.
+  string account_id = 1;
+}
+
+// Response message for the GetAccountById RPC.
+message GetAccountByIdResponse {
+  // The requested account, if found.
+  Account account = 1;
+}
