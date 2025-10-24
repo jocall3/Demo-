@@ -17,6 +17,7 @@ import pino from 'pino';
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
 const SERVICE_NAME = process.env.OTEL_SERVICE_NAME || 'api-gateway';
+const PROMETHEUS_PORT = parseInt(process.env.PROMETHEUS_PORT || '9464', 10);
 
 const otelSDK = new NodeSDK({
   resource: new Resource({
@@ -24,19 +25,22 @@ const otelSDK = new NodeSDK({
   }),
   traceExporter: new OTLPTraceExporter(),
   metricReader: new PrometheusExporter({
-    port: 9464, // Port from original opentelemetry.ts for this service
+    port: PROMETHEUS_PORT,
   }),
   instrumentations: [getNodeAutoInstrumentations()],
 });
 
 // Gracefully shut down the SDK on process exit to flush telemetry data.
-process.on('SIGTERM', () => {
+const shutdown = () => {
   otelSDK
     .shutdown()
     .then(() => console.log('OpenTelemetry SDK shut down successfully.'))
     .catch((error) => console.log('Error shutting down OpenTelemetry SDK.', error))
     .finally(() => process.exit(0));
-});
+};
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 otelSDK.start();
 
@@ -84,8 +88,8 @@ class StructuredLogger implements LoggerService {
   log(message: any, context?: string) {
     this.pino.info({ context }, message);
   }
-  error(message: any, trace?: string, context?: string) {
-    this.pino.error({ context, stack: trace }, message);
+  error(message: any, stack?: string, context?: string) {
+    this.pino.error({ context, stack }, message);
   }
   warn(message: any, context?: string) {
     this.pino.warn({ context }, message);
@@ -131,11 +135,13 @@ async function bootstrap() {
   logger.log('Global ValidationPipe configured.');
 
   // Enable hooks for graceful shutdown (e.g., for database connections, etc.)
+  // This works in conjunction with the process signal handlers for OTel shutdown.
   app.enableShutdownHooks();
 
   await app.listen(port);
 
   logger.log(`🚀 API Gateway is running on: http://localhost:${port}/graphql`);
+  logger.log(`Prometheus metrics available on port ${PROMETHEUS_PORT}`);
 }
 
 bootstrap();
