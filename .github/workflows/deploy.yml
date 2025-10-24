@@ -32,16 +32,21 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22 #Cache npm dependencies
+          node-version: '20.x'
+          cache: 'npm' # Cache npm dependencies
 
       - name: Install dependencies
-        run: npm install #Use 'ci' for faster, more reliable installs in CI environments
+        run: npm ci # Use 'ci' for faster, more reliable installs in CI environments
 
       - name: Build application
-        # The VITE_BFF_URL is injected as an environment variable during the build process.
-        # This URL should be configured in the repository's secrets.
+        # Environment variables for the build process.
+        # VITE_BFF_URL: The URL of the deployed Backend-for-Frontend service.
+        # VITE_OTEL_*: OpenTelemetry configuration for frontend observability instrumentation.
+        # These values should be configured in the repository's secrets.
         env:
           VITE_BFF_URL: ${{ secrets.BFF_URL }}
+          VITE_OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          VITE_OTEL_SERVICE_NAME: 'frontend-client'
         run: npm run build
 
       - name: Upload production artifact
