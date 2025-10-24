@@ -1,4 +1,11 @@
-import type { Transaction, Asset, BudgetCategory, Subscription, CreditScore, UpcomingBill, SavingsGoal, MarketMover, FinancialGoal, CryptoAsset, PaymentOperation, CorporateCard, CorporateTransaction, RewardPoints, Notification, RewardItem, APIStatus, CreditFactor, NFTAsset } from '../types';
+import type { 
+    Transaction, Asset, BudgetCategory, Subscription, CreditScore, 
+    UpcomingBill, SavingsGoal, MarketMover, FinancialGoal, CryptoAsset, 
+    PaymentOperation, CorporateCard, CorporateTransaction, RewardPoints, 
+    Notification, RewardItem, APIStatus, CreditFactor, NFTAsset,
+    AdvancedAsset, AssetClass, MarketRegion, AnalystRating, 
+    HistoricalDataPoint, NewsArticle
+} from '../types';
 import { View } from '../types';
 
 export const MOCK_TRANSACTIONS: Transaction[] = [
@@ -101,6 +108,15 @@ export const MOCK_FINANCIAL_GOALS: FinancialGoal[] = [
                 { title: "Explore Travel ETFs", description: "Consider investing a small portion of your savings in a travel and tourism focused ETF for potential growth.", category: 'Investing' }
             ]
         }
+    },
+    {
+        id: 'goal_retirement_1',
+        name: 'Retirement Fund',
+        targetAmount: 1000000,
+        targetDate: '2045-01-01',
+        currentAmount: 250000,
+        iconName: 'retirement',
+        plan: null,
     }
 ];
 
@@ -190,53 +206,7 @@ export const MOCK_CREDIT_FACTORS: CreditFactor[] = [
     { name: 'Credit Mix', status: 'Fair', description: 'Your credit mix could be improved with different types of loans, such as a mortgage.' },
 ];
 
-// ================================================================================================
-// MOCK DATA MOVED FROM InvestmentsView.tsx FOR CENTRALIZATION
-// ================================================================================================
-
-// --- TYPES (Redefined here as they are not in the global types.ts) ---
-export type AssetClass = 'Stocks' | 'Bonds' | 'Real Estate' | 'Crypto' | 'Commodities' | 'Alternatives';
-export type MarketRegion = 'North America' | 'Europe' | 'Asia-Pacific' | 'Emerging Markets' | 'Global';
-export type AnalystRating = 'Strong Buy' | 'Buy' | 'Hold' | 'Sell' | 'Strong Sell';
-
-export interface HistoricalDataPoint {
-    date: string; // "YYYY-MM-DD"
-    price: number;
-}
-
-export interface NewsArticle {
-    id: string;
-    source: string;
-    headline: string;
-    summary: string;
-    url: string;
-    publishedAt: string;
-}
-
-export interface AdvancedAsset extends Asset {
-    assetClass: AssetClass;
-    ticker: string;
-    marketCap: number; // in USD
-    peRatio: number | null; // Price-to-Earnings
-    dividendYield: number | null; // in percentage
-    beta: number; // Market volatility
-    historicalData: {
-        '1D': HistoricalDataPoint[];
-        '1W': HistoricalDataPoint[];
-        '1M': HistoricalDataPoint[];
-        '1Y': HistoricalDataPoint[];
-        '5Y': HistoricalDataPoint[];
-    };
-    analystRatings: {
-        rating: AnalystRating;
-        targetPrice: number;
-        analystCount: number;
-    };
-    news: NewsArticle[];
-    region: MarketRegion;
-}
-
-// --- HELPERS ---
+// Helpers and data previously in InvestmentsView.tsx, now centralized.
 const generateHistoricalData = (basePrice: number, days: number, volatility: number): HistoricalDataPoint[] => {
     const data: HistoricalDataPoint[] = [];
     let price = basePrice;
@@ -254,7 +224,6 @@ const generateHistoricalData = (basePrice: number, days: number, volatility: num
     return data;
 };
 
-// --- DATA ---
 export const MOCK_ADVANCED_ASSETS: AdvancedAsset[] = [
     {
         name: 'Tech Innovators Inc.',
@@ -376,21 +345,6 @@ export const MOCK_ADVANCED_ASSETS: AdvancedAsset[] = [
         analystRatings: { rating: 'Buy', targetPrice: 95, analystCount: 15 },
         news: [{ id: 'n5', source: 'Property Times', headline: 'UREIT reports high occupancy rates despite economic headwinds.', summary: '...', url: '#', publishedAt: new Date().toISOString() }],
     }
-];
-
-interface InvestmentGoal {
-    id: string;
-    name: string;
-    targetAmount: number;
-    currentAmount: number;
-    targetDate: string; // ISO string
-    priority: 'High' | 'Medium' | 'Low';
-}
-
-export const MOCK_INVESTMENT_GOALS: InvestmentGoal[] = [
-    { id: 'g1', name: 'Retirement Fund', targetAmount: 1000000, currentAmount: 250000, targetDate: '2045-01-01T00:00:00.000Z', priority: 'High' },
-    { id: 'g2', name: 'House Down Payment', targetAmount: 100000, currentAmount: 45000, targetDate: '2028-06-01T00:00:00.000Z', priority: 'High' },
-    { id: 'g3', name: 'Dream Vacation', targetAmount: 15000, currentAmount: 11000, targetDate: '2025-12-20T00:00:00.000Z', priority: 'Medium' },
 ];
 
 export const MOCK_RISK_QUIZ_QUESTIONS = [

@@ -1,10 +1,12 @@
-import React, { useState, useContext, useEffect } from 'react';
-import { DataContext } from '../context/DataContext';
-import { View } from '../types';
+import React, { useState, useEffect } from 'react';
+import { View, Notification } from '../types';
+// The new custom hook to manage notification state via React Query, as per the new architecture.
+// This hook encapsulates all data fetching and mutation logic for notifications.
+import { useNotifications } from '../hooks/useNotifications';
 
 /**
  * @description A dynamic widget to show the simulated real-time status of the "Heuristic API".
- * This component creates the illusion of an always-on, proactive AI analyzing data in the background.
+ * This component is purely presentational and creates the illusion of an always-on, proactive AI analyzing data in the background.
  */
 const HeuristicAPIStatus: React.FC = () => {
     const messages = [
@@ -46,24 +48,29 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ onMenuClick, setActiveView }) => {
-  const context = useContext(DataContext);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
-  if (!context) {
-    throw new Error("Header must be used within a DataProvider");
-  }
+  // --- State Management Refactor ---
+  // Replaced monolithic DataContext with a dedicated, feature-sliced custom hook.
+  // This hook encapsulates React Query logic for fetching and updating notifications.
+  const { notifications, unreadCount, markAsRead } = useNotifications();
 
-  const { notifications, markNotificationRead } = context;
-  const unreadCount = notifications.filter(n => !n.read).length;
-  
-  const handleNotificationClick = (notification: typeof notifications[0]) => {
+  const handleNotificationClick = (notification: Notification) => {
+      // Navigate to the view associated with the notification, if any.
       if (notification.view) {
           setActiveView(notification.view);
       }
-      markNotificationRead(notification.id);
+      
+      // If the notification is unread, trigger the mutation to mark it as read.
+      // The useNotifications hook will handle optimistic updates or refetching via React Query.
+      if (!notification.read) {
+          markAsRead.mutate(notification.id);
+      }
+      
+      // Close the dropdown after interaction.
       setIsNotificationsOpen(false);
-  }
+  };
 
   return (
     <header className="py-4 px-6 bg-gray-900/30 backdrop-blur-md border-b border-gray-700/50 flex justify-between items-center z-20">
@@ -90,7 +97,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, setActiveView }) => {
                 <div className="absolute right-0 mt-2 w-80 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50">
                     <div className="p-3 font-semibold text-white border-b border-gray-700">Notifications</div>
                     <div className="max-h-96 overflow-y-auto">
-                        {notifications.map(notification => (
+                        {notifications && notifications.map(notification => (
                             <div key={notification.id} onClick={() => handleNotificationClick(notification)} className={`p-3 text-sm flex items-start border-b border-gray-700/50 cursor-pointer ${notification.read ? 'opacity-60' : 'bg-cyan-500/10'}`}>
                                 {!notification.read && <div className="w-2 h-2 rounded-full bg-cyan-400 mt-1.5 flex-shrink-0"></div>}
                                 <div className="ml-2">

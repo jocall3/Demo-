@@ -1,11 +1,96 @@
-import React, { useContext, useState, useMemo } from 'react';
-import { DataContext } from '../context/DataContext';
+import React, { useState, useMemo } from 'react';
+import { useQuery, useMutation, UseMutationResult } from '@tanstack/react-query';
 import Card from './Card';
 import type { Transaction, DetectedSubscription } from '../types';
 
 // ================================================================================================
-// MODAL & DETAIL COMPONENTS
+// MOCK DATA (Simulating data from a service layer)
 // ================================================================================================
+const MOCK_TRANSACTIONS: Transaction[] = [
+  { id: '1', type: 'expense', category: 'Dining', description: 'Coffee Shop', amount: 12.50, date: '2024-07-21', carbonFootprint: 1.2 },
+  { id: '2', type: 'income', category: 'Salary', description: 'Paycheck', amount: 2500.00, date: '2024-07-20' },
+  { id: '3', type: 'expense', category: 'Shopping', description: 'Online Store', amount: 89.99, date: '2024-07-19', carbonFootprint: 8.5 },
+  { id: '4', type: 'expense', category: 'Utilities', description: 'Electricity Bill', amount: 75.30, date: '2024-07-18', carbonFootprint: 15.3 },
+  { id: '5', type: 'expense', category: 'Transport', description: 'Gas Station', amount: 55.00, date: '2024-07-18', carbonFootprint: 25.1 },
+  { id: '6', type: 'income', category: 'Freelance', description: 'Project ABC', amount: 500.00, date: '2024-07-17' },
+];
+
+// ================================================================================================
+// SERVICE LAYER
+// In a real application, this logic would reside in a dedicated `services/` directory.
+// ================================================================================================
+
+/**
+ * Fetches all transactions from the BFF.
+ * @returns A promise that resolves to an array of transactions.
+ */
+const fetchTransactions = async (): Promise<Transaction[]> => {
+    console.log("Calling BFF to fetch transactions...");
+    // Simulating an API call to a BFF endpoint like GET /api/transactions
+    await new Promise(resolve => setTimeout(resolve, 1200)); 
+    // const response = await fetch('/api/transactions');
+    // if (!response.ok) throw new Error('Failed to fetch transactions');
+    // return response.json();
+    return MOCK_TRANSACTIONS; // Returning mock data for demonstration
+};
+
+/**
+ * Requests an AI insight from the BFF based on transaction data.
+ * @param insightType The type of insight to generate.
+ * @param transactions A list of transactions to analyze.
+ * @returns A promise that resolves to the AI-generated insight.
+ */
+const fetchTransactionInsight = async (insightType: string, transactions: Transaction[]): Promise<{ result: any }> => {
+    console.log(`Calling BFF to generate insight: ${insightType}`);
+    // Simulating an API call to a BFF endpoint like POST /api/ai/transaction-insight
+    await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1000));
+    // const response = await fetch('/api/ai/transaction-insight', { ... });
+    // if (!response.ok) throw new Error('Failed to generate insight');
+    // return response.json();
+    
+    // Returning mock data for demonstration
+    if (insightType === 'subscription_hunter') {
+        return { result: { subscriptions: [{ name: 'QuantumFlix', estimatedAmount: 15.99 }, { name: 'SynthWave Music', estimatedAmount: 9.99 }] }};
+    }
+    if (insightType === 'anomaly_detection') {
+        return { result: "Unusual spending of $89.99 at 'Online Store' detected. This is 50% higher than your average shopping purchase." };
+    }
+    return { result: 'This is a mock insight from Plato AI for your review.' };
+};
+
+
+// ================================================================================================
+// CUSTOM HOOKS
+// In a real application, these hooks would reside in a `hooks/` or `features/` directory.
+// ================================================================================================
+
+/**
+ * Custom hook to fetch and manage transaction data using React Query.
+ * This abstracts the data fetching logic from the UI component.
+ */
+const useTransactions = () => {
+    return useQuery<Transaction[], Error>({
+        queryKey: ['transactions'],
+        queryFn: fetchTransactions,
+        staleTime: 1000 * 60 * 5, // Data is considered fresh for 5 minutes
+        refetchOnWindowFocus: false,
+    });
+};
+
+/**
+ * Custom hook to generate an AI insight for transactions using React Query's useMutation.
+ * This encapsulates the server-side action of generating an insight.
+ */
+const useTransactionInsight = (insightType: string, transactions?: Transaction[]) => {
+    return useMutation<any, Error>({
+        mutationFn: () => fetchTransactionInsight(insightType, transactions || []),
+    });
+};
+
+// ================================================================================================
+// UI COMPONENTS
+// ================================================================================================
+
 const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClose: () => void }> = ({ transaction, onClose }) => {
     if (!transaction) return null;
 
@@ -22,67 +107,27 @@ const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClos
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Date:</span> <span className="text-white">{transaction.date}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Category:</span> <span className="text-white">{transaction.category}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Transaction ID:</span> <span className="text-white font-mono text-xs">{transaction.id}</span></div>
-                    {transaction.carbonFootprint && <div className="flex justify-between text-sm"><span className="text-gray-400">Carbon Footprint:</span> <span className="text-green-300">{transaction.carbonFootprint.toFixed(1)} kg COâ‚‚</span></div>}
+                    {transaction.carbonFootprint && <div className="flex justify-between text-sm"><span className="text-gray-400">Carbon Footprint:</span> <span className="text-green-300">{transaction.carbonFootprint.toFixed(1)} kg CO₂</span></div>}
                 </div>
             </div>
         </div>
     );
 };
 
-// ================================================================================================
-// AI WIDGET COMPONENT (REFACTORED FOR BFF ARCHITECTURE)
-// ================================================================================================
-
-const AITransactionWidget: React.FC<{
+interface AITransactionWidgetProps {
     title: string;
-    insightType: 'subscription_hunter' | 'anomaly_detection' | 'tax_deduction_finder' | 'savings_finder';
-    transactions: Transaction[];
+    mutation: UseMutationResult<any, Error, void, unknown>;
     children?: (result: any) => React.ReactNode;
-}> = ({ title, insightType, transactions, children }) => {
-    const [result, setResult] = useState<any>(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState('');
+}
 
-    const handleGenerate = async () => {
-        setIsLoading(true);
-        setError('');
-        setResult(null);
-        try {
-            // As per the new architecture, frontend calls the BFF, not Google GenAI directly.
-            // The BFF endpoint will handle authentication, prompt engineering, and the actual API call.
-            const response = await fetch('/api/ai/transaction-insight', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    insightType,
-                    transactions: transactions.slice(0, 20), // Pass recent transactions to the BFF
-                }),
-            });
-
-            if (!response.ok) {
-                // Handle HTTP errors from the BFF
-                const errorData = await response.json();
-                throw new Error(errorData.message || `Failed to generate ${title}.`);
-            }
-
-            const data = await response.json();
-            setResult(data.result);
-
-        } catch (err: any) {
-            console.error(`Error generating ${title} via BFF:`, err);
-            setError('Plato AI could not generate this insight at the moment.');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
+const AITransactionWidget: React.FC<AITransactionWidgetProps> = ({ title, mutation, children }) => {
+    const { mutate, data: result, isPending: isLoading, error } = mutation;
+    
     return (
         <div className="p-3 bg-gray-900/40 rounded-lg border border-gray-700/50">
             <h4 className="font-semibold text-gray-200 text-sm mb-2">{title}</h4>
             <div className="space-y-2 min-h-[4rem] flex flex-col justify-center">
-                {error && <p className="text-red-400 text-xs text-center">{error}</p>}
+                {error && <p className="text-red-400 text-xs text-center">{error.message}</p>}
                 {isLoading && (
                     <div className="flex items-center justify-center space-x-2">
                          <div className="h-2 w-2 bg-cyan-400 rounded-full animate-pulse [animation-delay:-0.3s]"></div>
@@ -90,10 +135,10 @@ const AITransactionWidget: React.FC<{
                          <div className="h-2 w-2 bg-cyan-400 rounded-full animate-pulse"></div>
                     </div>
                 )}
-                {!isLoading && result && children && children(result)}
-                {!isLoading && result && !children && <p className="text-gray-300 text-xs">{result}</p>}
+                {!isLoading && result && children && children(result.result)}
+                {!isLoading && result && !children && <p className="text-gray-300 text-xs">{result.result}</p>}
                 {!isLoading && !result && !error && (
-                    <button onClick={handleGenerate} className="text-xs font-medium text-cyan-300 hover:text-cyan-200">
+                    <button onClick={() => mutate()} className="text-xs font-medium text-cyan-300 hover:text-cyan-200">
                         Generate Insight
                     </button>
                 )}
@@ -102,22 +147,36 @@ const AITransactionWidget: React.FC<{
     );
 };
 
-// ================================================================================================
-// MAIN TRANSACTIONS VIEW
-// ================================================================================================
+const TransactionTableSkeleton: React.FC = () => (
+    <div className="animate-pulse">
+        {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex justify-between items-center px-6 py-4 border-b border-gray-800">
+                <div className="h-4 bg-gray-700 rounded w-1/3"></div>
+                <div className="h-4 bg-gray-700 rounded w-1/6"></div>
+                <div className="h-4 bg-gray-700 rounded w-1/6"></div>
+                <div className="h-4 bg-gray-700 rounded w-1/6"></div>
+            </div>
+        ))}
+    </div>
+);
+
+
 const TransactionsView: React.FC = () => {
-    const context = useContext(DataContext);
     const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
     const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
     const [sort, setSort] = useState<'date' | 'amount'>('date');
     const [searchTerm, setSearchTerm] = useState('');
 
-    if (!context) {
-        throw new Error("TransactionsView must be within a DataProvider");
-    }
-    const { transactions } = context;
+    const { data: transactions, isLoading, error } = useTransactions();
+    
+    // AI Insight mutations
+    const subscriptionInsight = useTransactionInsight('subscription_hunter', transactions);
+    const anomalyInsight = useTransactionInsight('anomaly_detection', transactions);
+    const taxInsight = useTransactionInsight('tax_deduction_finder', transactions);
+    const savingsInsight = useTransactionInsight('savings_finder', transactions);
 
     const filteredTransactions = useMemo(() => {
+        if (!transactions) return [];
         return transactions
             .filter(tx => filter === 'all' || tx.type === filter)
             .filter(tx => tx.description.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -134,16 +193,16 @@ const TransactionsView: React.FC = () => {
             <div className="space-y-6">
                  <Card title="Plato's Intelligence Suite" isCollapsible>
                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <AITransactionWidget title="Subscription Hunter" insightType="subscription_hunter" transactions={transactions}>
+                        <AITransactionWidget title="Subscription Hunter" mutation={subscriptionInsight}>
                            {(result: { subscriptions: DetectedSubscription[] }) => (
                                 <ul className="text-xs text-gray-300 space-y-1">
                                     {result.subscriptions.map(sub => <li key={sub.name}>- {sub.name} (~${sub.estimatedAmount.toFixed(2)})</li>)}
                                 </ul>
                            )}
                         </AITransactionWidget>
-                        <AITransactionWidget title="Anomaly Detection" insightType="anomaly_detection" transactions={transactions} />
-                        <AITransactionWidget title="Tax Deduction Finder" insightType="tax_deduction_finder" transactions={transactions} />
-                        <AITransactionWidget title="Savings Finder" insightType="savings_finder" transactions={transactions} />
+                        <AITransactionWidget title="Anomaly Detection" mutation={anomalyInsight} />
+                        <AITransactionWidget title="Tax Deduction Finder" mutation={taxInsight} />
+                        <AITransactionWidget title="Savings Finder" mutation={savingsInsight} />
                      </div>
                 </Card>
                 <Card>
@@ -172,7 +231,15 @@ const TransactionsView: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredTransactions.map(tx => (
+                                {isLoading && <TransactionTableSkeleton />}
+                                {error && (
+                                    <tr>
+                                        <td colSpan={4} className="text-center py-8 text-red-400">
+                                            Error loading transactions: {error.message}
+                                        </td>
+                                    </tr>
+                                )}
+                                {!isLoading && !error && filteredTransactions.map(tx => (
                                     <tr key={tx.id} onClick={() => setSelectedTransaction(tx)} className="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer">
                                         <th scope="row" className="px-6 py-4 font-medium text-white whitespace-nowrap">{tx.description}</th>
                                         <td className="px-6 py-4">{tx.category}</td>
