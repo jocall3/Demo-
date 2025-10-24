@@ -1,73 +1,42 @@
 /**
  * services/cryptoService.ts
  *
- * This service layer is responsible for all interactions with the BFF's crypto-related endpoints.
- * It abstracts away the details of the API calls (endpoints, headers, error handling)
- * and provides a clean, typed interface for the application's data-fetching hooks (e.g., useCryptoWallet).
+ * This service layer is responsible for all interactions with the GraphQL Supergraph for crypto-related data.
+ * It abstracts away the details of GraphQL queries and mutations, providing a clean, typed interface
+ * for the application's data-fetching hooks (e.g., useCryptoWallet).
  */
 
 import { CryptoAsset, NFTAsset, VirtualCard } from '../types';
 
-// NOTE: In a fully refactored architecture, this interface would be moved to the global `types.ts` file.
+// The GraphQL endpoint, which is the single entry point for all data fetching via the API gateway.
+const GRAPHQL_API_URL = '/graphql';
+
+// --- Type Definitions for GraphQL Responses ---
+// These define the shape of the data expected from the GraphQL API.
+// In a full-fledged setup, these might be auto-generated from the schema.
+
+// NOTE: In a fully refactored architecture, these interfaces would be moved to the global `types.ts` file.
 export interface WalletInfo {
   address: string;
   balance: number; // e.g., in ETH
 }
 
-// This interface combines all data related to the user's crypto holdings and wallet state.
 export interface CryptoPortfolio {
   assets: CryptoAsset[];
   nfts: NFTAsset[];
   walletInfo: WalletInfo | null;
 }
 
-// The base URL for the BFF's crypto API endpoints.
-// In a Vite app, '/api' is proxied to the BFF during development.
-const API_BASE_URL = '/api/crypto';
+interface UserDataResponse {
+  userData: {
+    cryptoPortfolio: CryptoPortfolio;
+  };
+}
 
-/**
- * A reusable helper function to handle API responses. It checks for network errors,
- * parses the JSON body, and throws a standardized error for non-ok responses.
- * @param response - The Fetch API Response object.
- * @returns The parsed JSON data.
- * @throws An error with a message from the API or a generic error message.
- */
-const handleResponse = async <T>(response: Response): Promise<T> => {
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ message: 'An unknown API error occurred.' }));
-    throw new Error(errorData.message || `API request failed with status ${response.status}`);
-  }
-  return response.json() as Promise<T>;
-};
+interface IssueCardResponse {
+  issueVirtualCard: VirtualCard;
+}
 
-/**
- * Fetches the user's entire crypto portfolio from the BFF.
- * This includes fungible assets (like BTC, ETH), non-fungible tokens (NFTs), and wallet information.
- *
- * @returns A promise that resolves to the user's complete crypto portfolio.
- */
-export const getCryptoPortfolio = async (): Promise<CryptoPortfolio> => {
-  const response = await fetch(`${API_BASE_URL}/portfolio`);
-  return handleResponse<CryptoPortfolio>(response);
-};
-
-/**
- * Sends a request to the BFF to issue a new virtual card linked to the user's crypto balance.
- * The BFF handles the secure integration with a card issuer (e.g., Marqeta).
- *
- * @returns A promise that resolves to the new virtual card's details.
- */
-export const issueVirtualCard = async (): Promise<VirtualCard> => {
-  const response = await fetch(`${API_BASE_URL}/virtual-card/issue`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  });
-  return handleResponse<VirtualCard>(response);
-};
-
-/**
- * Defines the expected response from the crypto purchase endpoint.
- */
 export interface BuyCryptoResponse {
   success: boolean;
   transactionId: string;
@@ -75,59 +44,186 @@ export interface BuyCryptoResponse {
   assetTicker: string;
 }
 
-/**
- * Sends a request to the BFF to facilitate a crypto purchase via an on-ramp provider.
- * The BFF handles the secure integration with a service like Stripe.
- *
- * @param usdAmount - The amount in USD to purchase.
- * @param cryptoTicker - The ticker of the cryptocurrency to buy (e.g., "ETH").
- * @returns A promise that resolves to an object confirming the transaction details.
- */
-export const buyCrypto = async (usdAmount: number, cryptoTicker: string): Promise<BuyCryptoResponse> => {
-  const response = await fetch(`${API_BASE_URL}/on-ramp/buy`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ usdAmount, cryptoTicker }),
-  });
-  return handleResponse<BuyCryptoResponse>(response);
-};
+interface BuyCryptoMutationResponse {
+  buyCrypto: BuyCryptoResponse;
+}
+
+interface ConnectWalletResponse {
+  connectWallet: WalletInfo;
+}
+
+interface MintNFTResponse {
+  mintNFT: NFTAsset;
+}
+
+// --- Generic GraphQL Request Helper ---
 
 /**
- * Sends a request to the BFF to connect a user's external wallet (e.g., MetaMask).
- * The BFF would store the public address securely associated with the user's profile
- * and return the latest state.
+ * A generic function to execute GraphQL queries or mutations against the Supergraph.
+ * It handles the fetch request, JSON serialization, and basic error handling.
  *
- * @param address - The public wallet address to connect.
- * @param signature - A signed message to prove ownership of the address.
- * @returns A promise that resolves to the updated wallet information.
+ * @param query The GraphQL query or mutation string.
+ * @param variables Optional variables for the GraphQL operation.
+ * @returns A promise that resolves to the data from the GraphQL response.
+ * @throws An error if the network request fails or if the GraphQL response contains errors.
  */
-export const connectWallet = async (address: string, signature: string): Promise<WalletInfo> => {
-  const response = await fetch(`${API_BASE_URL}/wallet/connect`, {
+async function graphqlRequest<T>(query: string, variables?: Record<string, any>): Promise<T> {
+  const response = await fetch(GRAPHQL_API_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ address, signature }),
-  });
-  return handleResponse<WalletInfo>(response);
-};
-
-/**
- * Sends a request to the BFF to mint a new NFT.
- * This is a simplified representation; a real-world scenario would be more complex.
- * The BFF would interact with a minting service or a smart contract directly.
- *
- * @param name - The name of the NFT.
- * @param imageUrl - The image URL for the NFT's metadata.
- * @returns A promise that resolves to the details of the newly minted NFT.
- */
-export const mintNFT = async (name: string, imageUrl: string): Promise<NFTAsset> => {
-  const response = await fetch(`${API_BASE_URL}/nft/mint`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      // In a real application, an authorization header would be included here.
+      // 'Authorization': `Bearer ${getAuthToken()}`,
+    },
     body: JSON.stringify({
-      name,
-      imageUrl,
-      description: `A unique NFT minted through Demo Bank.`,
+      query,
+      variables,
     }),
   });
-  return handleResponse<NFTAsset>(response);
+
+  if (!response.ok) {
+    throw new Error(`Network error: ${response.status} ${response.statusText}`);
+  }
+
+  const { data, errors } = await response.json();
+
+  if (errors) {
+    // In a real app, you might handle different error types more gracefully.
+    throw new Error(errors[0].message || 'An error occurred in the GraphQL API.');
+  }
+
+  return data;
+}
+
+// --- GraphQL Operations (Queries and Mutations) ---
+
+const GET_CRYPTO_PORTFOLIO_QUERY = `
+  query GetCryptoPortfolio {
+    userData {
+      cryptoPortfolio {
+        assets {
+          ticker
+          name
+          value
+          amount
+          color
+        }
+        nfts {
+          id
+          name
+          imageUrl
+          contractAddress
+        }
+        walletInfo {
+          address
+          balance
+        }
+      }
+    }
+  }
+`;
+
+const ISSUE_VIRTUAL_CARD_MUTATION = `
+  mutation IssueVirtualCard {
+    issueVirtualCard {
+      cardNumber
+      cvv
+      expiry
+      holderName
+    }
+  }
+`;
+
+const BUY_CRYPTO_MUTATION = `
+  mutation BuyCrypto($usdAmount: Float!, $cryptoTicker: String!) {
+    buyCrypto(usdAmount: $usdAmount, cryptoTicker: $cryptoTicker) {
+      success
+      transactionId
+      amountBought
+      assetTicker
+    }
+  }
+`;
+
+const CONNECT_WALLET_MUTATION = `
+  mutation ConnectWallet($address: String!, $signature: String!) {
+    connectWallet(address: $address, signature: $signature) {
+      address
+      balance
+    }
+  }
+`;
+
+const MINT_NFT_MUTATION = `
+  mutation MintNFT($name: String!, $imageUrl: String!) {
+    mintNFT(name: $name, imageUrl: $imageUrl) {
+      id
+      name
+      imageUrl
+      contractAddress
+    }
+  }
+`;
+
+// --- Exported Service Functions ---
+
+/**
+ * Fetches the user's entire crypto portfolio using GraphQL.
+ * This function is designed to be used by React Query's `useQuery`.
+ * @returns A promise that resolves to the user's complete crypto portfolio.
+ */
+export const getCryptoPortfolio = async (): Promise<CryptoPortfolio> => {
+  const data = await graphqlRequest<UserDataResponse>(GET_CRYPTO_PORTFOLIO_QUERY);
+  return data.userData.cryptoPortfolio;
+};
+
+/**
+ * Executes a mutation to issue a new virtual card.
+ * @returns A promise that resolves to the new virtual card's details.
+ */
+export const issueVirtualCard = async (): Promise<VirtualCard> => {
+  const data = await graphqlRequest<IssueCardResponse>(ISSUE_VIRTUAL_CARD_MUTATION);
+  return data.issueVirtualCard;
+};
+
+/**
+ * Executes a mutation to buy a crypto asset.
+ * @param usdAmount - The amount in USD to purchase.
+ * @param cryptoTicker - The ticker of the cryptocurrency to buy.
+ * @returns A promise that resolves to the transaction confirmation.
+ */
+export const buyCrypto = async (usdAmount: number, cryptoTicker: string): Promise<BuyCryptoResponse> => {
+  const data = await graphqlRequest<BuyCryptoMutationResponse>(BUY_CRYPTO_MUTATION, {
+    usdAmount,
+    cryptoTicker,
+  });
+  return data.buyCrypto;
+};
+
+/**
+ * Executes a mutation to connect an external crypto wallet.
+ * @param address - The public wallet address.
+ * @param signature - A signed message proving ownership.
+ * @returns A promise that resolves to the connected wallet's information.
+ */
+export const connectWallet = async (address: string, signature: string): Promise<WalletInfo> => {
+  const data = await graphqlRequest<ConnectWalletResponse>(CONNECT_WALLET_MUTATION, {
+    address,
+    signature,
+  });
+  return data.connectWallet;
+};
+
+/**
+ * Executes a mutation to mint a new NFT.
+ * @param name - The name of the NFT.
+ * @param imageUrl - The URL for the NFT's image.
+ * @returns A promise that resolves to the newly minted NFT's details.
+ */
+export const mintNFT = async (name: string, imageUrl: string): Promise<NFTAsset> => {
+  const data = await graphqlRequest<MintNFTResponse>(MINT_NFT_MUTATION, {
+    name,
+    imageUrl,
+  });
+  return data.mintNFT;
 };
