@@ -134,8 +134,8 @@ async function bootstrap() {
   );
   logger.log('Global ValidationPipe configured.');
 
-  // Get port from environment variables, with a fallback
-  const port = configService.get<number>('PORT') || 4002;
+  // Get port from environment variables, with a fallback to an unused port.
+  const port = configService.get<number>('PORT') || 4006;
 
   await app.listen(port);
 
