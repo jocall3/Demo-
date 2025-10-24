@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package transaction;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+// The TransactionService provides methods for managing and retrieving financial transactions.
+// It is the source of truth for all transaction data within the microservices ecosystem.
+service TransactionService {
+  // Retrieves a single transaction by its unique ID.
+  rpc GetTransaction(GetTransactionRequest) returns (Transaction);
+
+  // Retrieves a list of transactions for a given user, with optional filters and pagination.
+  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse);
+}
+
+// High-level business type of the transaction.
+enum TransactionType {
+  TRANSACTION_TYPE_UNSPECIFIED = 0;
+  INCOME = 1;
+  EXPENSE = 2;
+}
+
+// Represents geographical information for a transaction.
+message Location {
+  optional string address = 1;
+  optional string city = 2;
+  optional string region = 3;
+  optional string postal_code = 4;
+  optional string country = 5;
+  optional double lat = 6;
+  optional double lon = 7;
+}
+
+// The core Transaction entity, representing a single financial event.
+// This model is an abstraction over raw data from providers like Plaid.
+message Transaction {
+  // Unique identifier for the transaction.
+  string id = 1;
+  // The ID of the user who owns this transaction.
+  string user_id = 2;
+  // The ID of the account this transaction belongs to.
+  string account_id = 3;
+  // The merchant name or a description of the transaction.
+  string name = 4;
+  // The settled amount of the transaction. Positive for debits, negative for credits.
+  // The `type` field provides business context (income/expense).
+  double amount = 5;
+  // The ISO-4217 currency code of the transaction.
+  string iso_currency_code = 6;
+  // The primary business category of the transaction (e.g., "Dining", "Shopping").
+  string category = 7;
+  // A more granular sub-category, if available.
+  google.protobuf.StringValue sub_category = 8;
+  // The high-level business type of the transaction.
+  TransactionType type = 9;
+  // The date the transaction was posted, in UTC.
+  google.protobuf.Timestamp date = 10;
+  // The date the transaction was authorized, in UTC. Can be different from the posted date.
+  google.protobuf.Timestamp authorized_date = 11;
+  // Indicates if the transaction is still pending or has been posted.
+  bool pending = 12;
+  // Geographic information for the transaction.
+  optional Location location = 13;
+  // The channel through which the payment was made (e.g., "online", "in store").
+  string payment_channel = 14;
+}
+
+// Request to retrieve a single transaction by its ID.
+message GetTransactionRequest {
+  string transaction_id = 1;
+}
+
+// Request to retrieve a list of transactions.
+message ListTransactionsRequest {
+  // The ID of the user whose transactions are being requested. Required.
+  string user_id = 1;
+  // Optional filters
+  optional string account_id = 2;
+  optional google.protobuf.Timestamp start_date = 3;
+  optional google.protobuf.Timestamp end_date = 4;
+  // Pagination: The maximum number of transactions to return.
+  // The service may return fewer than this value.
+  optional int32 page_size = 5;
+  // Pagination: A page token, received from a previous `ListTransactions` call.
+  // Provide this to retrieve the subsequent page.
+  optional string page_token = 6;
+}
+
+// Response containing a list of transactions and pagination information.
+message ListTransactionsResponse {
+  repeated Transaction transactions = 1;
+  // A token to retrieve the next page of results. If this field is omitted,
+  // there are no more results.
+  string next_page_token = 2;
+  // The total number of transactions matching the query, which may be an estimate.
+  int32 total_size = 3;
+}
