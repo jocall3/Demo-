@@ -10,10 +10,12 @@ import { diag, DiagConsoleLogger, DiagLogLevel, trace, context } from '@opentele
 // For troubleshooting OpenTelemetry, set the log level to DiagLogLevel.DEBUG
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
+const SERVICE_NAME = 'metrics-service';
+
 const otelSDK = new NodeSDK({
   // The service name is a required attribute for all telemetry data.
   resource: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: 'metrics-service',
+    [SemanticResourceAttributes.SERVICE_NAME]: SERVICE_NAME,
   }),
   // OTLPTraceExporter will send traces to an OTel Collector.
   // The endpoint is configurable via the OTEL_EXPORTER_OTLP_ENDPOINT env var.
@@ -52,7 +54,7 @@ import pino from 'pino';
  */
 class StructuredLogger implements LoggerService {
   private readonly pino: pino.Logger;
-  private readonly serviceName = 'metrics-service';
+  private readonly serviceName = SERVICE_NAME;
 
   constructor() {
     this.pino = pino({
@@ -115,6 +117,10 @@ async function bootstrap() {
   const logger = app.get(StructuredLogger);
   const configService = app.get(ConfigService);
 
+  // Enable CORS - useful for allowing Apollo Studio to introspect the subgraph in development
+  app.enableCors();
+  logger.log('CORS has been enabled for all origins.');
+
   // Global pipes for validation and transformation
   app.useGlobalPipes(
     new ValidationPipe({
@@ -133,8 +139,7 @@ async function bootstrap() {
 
   await app.listen(port);
 
-  const appUrl = await app.getUrl();
-  logger.log(`Metrics service GraphQL subgraph is running on: ${appUrl}/graphql`);
+  logger.log(`Metrics subgraph is running on: http://localhost:${port}/graphql`);
   logger.log(
     `Prometheus metrics available on port ${process.env.METRICS_PROMETHEUS_PORT || '9465'}`,
   );
