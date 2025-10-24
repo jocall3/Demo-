@@ -4,32 +4,30 @@ import {
   collectDefaultMetrics,
   Counter,
   Histogram,
-  Gauge,
 } from 'prom-client';
 
 /**
  * Service responsible for creating, registering, and exposing Prometheus metrics.
- * This service follows the RED method (Rate, Errors, Duration) for monitoring
- * and includes custom business-level metrics.
+ * This service is tailored for a GraphQL API and includes custom business-level metrics.
+ * It uses the 'prom-client' library directly to provide granular control over metrics.
  */
 @Injectable()
 export class MetricsService implements OnModuleInit {
   private readonly registry: Registry;
 
-  // --- Core Application Metrics (RED Method) ---
-  private httpRequestsTotal: Counter<string>;
-  private httpRequestDuration: Histogram<string>;
+  // --- Core GraphQL Metrics (RED Method) ---
+  private graphqlRequestsTotal: Counter<string>;
+  private graphqlRequestDuration: Histogram<string>;
 
-  // --- Business & Service-specific Metrics ---
-  private plaidApiInteractions: Counter<string>;
-  private genAiApiInteractions: Counter<string>;
+  // --- Business & Downstream Service Metrics ---
+  private downstreamApiInteractions: Counter<string>;
   private accountsLinkedTotal: Counter<string>;
-  private activeUserSessions: Gauge<string>;
+  private genAiApiInteractions: Counter<string>;
 
   constructor() {
     this.registry = new Registry();
     this.registry.setDefaultLabels({
-      service: 'bff',
+      service: 'bff-graphql',
     });
     this.registerMetrics();
   }
@@ -43,84 +41,75 @@ export class MetricsService implements OnModuleInit {
    * Initializes all custom Prometheus metrics for the application.
    */
   private registerMetrics() {
-    // --- HTTP Metrics ---
-    this.httpRequestsTotal = new Counter({
-      name: 'http_requests_total',
-      help: 'Total number of HTTP requests made.',
-      labelNames: ['method', 'route', 'status_code'],
+    // --- GraphQL Metrics ---
+    this.graphqlRequestsTotal = new Counter({
+      name: 'graphql_requests_total',
+      help: 'Total number of GraphQL requests.',
+      labelNames: ['operation_type', 'operation_name', 'status'], // status: 'success' | 'error'
       registers: [this.registry],
     });
 
-    this.httpRequestDuration = new Histogram({
-      name: 'http_request_duration_seconds',
-      help: 'Duration of HTTP requests in seconds.',
-      labelNames: ['method', 'route', 'status_code'],
-      buckets: [0.1, 0.3, 0.5, 0.7, 1, 3, 5, 7, 10], // Buckets in seconds
+    this.graphqlRequestDuration = new Histogram({
+      name: 'graphql_request_duration_seconds',
+      help: 'Duration of GraphQL requests in seconds.',
+      labelNames: ['operation_type', 'operation_name'],
+      buckets: [0.05, 0.1, 0.3, 0.5, 0.7, 1, 3, 5], // Buckets in seconds
       registers: [this.registry],
     });
 
-    // --- Plaid Metrics ---
-    this.plaidApiInteractions = new Counter({
-      name: 'plaid_api_calls_total',
-      help: 'Total number of Plaid API calls.',
-      labelNames: ['operation', 'status'], // e.g., operation='create_link_token', status='success'
+    // --- Downstream API Metrics ---
+    this.downstreamApiInteractions = new Counter({
+      name: 'downstream_api_calls_total',
+      help: 'Total number of downstream API calls.',
+      labelNames: ['service', 'operation', 'status'], // e.g., service='plaid', operation='create_link_token', status='success'
       registers: [this.registry],
     });
 
+    // --- Business KPI Metrics ---
     this.accountsLinkedTotal = new Counter({
       name: 'accounts_linked_total',
       help: 'Total number of new bank accounts successfully linked via Plaid.',
       registers: [this.registry],
     });
 
-    // --- GenAI Metrics ---
     this.genAiApiInteractions = new Counter({
       name: 'genai_api_calls_total',
-      help: 'Total number of GenAI API calls.',
-      labelNames: ['model', 'operation', 'status'], // e.g., model='gemini-1.5-flash', operation='chat'
-      registers: [this.registry],
-    });
-
-    // --- Session/User Metrics ---
-    this.activeUserSessions = new Gauge({
-      name: 'active_user_sessions_total',
-      help: 'Number of active user sessions.',
+      help: 'Total number of GenAI API calls with model-specific details.',
+      labelNames: ['model', 'operation', 'status'],
       registers: [this.registry],
     });
   }
 
-  // --- Public Methods for Services to Use ---
+  // --- Public Methods for Services and Interceptors to Use ---
 
-  incrementHttpRequestsTotal(
-    method: string,
-    route: string,
-    statusCode: number,
+  incrementGraphqlRequests(
+    operationType: 'query' | 'mutation',
+    operationName: string,
+    status: 'success' | 'error',
   ) {
-    this.httpRequestsTotal.inc({
-      method,
-      route,
-      status_code: statusCode,
+    this.graphqlRequestsTotal.inc({
+      operation_type: operationType,
+      operation_name: operationName,
+      status,
     });
   }
 
-  observeHttpRequestDuration(
-    method: string,
-    route: string,
-    statusCode: number,
-    durationInSeconds: number,
-  ) {
-    this.httpRequestDuration.observe(
-      {
-        method,
-        route,
-        status_code: statusCode,
-      },
-      durationInSeconds,
-    );
+  observeGraphqlRequestDuration(
+    operationType: 'query' | 'mutation',
+    operationName: string,
+  ): (labels?: object) => void {
+    return this.graphqlRequestDuration.startTimer({
+      operation_type: operationType,
+      operation_name: operationName,
+    });
   }
 
-  incrementPlaidApiCall(operation: string, status: 'success' | 'failure') {
-    this.plaidApiInteractions.inc({ operation, status });
+  incrementDownstreamApiCall(
+    service: 'plaid' | 'stripe' | 'genai',
+    operation: string,
+    status: 'success' | 'failure',
+  ) {
+    this.downstreamApiInteractions.inc({ service, operation, status });
   }
 
   incrementAccountsLinked() {
@@ -132,22 +121,28 @@ export class MetricsService implements OnModuleInit {
     operation: string,
     status: 'success' | 'failure',
   ) {
-    this.genAiApiInteractions.inc({ model, operation, status });
-  }
+    // Increment the generic downstream counter as well for aggregated views
+    this.incrementDownstreamApiCall('genai', operation, status);
 
-  setActiveSessions(count: number) {
-    this.activeUserSessions.set(count);
+    // Increment the specific GenAI counter with model details
+    this.genAiApiInteractions.inc({ model, operation, status });
   }
 
   /**
    * Gets the application's metrics in Prometheus format.
+   * This method is called by the MetricsController to expose the metrics.
    * @returns A promise that resolves to the metrics string.
    */
   async getMetrics(): Promise<string> {
     return this.registry.metrics();
   }
 
-  getRegistry(): Registry {
-    return this.registry;
+  /**
+   * Returns the content type for the metrics endpoint, required by Prometheus scrapers.
+   * This method is called by the MetricsController.
+   * @returns The content type string.
+   */
+  getContentType(): string {
+    return this.registry.contentType;
   }
 }

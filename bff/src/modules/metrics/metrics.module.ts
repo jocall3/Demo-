@@ -1,67 +1,105 @@
-import { Module } from '@nestjs/common';
-import { PrometheusModule, makeCounterProvider } from '@willsoto/nestjs-prometheus';
+import { Module, Provider } from '@nestjs/common';
+import { metrics, Meter, Counter } from '@opentelemetry/api';
 
+// --- Injection Tokens ---
+// Using string tokens for DI is a robust way to handle non-class providers.
+export const METER_PROVIDER_TOKEN = 'METER_PROVIDER';
+export const GRAPHQL_REQUESTS_COUNTER_TOKEN = 'GRAPHQL_REQUESTS_COUNTER';
+export const PLAID_ITEMS_CREATED_COUNTER_TOKEN = 'PLAID_ITEMS_CREATED_COUNTER';
+export const GENAI_REQUESTS_COUNTER_TOKEN = 'GENAI_REQUESTS_COUNTER';
+export const DOWNSTREAM_API_ERRORS_COUNTER_TOKEN = 'DOWNSTREAM_API_ERRORS_COUNTER';
+
+// --- OpenTelemetry Meter Provider ---
+// This provider makes the OpenTelemetry Meter available for injection.
+const meterProvider: Provider = {
+  provide: METER_PROVIDER_TOKEN,
+  useFactory: (): Meter => {
+    // Get a meter from the global meter provider, which is configured in main.ts
+    // The name 'bff-application' helps to namespace these metrics.
+    return metrics.getMeter('bff-application');
+  },
+};
+
+// --- Custom Metric Providers ---
+// Each custom metric is defined as a factory provider that depends on the Meter.
+
+const graphqlRequestsCounterProvider: Provider = {
+  provide: GRAPHQL_REQUESTS_COUNTER_TOKEN,
+  useFactory: (meter: Meter): Counter =>
+    meter.createCounter('bff_graphql_requests_total', {
+      description: 'Total number of GraphQL requests.',
+      unit: '1',
+    }),
+  inject: [METER_PROVIDER_TOKEN],
+};
+
+const plaidItemsCreatedCounterProvider: Provider = {
+  provide: PLAID_ITEMS_CREATED_COUNTER_TOKEN,
+  useFactory: (meter: Meter): Counter =>
+    meter.createCounter('bff_plaid_items_created_total', {
+      description: 'Total number of successful Plaid item creations (account links).',
+      unit: '1',
+    }),
+  inject: [METER_PROVIDER_TOKEN],
+};
+
+const genAIRequestsCounterProvider: Provider = {
+  provide: GENAI_REQUESTS_COUNTER_TOKEN,
+  useFactory: (meter: Meter): Counter =>
+    meter.createCounter('bff_genai_requests_total', {
+      description: 'Total number of requests to the GenAI service.',
+      unit: '1',
+    }),
+  inject: [METER_PROVIDER_TOKEN],
+};
+
+const downstreamApiErrorsCounterProvider: Provider = {
+  provide: DOWNSTREAM_API_ERRORS_COUNTER_TOKEN,
+  useFactory: (meter: Meter): Counter =>
+    meter.createCounter('bff_downstream_api_errors_total', {
+      description: 'Total number of failed requests to downstream APIs.',
+      unit: '1',
+    }),
+  inject: [METER_PROVIDER_TOKEN],
+};
+
+// --- Module Definition ---
 /**
- * Business KPI Metrics Definition
- * These counters are defined as providers to be injected into services
- * where the corresponding business events occur.
- */
-
-// Counter for successful Plaid item creations (account links)
-export const PlaidItemsCreatedCounter = makeCounterProvider({
-  name: 'bff_plaid_items_created_total',
-  help: 'Total number of successful Plaid item creations (account links).',
-});
-
-// Counter for GenAI requests by model
-export const GenAIRequestsCounter = makeCounterProvider({
-  name: 'bff_genai_requests_total',
-  help: 'Total number of requests to the GenAI service, partitioned by model.',
-  labelNames: ['model', 'status'], // status can be 'success' or 'error'
-});
-
-// Counter for failed downstream API calls (e.g., Plaid, Stripe, GenAI)
-export const DownstreamApiErrorsCounter = makeCounterProvider({
-  name: 'bff_downstream_api_errors_total',
-  help: 'Total number of failed requests to downstream APIs.',
-  labelNames: ['service'], // e.g., 'plaid', 'stripe', 'genai'
-});
-
-/**
- * The MetricsModule is responsible for setting up the Prometheus endpoint
- * and providing custom application-specific metrics (business KPIs).
- *
- * It registers the main Prometheus module, which automatically exposes a /metrics
- * endpoint and collects default Node.js/process metrics.
- *
- * Application performance metrics (Rate, Errors, Duration) for HTTP requests
- * are intended to be configured globally in AppModule via middleware or an interceptor
- * provided by the '@willsoto/nestjs-prometheus' library.
+ * The MetricsModule is responsible for creating and providing custom
+ * application-specific metrics (business KPIs) using the OpenTelemetry API.
+ * 
+ * It aligns with the global OpenTelemetry SDK setup in `main.ts`, which handles
+ * the exporting of metrics to a Prometheus-compatible endpoint. This module
+ * focuses solely on the definition and dependency injection of custom metric instruments.
+ * 
+ * These metric instruments (e.g., counters) are exported as providers so they can be
+ * injected into any service across the application to record business events.
+ * 
+ * Example usage in a service:
+ * ```
+ * constructor(
+ *   @Inject(GENAI_REQUESTS_COUNTER_TOKEN) private genAICounter: Counter,
+ * ) {}
+ * 
+ * someMethod() {
+ *   // ...
+ *   this.genAICounter.add(1, { 'model': 'gemini-1.5-flash', 'status': 'success' });
+ * }
+ * ```
  */
 @Module({
-  imports: [
-    PrometheusModule.register({
-      path: '/metrics',
-      defaultMetrics: {
-        enabled: true, // Collects default metrics like process_cpu_user_seconds_total
-        config: {
-          // Optional: Add a prefix to all default metrics to namespace them
-          prefix: 'bff_',
-        },
-      },
-    }),
-  ],
   providers: [
-    // Provide the custom metrics so they can be injected into other services.
-    PlaidItemsCreatedCounter,
-    GenAIRequestsCounter,
-    DownstreamApiErrorsCounter,
+    meterProvider,
+    graphqlRequestsCounterProvider,
+    plaidItemsCreatedCounterProvider,
+    genAIRequestsCounterProvider,
+    downstreamApiErrorsCounterProvider,
   ],
   exports: [
-    // Export the custom metrics to make them available for injection in other modules.
-    PlaidItemsCreatedCounter,
-    GenAIRequestsCounter,
-    DownstreamApiErrorsCounter,
+    GRAPHQL_REQUESTS_COUNTER_TOKEN,
+    PLAID_ITEMS_CREATED_COUNTER_TOKEN,
+    GENAI_REQUESTS_COUNTER_TOKEN,
+    DOWNSTREAM_API_ERRORS_COUNTER_TOKEN,
   ],
 })
 export class MetricsModule {}
