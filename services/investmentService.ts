@@ -1,49 +1,43 @@
-import type { Asset, MarketMover } from '../types';
-
-// The endpoint for the new Federated GraphQL Gateway
-const GQL_ENDPOINT = '/graphql'; // This would typically come from an environment variable
-
 /**
- * A generic helper function to execute GraphQL queries against the gateway.
- * @param query - The GraphQL query string.
- * @param variables - An optional object of variables for the query.
- * @returns The data from the GraphQL response.
- * @throws An error if the network request or GraphQL execution fails.
+ * services/investmentService.ts
+ *
+ * RE-ARCHITECTED
+ * This service layer is responsible for all interactions with the GraphQL Supergraph for investment-related data.
+ * It has been refactored to use Apollo Client, replacing the previous raw fetch-based implementation.
+ * This aligns with the new architecture, providing a typed, declarative way to interact with the Supergraph.
+ * These functions are intended to be consumed by feature-specific data hooks (e.g., useInvestmentPortfolio).
  */
-async function graphqlRequest<T>(query: string, variables: Record<string, any> = {}): Promise<T> {
-  const response = await fetch(GQL_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      // In a real app, an Authorization header with a JWT would be included
-      // 'Authorization': `Bearer ${getAuthToken()}`,
+
+import { ApolloClient, InMemoryCache, gql, ApolloError } from '@apollo/client';
+import { Asset, MarketMover } from '../types';
+
+// ====================================================================================
+// Apollo Client Initialization
+// This client is configured to communicate with the federated GraphQL Gateway.
+// In a larger application, this would be a singleton instance shared across all services.
+// ====================================================================================
+const client = new ApolloClient({
+  uri: import.meta.env.VITE_GRAPHQL_GATEWAY_URL || '/graphql',
+  cache: new InMemoryCache(),
+  defaultOptions: {
+    watchQuery: {
+      fetchPolicy: 'no-cache', // Caching is handled by React Query/TanStack Query in the hooks layer
     },
-    body: JSON.stringify({
-      query,
-      variables,
-    }),
-  });
+    query: {
+      fetchPolicy: 'no-cache',
+    },
+  },
+});
 
-  if (!response.ok) {
-    throw new Error(`Network error: ${response.status} ${response.statusText}`);
-  }
-
-  const { data, errors } = await response.json();
-
-  if (errors) {
-    // In a real app, you might want to log the full error object
-    console.error('GraphQL Errors:', errors);
-    throw new Error(errors[0]?.message || 'An error occurred during the GraphQL request.');
-  }
-
-  return data as T;
-}
+// ====================================================================================
+// GraphQL Queries
+// ====================================================================================
 
 /**
  * GraphQL query to fetch the user's main investment portfolio.
  * This query fetches the assets array from the unified UserData type in the supergraph.
  */
-const GET_INVESTMENT_PORTFOLIO_QUERY = `
+const GET_INVESTMENT_PORTFOLIO_QUERY = gql`
   query GetInvestmentPortfolio {
     userData {
       assets {
@@ -59,19 +53,10 @@ const GET_INVESTMENT_PORTFOLIO_QUERY = `
 `;
 
 /**
- * Fetches the user's main investment portfolio from the GraphQL gateway.
- * @returns A promise that resolves to an array of Asset objects.
- */
-export const getInvestmentPortfolio = async (): Promise<Asset[]> => {
-  const data = await graphqlRequest<{ userData: { assets: Asset[] } }>(GET_INVESTMENT_PORTFOLIO_QUERY);
-  return data.userData.assets;
-};
-
-/**
  * GraphQL query to fetch the top market movers.
  * This assumes a 'marketMovers' query is available on the supergraph.
  */
-const GET_MARKET_MOVERS_QUERY = `
+const GET_MARKET_MOVERS_QUERY = gql`
   query GetMarketMovers {
     marketMovers {
       ticker
@@ -83,20 +68,11 @@ const GET_MARKET_MOVERS_QUERY = `
 `;
 
 /**
- * Fetches the top market movers for the day from the GraphQL gateway.
- * @returns A promise that resolves to an array of MarketMover objects.
- */
-export const getMarketMovers = async (): Promise<MarketMover[]> => {
-  const data = await graphqlRequest<{ marketMovers: MarketMover[] }>(GET_MARKET_MOVERS_QUERY);
-  return data.marketMovers;
-};
-
-/**
  * GraphQL query to fetch social impact investments.
  * This assumes an 'impactInvestments' query is available on the supergraph,
  * which could be a query for assets with high ESG ratings.
  */
-const GET_IMPACT_INVESTMENTS_QUERY = `
+const GET_IMPACT_INVESTMENTS_QUERY = gql`
   query GetImpactInvestments {
     impactInvestments {
       name
@@ -109,11 +85,54 @@ const GET_IMPACT_INVESTMENTS_QUERY = `
   }
 `;
 
+// ====================================================================================
+// Service Functions
+// ====================================================================================
+
+/**
+ * Fetches the user's main investment portfolio from the GraphQL gateway.
+ * @returns A promise that resolves to an array of Asset objects.
+ */
+export const getInvestmentPortfolio = async (): Promise<Asset[]> => {
+  try {
+    const { data } = await client.query({
+      query: GET_INVESTMENT_PORTFOLIO_QUERY,
+    });
+    return data?.userData?.assets || [];
+  } catch (error) {
+    console.error("Failed to fetch investment portfolio from GraphQL gateway:", error);
+    throw error as ApolloError;
+  }
+};
+
+/**
+ * Fetches the top market movers for the day from the GraphQL gateway.
+ * @returns A promise that resolves to an array of MarketMover objects.
+ */
+export const getMarketMovers = async (): Promise<MarketMover[]> => {
+  try {
+    const { data } = await client.query({
+      query: GET_MARKET_MOVERS_QUERY,
+    });
+    return data?.marketMovers || [];
+  } catch (error) {
+    console.error("Failed to fetch market movers from GraphQL gateway:", error);
+    throw error as ApolloError;
+  }
+};
+
 /**
  * Fetches a curated list of social impact (ESG) investment opportunities from the GraphQL gateway.
  * @returns A promise that resolves to an array of Asset objects representing impact investments.
  */
 export const getImpactInvestments = async (): Promise<Asset[]> => {
-  const data = await graphqlRequest<{ impactInvestments: Asset[] }>(GET_IMPACT_INVESTMENTS_QUERY);
-  return data.impactInvestments;
+  try {
+    const { data } = await client.query({
+      query: GET_IMPACT_INVESTMENTS_QUERY,
+    });
+    return data?.impactInvestments || [];
+  } catch (error) {
+    console.error("Failed to fetch impact investments from GraphQL gateway:", error);
+    throw error as ApolloError;
+  }
 };
