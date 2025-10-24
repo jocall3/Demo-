@@ -19,6 +19,17 @@ export default registerAs('config', () => {
       origin: process.env.CLIENT_URL || 'http://localhost:3000',
     },
 
+    // Observability configuration for OpenTelemetry
+    observability: {
+      // Service name for traces, logs, and metrics.
+      serviceName: process.env.OTEL_SERVICE_NAME || 'bff',
+      // OTLP exporter endpoint (URL of the OpenTelemetry Collector).
+      exporterUrl:
+        process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318',
+      // Log level for structured logging.
+      logLevel: process.env.LOG_LEVEL || 'info',
+    },
+
     // Configuration for Google Generative AI services (e.g., Gemini)
     google: {
       geminiApiKey: process.env.GOOGLE_GEMINI_API_KEY,

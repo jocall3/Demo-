@@ -1,31 +1,48 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { HealthModule } from './health/health.module';
-import { PlaidModule } from './plaid/plaid.module';
-import { GenaiModule } from './genai/genai.module';
-import { AuthModule } from './auth/auth.module';
-import { AccountsModule } from './accounts/accounts.module';
-import { TransactionsModule } from './transactions/transactions.module';
-import { StripeModule } from './stripe/stripe.module';
+import configuration from './config/configuration';
+
+// Observability Modules for Tracing, Metrics, and Logging
+import { ObservabilityModule } from './observability/observability.module';
+import { PrometheusModule } from './prometheus/prometheus.module';
+
+// Feature Modules
+import { BankingModule } from './modules/banking/banking.module';
+import { GenaiModule } from './modules/genai/genai.module';
+import { PlaidModule } from './modules/plaid/plaid.module';
+import { GeminiModule } from './gemini/gemini.module';
 
 @Module({
   imports: [
+    // --- Core Modules ---
+
+    // Global configuration module using a typed configuration file.
     ConfigModule.forRoot({
-      isGlobal: true, // Make ConfigService available throughout the app
+      isGlobal: true,
+      load: [configuration],
+      cache: true,
       envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
-      cache: true, // Improve performance by caching environment variables
     }),
-    HealthModule, // For health checks
-    AuthModule, // For handling client authentication (e.g., JWT validation)
-    PlaidModule, // For interacting with Plaid API
-    StripeModule, // For interacting with Stripe API
-    GenaiModule, // For interacting with Google GenAI APIs
-    AccountsModule, // For aggregating and serving account data
-    TransactionsModule, // For aggregating and serving transaction data
+
+    // --- Observability Modules ---
+
+    // Sets up OpenTelemetry for distributed tracing and structured logging.
+    ObservabilityModule,
+    // Exposes a /metrics endpoint for Prometheus scraping.
+    PrometheusModule.forRoot(),
+
+    // --- Feature Modules ---
+
+    // Modules based on the existing file structure.
+    BankingModule,
+    GenaiModule,
+    PlaidModule,
+    GeminiModule,
   ],
-  controllers: [AppController], // Root controller for basic routes/health checks
-  providers: [AppService], // Root service
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}
