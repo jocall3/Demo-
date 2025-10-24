@@ -14,7 +14,7 @@ export class AppController {
   constructor(private readonly appService: AppService) {}
 
   /**
-   * @returns A status object indicating that the BFF service is running.
+   * @returns A status object indicating that the API Gateway service is running.
    */
   @Get()
   @ApiOperation({
@@ -29,10 +29,15 @@ export class AppController {
       type: 'object',
       properties: {
         status: { type: 'string', example: 'ok' },
+        timestamp: {
+          type: 'string',
+          example: '2023-10-27T10:00:00.000Z',
+          format: 'date-time',
+        },
       },
     },
   })
-  getHealthStatus(): { status: string } {
+  getHealthStatus(): { status: string; timestamp: string } {
     return this.appService.getHealthStatus();
   }
 }
