@@ -2,104 +2,101 @@ import { Module, Provider } from '@nestjs/common';
 import { metrics, Meter, Counter } from '@opentelemetry/api';
 
 // --- Injection Tokens ---
-// Using string tokens for DI is a robust way to handle non-class providers.
-export const METER_PROVIDER_TOKEN = 'METER_PROVIDER';
-export const GRAPHQL_REQUESTS_COUNTER_TOKEN = 'GRAPHQL_REQUESTS_COUNTER';
-export const PLAID_ITEMS_CREATED_COUNTER_TOKEN = 'PLAID_ITEMS_CREATED_COUNTER';
-export const GENAI_REQUESTS_COUNTER_TOKEN = 'GENAI_REQUESTS_COUNTER';
-export const DOWNSTREAM_API_ERRORS_COUNTER_TOKEN = 'DOWNSTREAM_API_ERRORS_COUNTER';
+export const METER_TOKEN = 'METER_TOKEN';
+export const GRAPHQL_REQUESTS_COUNTER = 'GRAPHQL_REQUESTS_COUNTER';
+export const PLAID_ITEMS_COUNTER = 'PLAID_ITEMS_COUNTER';
+export const GENAI_CALLS_COUNTER = 'GENAI_CALLS_COUNTER';
+export const DOWNSTREAM_API_CALLS_COUNTER = 'DOWNSTREAM_API_CALLS_COUNTER';
 
 // --- OpenTelemetry Meter Provider ---
-// This provider makes the OpenTelemetry Meter available for injection.
 const meterProvider: Provider = {
-  provide: METER_PROVIDER_TOKEN,
+  provide: METER_TOKEN,
   useFactory: (): Meter => {
-    // Get a meter from the global meter provider, which is configured in main.ts
-    // The name 'bff-application' helps to namespace these metrics.
-    return metrics.getMeter('bff-application');
+    // Meter is configured in `opentelemetry.ts` and registered globally.
+    return metrics.getMeter('bff-subgraph');
   },
 };
 
 // --- Custom Metric Providers ---
-// Each custom metric is defined as a factory provider that depends on the Meter.
 
-const graphqlRequestsCounterProvider: Provider = {
-  provide: GRAPHQL_REQUESTS_COUNTER_TOKEN,
+// Note: While http.server.duration provides a count, a custom counter allows for specific GraphQL attributes.
+const graphqlRequestsCounter: Provider = {
+  provide: GRAPHQL_REQUESTS_COUNTER,
   useFactory: (meter: Meter): Counter =>
     meter.createCounter('bff_graphql_requests_total', {
-      description: 'Total number of GraphQL requests.',
-      unit: '1',
+      description: 'Total number of GraphQL requests processed, labeled by operation name and type.',
     }),
-  inject: [METER_PROVIDER_TOKEN],
+  inject: [METER_TOKEN],
 };
 
-const plaidItemsCreatedCounterProvider: Provider = {
-  provide: PLAID_ITEMS_CREATED_COUNTER_TOKEN,
+const plaidItemsCounter: Provider = {
+  provide: PLAID_ITEMS_COUNTER,
   useFactory: (meter: Meter): Counter =>
-    meter.createCounter('bff_plaid_items_created_total', {
-      description: 'Total number of successful Plaid item creations (account links).',
-      unit: '1',
+    meter.createCounter('bff_plaid_items_total', {
+      description: 'Total number of Plaid items created (account links).',
     }),
-  inject: [METER_PROVIDER_TOKEN],
+  inject: [METER_TOKEN],
 };
 
-const genAIRequestsCounterProvider: Provider = {
-  provide: GENAI_REQUESTS_COUNTER_TOKEN,
+const genaiCallsCounter: Provider = {
+  provide: GENAI_CALLS_COUNTER,
   useFactory: (meter: Meter): Counter =>
-    meter.createCounter('bff_genai_requests_total', {
-      description: 'Total number of requests to the GenAI service.',
-      unit: '1',
+    meter.createCounter('bff_genai_calls_total', {
+      description: 'Total number of calls to the GenAI service, labeled by model and status.',
     }),
-  inject: [METER_PROVIDER_TOKEN],
+  inject: [METER_TOKEN],
 };
 
-const downstreamApiErrorsCounterProvider: Provider = {
-  provide: DOWNSTREAM_API_ERRORS_COUNTER_TOKEN,
+const downstreamApiCallsCounter: Provider = {
+  provide: DOWNSTREAM_API_CALLS_COUNTER,
   useFactory: (meter: Meter): Counter =>
-    meter.createCounter('bff_downstream_api_errors_total', {
-      description: 'Total number of failed requests to downstream APIs.',
-      unit: '1',
+    meter.createCounter('bff_downstream_api_calls_total', {
+      description: 'Total number of outbound calls to downstream APIs, labeled by service and status.',
     }),
-  inject: [METER_PROVIDER_TOKEN],
+  inject: [METER_TOKEN],
 };
 
-// --- Module Definition ---
 /**
  * The MetricsModule is responsible for creating and providing custom
- * application-specific metrics (business KPIs) using the OpenTelemetry API.
+ * application-specific metrics using the OpenTelemetry API.
  * 
- * It aligns with the global OpenTelemetry SDK setup in `main.ts`, which handles
+ * It aligns with the global OpenTelemetry SDK setup in `opentelemetry.ts`, which handles
  * the exporting of metrics to a Prometheus-compatible endpoint. This module
  * focuses solely on the definition and dependency injection of custom metric instruments.
  * 
  * These metric instruments (e.g., counters) are exported as providers so they can be
  * injected into any service across the application to record business events.
  * 
- * Example usage in a service:
+ * Example usage in another service:
  * ```
  * constructor(
- *   @Inject(GENAI_REQUESTS_COUNTER_TOKEN) private genAICounter: Counter,
+ *   @Inject(GENAI_CALLS_COUNTER) private genAICounter: Counter,
  * ) {}
  * 
- * someMethod() {
- *   // ...
- *   this.genAICounter.add(1, { 'model': 'gemini-1.5-flash', 'status': 'success' });
+ * async someMethod() {
+ *   try {
+ *     // ... call GenAI service
+ *     this.genAICounter.add(1, { model: 'gemini-1.5-flash', operation: 'generateText', status: 'success' });
+ *   } catch (error) {
+ *     this.genAICounter.add(1, { model: 'gemini-1.5-flash', operation: 'generateText', status: 'error' });
+ *     throw error;
+ *   }
  * }
  * ```
  */
 @Module({
   providers: [
     meterProvider,
-    graphqlRequestsCounterProvider,
-    plaidItemsCreatedCounterProvider,
-    genAIRequestsCounterProvider,
-    downstreamApiErrorsCounterProvider,
+    graphqlRequestsCounter,
+    plaidItemsCounter,
+    genaiCallsCounter,
+    downstreamApiCallsCounter,
   ],
   exports: [
-    GRAPHQL_REQUESTS_COUNTER_TOKEN,
-    PLAID_ITEMS_CREATED_COUNTER_TOKEN,
-    GENAI_REQUESTS_COUNTER_TOKEN,
-    DOWNSTREAM_API_ERRORS_COUNTER_TOKEN,
+    GRAPHQL_REQUESTS_COUNTER,
+    PLAID_ITEMS_COUNTER,
+    GENAI_CALLS_COUNTER,
+    DOWNSTREAM_API_CALLS_COUNTER,
   ],
 })
 export class MetricsModule {}
