@@ -1,0 +1,49 @@
+server:
+  port: 8080
+
+pipelines:
+  - name: bff-public-api
+    apiEndpoints:
+      - api
+    policies:
+      # 1. CORS for browser-based clients
+      - cors:
+          action:
+            origin: ['http://localhost:5173', 'https://demobank.com']
+            credentials: true
+
+      # 2. Rate limiting to prevent abuse
+      - rate-limit:
+          action:
+            windowMs: 60000 # 1 minute
+            max: 500 # Limit each IP to 500 requests per window
+            message: 'Too many requests, please try again later.'
+      
+      # 3. JWT validation for client authentication
+      - jwt:
+          action:
+            # In a real scenario, JWKS URI would be used for public key validation
+            jwksUri: 'https://demobank.us.auth0.com/.well-known/jwks.json'
+            audience: 'https://api.demobank.com'
+            issuer: 'https://demobank.us.auth0.com/'
+
+      # 4. Proxying to the BFF service
+      - proxy:
+          action:
+            serviceEndpoint: bff
+            changeOrigin: true
+            # Strips '/api' prefix: /api/users -> /users
+            pathRewrite:
+              '^/api': ''
+
+# Define the public-facing endpoints
+apiEndpoints:
+  - name: api
+    path: '/api/*'
+
+# Define the downstream services
+serviceEndpoints:
+  - name: bff
+    # In a containerized environment (e.g., Docker), 'bff' is the service name.
+    # For local development outside containers, this would be 'http://localhost:3000'.
+    url: 'http://bff:3000'
