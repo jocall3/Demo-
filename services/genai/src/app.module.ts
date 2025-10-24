@@ -7,8 +7,7 @@ import {
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 
-import { GenaiModule } from './genai/genai.module';
-import configuration from './config/configuration';
+import { GenaiModule } from './genai.module';
 
 /**
  * The root module for the GenAI microservice.
@@ -19,10 +18,9 @@ import configuration from './config/configuration';
  */
 @Module({
   imports: [
-    // Global configuration module to handle environment variables and typed config.
+    // Global configuration module to handle environment variables.
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [configuration],
       cache: true,
     }),
 
@@ -36,7 +34,7 @@ import configuration from './config/configuration';
           federation: 2,
           path: join(process.cwd(), 'src/schema.gql'),
         },
-        // Sort schema lexicographically.
+        // Sort schema lexicographically for consistent generation.
         sortSchema: true,
         // Enable the GraphQL playground in non-production environments for easier debugging.
         playground: configService.get<string>('NODE_ENV') !== 'production',
