@@ -1,116 +1,133 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-// Assumes the existence of a dedicated service for crypto-related API calls
-import { getCryptoWallet, buyCryptoAsset } from '../services/cryptoService';
-// Assumes these types are exported from the main types file
+import { useQuery, useMutation, gql } from '@apollo/client';
+import { useCallback } from 'react';
 import { CryptoAsset, NFTAsset } from '../types';
 
-/**
- * Represents the structure of the user's entire crypto portfolio,
- * combining fungible assets and non-fungible tokens (NFTs).
- * This type aligns with the data structure returned by the BFF's crypto endpoint.
- */
-export interface CryptoPortfolio {
-  assets: CryptoAsset[];
-  nfts: NFTAsset[];
+// These types would ideally be auto-generated from the GraphQL schema
+export interface CryptoPortfolioPayload {
+  cryptoPortfolio: {
+    assets: CryptoAsset[];
+    nfts: NFTAsset[];
+  };
 }
 
-// Define a query key to be used for caching and invalidation by React Query.
-const CRYPTO_WALLET_QUERY_KEY = ['cryptoWallet'];
+export interface BuyCryptoPayload {
+  buyCrypto: {
+    success: boolean;
+    // Assuming the mutation returns a transaction, as per a reasonable schema design
+    transaction: {
+      id: string;
+      description: string;
+      amount: number;
+    };
+  };
+}
+
+export interface BuyCryptoInput {
+  ticker: string;
+  usdAmount: number;
+}
+
+export interface BuyCryptoMutationVars {
+  input: BuyCryptoInput;
+}
+
+// GraphQL Operations
+const GET_CRYPTO_PORTFOLIO = gql`
+  query GetCryptoPortfolio {
+    cryptoPortfolio {
+      assets {
+        ticker
+        name
+        value
+        amount
+        color
+      }
+      nfts {
+        id
+        name
+        imageUrl
+        contractAddress
+      }
+    }
+  }
+`;
+
+const BUY_CRYPTO_ASSET_MUTATION = gql`
+  mutation BuyCryptoAsset($input: BuyCryptoInput!) {
+    buyCrypto(input: $input) {
+      success
+      transaction {
+        id
+        description
+        amount
+      }
+    }
+  }
+`;
 
 /**
- * Custom hook for managing the user's crypto wallet data.
- * It uses @tanstack/react-query to fetch, cache, and update the crypto portfolio.
- * This hook acts as a selector, decoupling UI components from the
- * data fetching logic contained within the cryptoService.
+ * Custom hook for managing the user's crypto wallet data using Apollo Client.
+ * It aligns with the new federated GraphQL architecture by replacing REST-based
+ * data fetching with GraphQL queries and mutations.
  *
  * @returns An object containing the portfolio data, loading/error states,
  *          and mutation functions for interacting with the wallet.
  */
 export const useCryptoWallet = () => {
-  const queryClient = useQueryClient();
-
   // --- QUERIES ---
-
-  // Query to fetch the entire crypto portfolio (assets and NFTs).
   const {
-    data: portfolio,
-    isLoading,
-    isError,
+    data,
+    loading: isLoading,
     error,
-  } = useQuery<CryptoPortfolio, Error>({
-    queryKey: CRYPTO_WALLET_QUERY_KEY,
-    queryFn: getCryptoWallet, // This function is defined in `services/cryptoService.ts`
-    staleTime: 1000 * 60 * 5, // Data is considered fresh for 5 minutes
-    refetchOnWindowFocus: true,
-  });
+    refetch,
+  } = useQuery<CryptoPortfolioPayload>(GET_CRYPTO_PORTFOLIO);
 
   // --- MUTATIONS ---
-
-  // Mutation for buying a crypto asset. It includes an optimistic update for a better UX.
-  const { mutate: buyAsset, isPending: isBuyingAsset } = useMutation({
-    mutationFn: ({ assetTicker, usdAmount }: { assetTicker: string; usdAmount: number }) =>
-      buyCryptoAsset(assetTicker, usdAmount), // This function is defined in `services/cryptoService.ts`
-
-    // When the mutation is called, optimistically update the UI
-    onMutate: async (newPurchase) => {
-      // Cancel any outgoing refetches to prevent them from overwriting our optimistic update
-      await queryClient.cancelQueries({ queryKey: CRYPTO_WALLET_QUERY_KEY });
-
-      // Snapshot the previous value
-      const previousPortfolio = queryClient.getQueryData<CryptoPortfolio>(CRYPTO_WALLET_QUERY_KEY);
-
-      // Optimistically update to the new value
-      if (previousPortfolio) {
-        queryClient.setQueryData<CryptoPortfolio>(CRYPTO_WALLET_QUERY_KEY, (oldPortfolio) => {
-          if (!oldPortfolio) return undefined;
-          
-          const updatedAssets = oldPortfolio.assets.map((asset) => {
-            if (asset.ticker === newPurchase.assetTicker) {
-              const currentPrice = asset.value > 0 && asset.amount > 0 ? asset.value / asset.amount : 0;
-              const amountBought = currentPrice > 0 ? newPurchase.usdAmount / currentPrice : 0;
-              return {
-                ...asset,
-                amount: asset.amount + amountBought,
-                value: asset.value + newPurchase.usdAmount,
-              };
-            }
-            return asset;
-          });
-          
-          return { ...oldPortfolio, assets: updatedAssets };
-        });
-      }
-
-      // Return a context object with the snapshotted value
-      return { previousPortfolio };
-    },
-
-    // If the mutation fails, roll back to the previous state
-    onError: (err, newPurchase, context) => {
-      if (context?.previousPortfolio) {
-        queryClient.setQueryData(CRYPTO_WALLET_QUERY_KEY, context.previousPortfolio);
-      }
+  const [buyAssetMutation, { loading: isBuyingAsset, error: buyAssetError }] = useMutation<
+    BuyCryptoPayload,
+    BuyCryptoMutationVars
+  >(BUY_CRYPTO_ASSET_MUTATION, {
+    // Refetch the portfolio query after the mutation completes to ensure the UI is up-to-date.
+    refetchQueries: [{ query: GET_CRYPTO_PORTFOLIO }],
+    // Await refetching to ensure cache is updated before proceeding.
+    awaitRefetchQueries: true,
+    onError: (err) => {
       // In a real app, you would show a toast notification for the error.
       console.error("Failed to buy asset:", err);
     },
-
-    // Always refetch after the mutation is settled (either success or error) to ensure data consistency
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: CRYPTO_WALLET_QUERY_KEY });
-    },
   });
 
+  /**
+   * A wrapper around the Apollo mutation function to provide a more convenient API
+   * consistent with the previous implementation (which used React Query's `mutate`).
+   */
+  const buyAsset = useCallback(
+    async ({ assetTicker, usdAmount }: { assetTicker: string; usdAmount: number }) => {
+      return buyAssetMutation({
+        variables: {
+          input: {
+            ticker: assetTicker,
+            usdAmount,
+          },
+        },
+      });
+    },
+    [buyAssetMutation]
+  );
+
   // --- RETURN VALUE ---
-  // Expose the data and functionality to the UI components.
-  // Using `?? []` provides a stable empty array to components, preventing errors during the initial loading state.
+  // Expose a consistent API to the UI components.
+  const portfolio = data?.cryptoPortfolio;
+
   return {
     portfolio,
     assets: portfolio?.assets ?? [],
     nfts: portfolio?.nfts ?? [],
     isLoading,
-    isError,
-    error,
+    isError: !!error || !!buyAssetError,
+    error: error || buyAssetError || null,
     buyAsset,
     isBuyingAsset,
+    refetchPortfolio: refetch,
   };
 };
