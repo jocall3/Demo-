@@ -1,19 +1,11 @@
 import { Module } from '@nestjs/common';
-import { HttpModule } from '@nestjs/axios';
 import { ConfigModule } from '@nestjs/config';
-import { PlaidController } from './plaid.controller';
+import { PlaidResolver } from './plaid.resolver';
 import { PlaidService } from './plaid.service';
 
 @Module({
-  imports: [
-    HttpModule.register({
-      timeout: 5000,
-      maxRedirects: 5,
-    }),
-    ConfigModule,
-  ],
-  controllers: [PlaidController],
-  providers: [PlaidService],
+  imports: [ConfigModule],
+  providers: [PlaidResolver, PlaidService],
   exports: [PlaidService],
 })
 export class PlaidModule {}
