@@ -4,6 +4,7 @@ import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { ExpressInstrumentation } from '@opentelemetry/instrumentation-express';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { NestInstrumentation } from '@opentelemetry/instrumentation-nestjs-core';
+import { GraphQLInstrumentation } from '@opentelemetry/instrumentation-graphql';
 import { Resource } from '@opentelemetry/resources';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { NodeSDK } from '@opentelemetry/sdk-node';
@@ -14,12 +15,18 @@ import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
 // In production, this might be set to DiagLogLevel.ERROR or lower.
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
-const serviceName = 'bff';
+// Use environment variables for configuration, with sensible defaults.
+// This aligns with the 'config/configuration.ts' setup for an API Gateway role.
+const serviceName = process.env.OTEL_SERVICE_NAME || 'api-gateway';
+const otelExporterOtlpEndpoint =
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318';
+const prometheusPort = parseInt(process.env.PROMETHEUS_PORT || '9464', 10);
+
 let sdk: NodeSDK;
 
 /**
- * Initializes and starts the OpenTelemetry SDK for the BFF service.
- * This function should be called at the very beginning of the application's lifecycle (e.g., in main.ts).
+ * Initializes and starts the OpenTelemetry SDK for the API Gateway service.
+ * This function should be called at the very beginning of the application's lifecycle (in main.ts).
  */
 export const initOpenTelemetry = () => {
   if (sdk) {
@@ -30,7 +37,7 @@ export const initOpenTelemetry = () => {
   // --- METRICS CONFIGURATION ---
   // The Prometheus exporter serves metrics on a /metrics endpoint.
   const prometheusExporter = new PrometheusExporter({
-    port: 9464, // Default Prometheus scrape port. Ensure this doesn't conflict with other services.
+    port: prometheusPort,
     endpoint: '/metrics',
   });
 
@@ -38,19 +45,18 @@ export const initOpenTelemetry = () => {
   // It periodically collects and exports metrics.
   const metricReader = new PeriodicExportingMetricReader({
     exporter: prometheusExporter,
-    exportIntervalMillis: 10000, // Export metrics every 10 seconds
+    exportIntervalMillis: 10000, // Export metrics every 10 seconds.
   });
 
   // --- TRACING CONFIGURATION ---
   // The OTLP (OpenTelemetry Protocol) exporter sends trace data.
-  // By default, it sends to a local OpenTelemetry Collector at http://localhost:4318/v1/traces.
-  // This can be configured with environment variables like:
-  // - OTEL_EXPORTER_OTLP_ENDPOINT
-  // - OTEL_EXPORTER_OTLP_HEADERS
-  const traceExporter = new OTLPTraceExporter();
+  // It reads its configuration from standard environment variables.
+  const traceExporter = new OTLPTraceExporter({
+    url: `${otelExporterOtlpEndpoint}/v1/traces`,
+  });
 
   // The SpanProcessor processes spans before they are exported.
-  // BatchSpanProcessor is recommended for production environments for better performance.
+  // BatchSpanProcessor is recommended for production environments.
   const spanProcessor = new BatchSpanProcessor(traceExporter);
 
   // --- OPENTELEMETRY SDK INITIALIZATION ---
@@ -66,17 +72,26 @@ export const initOpenTelemetry = () => {
     // Connects the metrics exporter.
     metricReader,
 
-    // Auto-instrumentation for popular Node.js libraries.
+    // Auto-instrumentation for popular Node.js libraries and frameworks.
     instrumentations: [
-      new HttpInstrumentation(), // Traces outgoing HTTP requests made with http/https module.
+      new HttpInstrumentation(), // Traces outgoing HTTP requests (e.g., to subgraphs).
       new ExpressInstrumentation(), // Traces incoming requests handled by Express (used by NestJS).
-      new NestInstrumentation(), // Enhances traces with NestJS-specific metadata (e.g., controller/handler names).
+      new NestInstrumentation(), // Enhances traces with NestJS-specific metadata.
+      new GraphQLInstrumentation({
+        // Optional configuration for deeper GraphQL instrumentation.
+        // It can add significant detail (and overhead) to traces.
+        depth: 2, // How deep to instrument nested resolvers.
+        mergeItems: true, // Merge multiple resolver spans for the same field into one.
+      }),
     ],
   });
 
   try {
     sdk.start();
-    console.log('OpenTelemetry SDK for BFF service started successfully.');
+    console.log(
+      `OpenTelemetry SDK for '${serviceName}' service started successfully.`,
+    );
+    console.log(`Prometheus metrics will be available on port ${prometheusPort}.`);
   } catch (error) {
     console.error('Error starting OpenTelemetry SDK', error);
     process.exit(1);
@@ -88,7 +103,9 @@ export const initOpenTelemetry = () => {
     sdk
       .shutdown()
       .then(() => console.log('OpenTelemetry SDK shut down successfully.'))
-      .catch((error) => console.error('Error shutting down OpenTelemetry SDK', error))
+      .catch((error) =>
+        console.error('Error shutting down OpenTelemetry SDK', error),
+      )
       .finally(() => process.exit(0));
   };
 
