@@ -7,47 +7,49 @@ import {
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 
-import { HealthModule } from './health/health.module';
-import { TransactionsModule } from './transactions/transactions.module';
-import { UsersModule } from './users/users.module';
+import { DatabaseModule } from './database/database.module';
+import { EventBusModule } from './event-bus/event-bus.module';
+import { TransactionModule } from './transaction/transaction.module';
 
 /**
  * The root module for the Transactions microservice.
  *
- * This module is responsible for:
- * 1. Configuring the application's global settings (e.g., environment variables via ConfigModule).
- * 2. Setting up the GraphQL server with Apollo Federation v2. This service will expose a subgraph
- *    that owns the Transaction entity and extends the User entity.
- * 3. Importing all of the feature-specific modules that contain the business logic and GraphQL resolvers
- *    for the transactions domain.
- * 4. Importing a module for health checks.
+ * This module orchestrates the service by:
+ * 1.  Setting up global configuration management (ConfigModule).
+ * 2.  Configuring the GraphQL server as a federated subgraph (GraphQLModule).
+ * 3.  Importing the module for database connectivity (DatabaseModule).
+ * 4.  Importing the module for message bus connectivity (EventBusModule).
+ * 5.  Importing the core domain feature module (TransactionModule).
  */
 @Module({
   imports: [
     // Global configuration module to handle environment variables.
     ConfigModule.forRoot({
       isGlobal: true,
+      // In production, this could be extended to load secrets from a vault.
+      envFilePath: `.env`, // Specify env file if needed
     }),
 
-    // GraphQL module configured for Apollo Federation.
+    // GraphQL module configured for Apollo Federation v2.
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      // Automatically generate the schema file which will be consumed by the gateway.
-      // `federation: 2` enables support for the latest Apollo Federation features.
+      // Automatically generate the schema file based on resolvers.
+      // The `federation: 2` option is crucial for compatibility.
       autoSchemaFile: {
         federation: 2,
         path: join(process.cwd(), 'src/schema.gql'),
       },
+      sortSchema: true,
     }),
 
-    // Health check module for service discovery and monitoring.
-    HealthModule,
+    // Module for establishing database connection (e.g., via TypeORM/Mongoose).
+    DatabaseModule,
 
-    // Feature module for the transactions domain.
-    TransactionsModule,
+    // Module for connecting to the event bus (e.g., Kafka) for inter-service communication.
+    EventBusModule,
 
-    // Module for resolving federated entities (e.g., User from an auth service).
-    UsersModule,
+    // The core feature module for this service, handling transaction logic.
+    TransactionModule,
   ],
 })
 export class AppModule {}

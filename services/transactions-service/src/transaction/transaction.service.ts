@@ -1,194 +1,135 @@
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import {
-  Configuration,
-  PlaidApi,
-  PlaidEnvironments,
-  Transaction,
-  TransactionsGetRequest,
-} from 'plaid';
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { Transaction, TransactionDocument } from './schemas/transaction.schema';
+import { TransactionFilterInput, TransactionType } from './transaction.resolver';
+import { NewTransactionsPayload } from './dto/new-transactions.payload';
 
 /**
  * @Injectable
  * Service responsible for all business logic related to financial transactions.
- * It interacts with the Plaid API to fetch transaction data for linked accounts.
- *
- * In a fully event-driven architecture, this service would also listen for events
- * (e.g., via Kafka) such as 'PlaidItemCreated' to receive and securely store
- * new access tokens from the Plaid Integration Service.
+ * As per the microservice architecture, this service does NOT interact directly with external APIs like Plaid.
+ * Instead, it owns the transaction data and manages its persistence in a dedicated database (MongoDB via Mongoose).
+ * It is primarily driven by events consumed by the TransactionController.
  */
 @Injectable()
 export class TransactionService {
   private readonly logger = new Logger(TransactionService.name);
-  private readonly plaidClient: PlaidApi;
 
-  // --- MOCK PERSISTENCE LAYER ---
-  // In a production environment, this data would be stored in a secure, encrypted
-  // database (e.g., PostgreSQL, DynamoDB). This in-memory map is for demonstration
-  // purposes and would be populated by an event consumer listening to the message bus.
-  private itemsByUser = new Map<string, { accessToken: string; itemId: string }>();
-
-  constructor(private configService: ConfigService) {
-    const plaidConfig = {
-      clientID: this.configService.get<string>('PLAID_CLIENT_ID'),
-      secret: this.configService.get<string>('PLAID_SECRET'),
-      env: this.configService.get<string>('PLAID_ENV', 'sandbox'),
-    };
-
-    if (!plaidConfig.clientID || !plaidConfig.secret) {
-      this.logger.error('Plaid client ID or secret is not configured. Transaction service will not function.');
-      throw new Error('PLAID_CLIENT_ID and PLAID_SECRET must be set for the TransactionService.');
-    }
-
-    const configuration = new Configuration({
-      basePath: PlaidEnvironments[plaidConfig.env],
-      baseOptions: {
-        headers: {
-          'PLAID-CLIENT-ID': plaidConfig.clientID,
-          'PLAID-SECRET': plaidConfig.secret,
-        },
-      },
-    });
-
-    this.plaidClient = new PlaidApi(configuration);
-    this.logger.log(`Plaid client initialized for '${plaidConfig.env}' environment.`);
-
-    // On startup, populate with a mock user for demonstration if needed.
-    // In a real system, this service would be stateless on startup and populate
-    // its cache/database from events or a persistent store.
-    this.itemsByUser.set('user-id-mock', {
-      accessToken: 'access-sandbox-token-mock',
-      itemId: 'item-id-mock',
-    });
-  }
+  constructor(
+    @InjectModel(Transaction.name)
+    private readonly transactionModel: Model<TransactionDocument>,
+  ) {}
 
   /**
-   * Retrieves the access token for a given user from the store.
-   * @param userId - The ID of the user.
-   * @returns The user's Plaid access token.
-   * @throws {HttpException} If no token is found for the user.
+   * Creates multiple transactions in the database from a payload received via an event.
+   * This method is designed to be idempotent; it will ignore transactions that already exist.
+   * @param payload The event payload containing userId and an array of raw transactions.
    */
-  private getAccessToken(userId: string): string {
-    const item = this.itemsByUser.get(userId);
-    if (!item) {
-      this.logger.warn(`No Plaid item found for user ${userId}. They may need to link an account.`);
-      throw new HttpException('Plaid account not linked for this user.', HttpStatus.NOT_FOUND);
+  async createMany(payload: NewTransactionsPayload): Promise<void> {
+    const { userId, transactions } = payload;
+    if (!transactions || transactions.length === 0) {
+      this.logger.log(`No transactions to process for userId: ${userId}`);
+      return;
     }
-    return item.accessToken;
-  }
 
-  /**
-   * Fetches transactions for a specific user over a given date range.
-   * @param userId The ID of the user.
-   * @param startDate The start date for the transaction query (YYYY-MM-DD).
-   * @param endDate The end date for the transaction query (YYYY-MM-DD).
-   * @param accountIds Optional array of account IDs to filter by.
-   * @returns A promise resolving to an array of Plaid Transaction objects.
-   */
-  async getTransactionsForUser(
-    userId: string,
-    startDate: string,
-    endDate: string,
-    accountIds?: string[],
-  ): Promise<Transaction[]> {
-    const accessToken = this.getAccessToken(userId);
-
-    const request: TransactionsGetRequest = {
-      access_token: accessToken,
-      start_date: startDate,
-      end_date: endDate,
-      options: {
-        count: 500, // Max count
-        offset: 0,
-        account_ids: accountIds,
-      },
-    };
+    const newTransactions = transactions.map((tx) => ({
+      id: tx.transaction_id,
+      userId: userId,
+      accountId: tx.account_id,
+      // Plaid uses positive amounts for debits (expenses)
+      type: tx.amount > 0 ? TransactionType.EXPENSE : TransactionType.INCOME,
+      description: tx.name,
+      // Store amount as a positive value, with type indicating direction
+      amount: Math.abs(tx.amount),
+      date: tx.date,
+      category: tx.category[0] || 'Uncategorized',
+      categoryHierarchy: tx.category,
+      merchantName: tx.merchant_name,
+      pending: tx.pending,
+      iso_currency_code: tx.iso_currency_code,
+      // This custom field might be added by an enrichment service before this event
+      carbonFootprint: tx.carbonFootprint,
+    }));
 
     try {
-      this.logger.log(`Fetching transactions for user ${userId} from ${startDate} to ${endDate}.`);
-      
-      // In a production app with a large number of transactions, you would implement
-      // pagination by checking `response.data.total_transactions` and making subsequent
-      // calls with an incremented offset.
-      const response = await this.plaidClient.transactionsGet(request);
-      
-      this.logger.log(`Successfully fetched ${response.data.transactions.length} transactions for user ${userId}.`);
-      return response.data.transactions;
+      // Use insertMany for efficient bulk insertion.
+      // `ordered: false` continues inserting even if some documents fail (e.g., duplicate key).
+      await this.transactionModel.insertMany(newTransactions, { ordered: false });
+      this.logger.log(`Inserted ${newTransactions.length} transactions for user ${userId}.`);
     } catch (error) {
-      this.logger.error(`Failed to fetch transactions for user ${userId}.`, error.response?.data || error.message);
-      throw new HttpException('Could not fetch transaction information.', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  /**
-   * Fetches a single transaction by its ID.
-   * Note: Plaid API does not have a direct `get by ID` endpoint.
-   * This method would require fetching a date range where the transaction is likely to be
-   * and then filtering the results. It can be inefficient.
-   * For this example, we'll assume it's part of a larger fetch.
-   *
-   * @param userId The ID of the user who owns the transaction.
-   * @param transactionId The ID of the transaction to find.
-   * @returns The found Transaction object or null.
-   */
-  async findTransactionById(userId: string, transactionId: string): Promise<Transaction | null> {
-    const accessToken = this.getAccessToken(userId);
-    // This is an inefficient operation. A better approach is to store transactions
-    // in this service's own database and query it directly.
-    this.logger.warn(`Performing inefficient search for transaction ID ${transactionId}. Consider a local data store.`);
-
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setFullYear(endDate.getFullYear() - 2); // Search over the last 2 years.
-
-    const formatDate = (date: Date) => date.toISOString().split('T')[0];
-
-    const request: TransactionsGetRequest = {
-      access_token: accessToken,
-      start_date: formatDate(startDate),
-      end_date: formatDate(endDate),
-    };
-
-    try {
-      let transactions: Transaction[] = [];
-      let total_transactions = 0;
-      let hasMore = true;
-
-      // Basic pagination to find the transaction
-      while(hasMore) {
-        const response = await this.plaidClient.transactionsGet({
-          ...request,
-          options: { offset: transactions.length, count: 500 }
-        });
-        const found = response.data.transactions.find(t => t.transaction_id === transactionId);
-        if (found) return found;
-
-        transactions = transactions.concat(response.data.transactions);
-        total_transactions = response.data.total_transactions;
-        hasMore = transactions.length < total_transactions;
+      if (error.code === 11000) {
+        // This is expected when re-processing events with duplicates.
+        this.logger.log(
+          `Bulk write for user ${userId} completed with some duplicate key errors (which is OK).`,
+        );
+      } else {
+        this.logger.error(
+          `Error during bulk insert for user ${userId}: ${error.message}`,
+          error.stack,
+        );
+        throw error;
       }
-
-      return null;
-    } catch (error) {
-      this.logger.error(`Error while searching for transaction ID ${transactionId}.`, error.response?.data || error.message);
-      throw new HttpException('Could not search for transaction.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
-  
+
   /**
-   * Handles an incoming event to store a new Plaid item's credentials.
-   * This would be triggered by a message bus (e.g., Kafka) consumer.
-   * @param payload The event payload containing user and token info.
+   * Finds all transactions for a specific user, with optional filtering and pagination.
+   * Used by the GraphQL resolver to serve client queries.
+   * @param userId The ID of the user.
+   * @param filter Optional filters for account, date range, etc.
+   * @returns A promise that resolves to an array of Transaction documents.
    */
-  public async handlePlaidItemCreatedEvent(payload: {
+  async findAllByUserId(
+    userId: string,
+    filter?: TransactionFilterInput,
+  ): Promise<Transaction[]> {
+    const query: any = { userId };
+
+    if (filter?.accountId) {
+      query.accountId = filter.accountId;
+    }
+    if (filter?.startDate || filter?.endDate) {
+      query.date = {};
+      if (filter.startDate) {
+        query.date.$gte = filter.startDate;
+      }
+      if (filter.endDate) {
+        query.date.$lte = filter.endDate;
+      }
+    }
+
+    return this.transactionModel
+      .find(query)
+      .sort({ date: -1 }) // Default sort by most recent
+      .skip(filter?.offset || 0)
+      .limit(filter?.limit || 100)
+      .exec();
+  }
+
+  /**
+   * Finds a single transaction by its unique ID.
+   * Used by the GraphQL resolver for entity resolution (`@ResolveReference`).
+   * @param id The unique ID of the transaction.
+   * @returns A promise that resolves to the Transaction document or null.
+   */
+  async findById(id: string): Promise<Transaction | null> {
+    return this.transactionModel.findOne({ id }).exec();
+  }
+
+  /**
+   * Deletes all transactions associated with a specific account for a user.
+   * This is typically called when an `account.removed` event is consumed.
+   * @param payload An object containing the userId and accountId.
+   */
+  async deleteByAccountId(payload: {
     userId: string;
-    accessToken: string;
-    itemId: string;
+    accountId: string;
   }): Promise<void> {
-    this.logger.log(`Received PlaidItemCreated event for user ${payload.userId}. Storing access token.`);
-    this.itemsByUser.set(payload.userId, {
-      accessToken: payload.accessToken,
-      itemId: payload.itemId,
-    });
+    const { userId, accountId } = payload;
+    this.logger.log(
+      `Deleting all transactions for account ${accountId} belonging to user ${userId}.`,
+    );
+    await this.transactionModel.deleteMany({ userId, accountId }).exec();
   }
 }
