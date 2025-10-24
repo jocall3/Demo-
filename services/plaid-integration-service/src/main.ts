@@ -17,23 +17,21 @@ const otelSDK = new NodeSDK({
     [SemanticResourceAttributes.SERVICE_NAME]: SERVICE_NAME,
   }),
   traceExporter: new OTLPTraceExporter(),
-  // Use a different port for Prometheus to avoid conflicts with other services.
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.PROMETHEUS_PORT || '9466', 10),
+    port: parseInt(process.env.PROMETHEUS_PORT || '9468', 10),
   }),
   instrumentations: [getNodeAutoInstrumentations()],
 });
 
-// Gracefully shut down the SDK on process exit to flush telemetry
+// Gracefully shut down the SDK on process exit
 process.on('SIGTERM', () => {
   otelSDK
     .shutdown()
     .then(() => console.log(`OpenTelemetry SDK for ${SERVICE_NAME} shut down successfully.`))
-    .catch((error) => console.log('Error shutting down OpenTelemetry SDK.', error))
+    .catch((error) => console.log(`Error shutting down OpenTelemetry SDK for ${SERVICE_NAME}.`, error))
     .finally(() => process.exit(0));
 });
 
-// Start the OpenTelemetry SDK
 otelSDK.start();
 
 // --- 2. NestJS Application Imports (after OTel setup) ---
@@ -42,6 +40,7 @@ import { AppModule } from './app.module';
 import { ValidationPipe, LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import pino from 'pino';
+import { Transport } from '@nestjs/microservices';
 
 // --- 3. Structured Logging with OpenTelemetry Context ---
 class StructuredLogger implements LoggerService {
@@ -89,11 +88,25 @@ async function bootstrap() {
   const logger = app.get(StructuredLogger);
   const configService = app.get(ConfigService);
 
+  // Connect the Kafka microservice listener for event-driven communication
+  app.connectMicroservice({
+    transport: Transport.KAFKA,
+    options: {
+      client: {
+        brokers: configService.getOrThrow<string>('KAFKA_BROKERS').split(','),
+        clientId: configService.get<string>('KAFKA_CLIENT_ID', 'plaid-integration-service'),
+      },
+      consumer: {
+        groupId: configService.getOrThrow<string>('KAFKA_GROUP_ID'),
+      },
+    },
+  });
+
   // Enable CORS - useful for allowing Apollo Studio to introspect the subgraph in development
   app.enableCors();
   logger.log('CORS has been enabled.');
 
-  // Global pipes for validation and transformation of DTOs/Args
+  // Apply global validation and transformation pipes
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -104,14 +117,18 @@ async function bootstrap() {
   );
   logger.log('Global ValidationPipe configured.');
 
-  // Get port from environment variables, with a fallback
-  const port = configService.get<number>('PORT') || 4004;
-  const prometheusPort = process.env.PROMETHEUS_PORT || '9466';
+  // Start all microservice listeners
+  await app.startAllMicroservices();
+  logger.log('Kafka microservice listener started.');
 
+  // Get port from environment variables, with a fallback
+  const port = configService.get<number>('PORT', 4005);
+  const prometheusPort = process.env.PROMETHEUS_PORT || '9468';
+
+  // Start the HTTP server for the GraphQL subgraph
   await app.listen(port);
 
-  logger.log(`🚀 Plaid Integration subgraph is running on: http://localhost:${port}`);
-  logger.log(`GraphQL endpoint available at: http://localhost:${port}/graphql`);
+  logger.log(`Plaid Integration subgraph is running on: http://localhost:${port}/graphql`);
   logger.log(`Prometheus metrics available on port ${prometheusPort}`);
 }
 

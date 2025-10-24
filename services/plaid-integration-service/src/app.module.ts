@@ -5,17 +5,20 @@ import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
-import { PlaidIntegrationModule } from './plaid-integration.module';
 import { join } from 'path';
 
+import { PlaidModule } from './plaid/plaid.module';
+import { EventBusModule } from './event-bus/event-bus.module';
+
 /**
- * The root module for the Plaid-Integration microservice.
+ * The root module for the Plaid Integration microservice.
  *
  * This module is responsible for:
  * 1. Configuring the application's global settings via ConfigModule for environment variables.
  * 2. Setting up the GraphQL server with Apollo Federation v2, exposing this service as a subgraph.
- * 3. Importing the core feature module, `PlaidIntegrationModule`, which contains all business logic
- *    and resolvers related to Plaid integration.
+ * 3. Configuring the connection to the event bus (Kafka) for asynchronous, event-driven communication.
+ * 4. Importing the core feature module, `PlaidModule`, which contains all business logic,
+ *    GraphQL resolvers, and event handlers related to Plaid integration.
  */
 @Module({
   imports: [
@@ -38,8 +41,11 @@ import { join } from 'path';
       },
     }),
 
-    // Import the core feature module for this service.
-    PlaidIntegrationModule,
+    // The event bus module for Kafka integration.
+    EventBusModule,
+
+    // The core feature module for this service.
+    PlaidModule,
   ],
 })
 export class AppModule {}
