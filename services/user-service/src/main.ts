@@ -10,17 +10,19 @@ import { diag, DiagConsoleLogger, DiagLogLevel, trace, context } from '@opentele
 // For troubleshooting OpenTelemetry, set the log level to DiagLogLevel.DEBUG
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
+const SERVICE_NAME = 'user-service';
+
 const otelSDK = new NodeSDK({
   // The service name is a required attribute for all telemetry data.
   resource: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: 'user-service',
+    [SemanticResourceAttributes.SERVICE_NAME]: SERVICE_NAME,
   }),
   // OTLPTraceExporter will send traces to an OTel Collector.
   // The endpoint is configurable via the OTEL_EXPORTER_OTLP_ENDPOINT env var.
   traceExporter: new OTLPTraceExporter(),
   // PrometheusExporter exposes a /metrics endpoint for Prometheus to scrape.
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.PROMETHEUS_PORT || '9466', 10), // Unique port for this service
+    port: parseInt(process.env.METRICS_PROMETHEUS_PORT || '9464', 10),
   }),
   // Auto-instrument popular libraries (e.g., @nestjs/core, http, graphql)
   instrumentations: [getNodeAutoInstrumentations()],
@@ -30,7 +32,7 @@ const otelSDK = new NodeSDK({
 process.on('SIGTERM', () => {
   otelSDK
     .shutdown()
-    .then(() => console.log('OpenTelemetry SDK for user-service shut down successfully.'))
+    .then(() => console.log(`OpenTelemetry SDK for ${SERVICE_NAME} shut down successfully.`))
     .catch((error) => console.log('Error shutting down OpenTelemetry SDK.', error))
     .finally(() => process.exit(0));
 });
@@ -44,6 +46,7 @@ import { AppModule } from './app.module';
 import { ValidationPipe, LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import pino from 'pino';
+import { Transport } from '@nestjs/microservices';
 
 // --- 3. Structured Logging with OpenTelemetry Context ---
 /**
@@ -52,7 +55,7 @@ import pino from 'pino';
  */
 class StructuredLogger implements LoggerService {
   private readonly pino: pino.Logger;
-  private readonly serviceName = 'user-service';
+  private readonly serviceName = SERVICE_NAME;
 
   constructor() {
     this.pino = pino({
@@ -115,6 +118,20 @@ async function bootstrap() {
   const logger = app.get(StructuredLogger);
   const configService = app.get(ConfigService);
 
+  // Connect the application to the Kafka message bus as a consumer.
+  // This allows the UserController to listen for events.
+  app.connectMicroservice({
+    transport: Transport.KAFKA,
+    options: {
+      client: {
+        brokers: configService.get<string>('KAFKA_BROKERS').split(','),
+      },
+      consumer: {
+        groupId: configService.get<string>('KAFKA_GROUP_ID'),
+      },
+    },
+  });
+
   // Enable CORS - useful for allowing Apollo Studio to introspect the subgraph in development
   app.enableCors();
   logger.log('CORS has been enabled.');
@@ -132,15 +149,19 @@ async function bootstrap() {
   );
   logger.log('Global ValidationPipe configured.');
 
+  // Start all microservice listeners
+  await app.startAllMicroservices();
+  logger.log('Kafka microservice consumers started.');
+
   // Get port from environment variables, with a fallback
-  const port = configService.get<number>('PORT') || 4004;
+  const port = configService.get<number>('PORT') || 4001;
 
   await app.listen(port);
 
   logger.log(`User subgraph is running on: http://localhost:${port}`);
   logger.log(`GraphQL endpoint available at: http://localhost:${port}/graphql`);
   logger.log(
-    `Prometheus metrics available on port ${process.env.PROMETHEUS_PORT || '9466'}`,
+    `Prometheus metrics available on port ${process.env.METRICS_PROMETHEUS_PORT || '9464'}`,
   );
 }
 
