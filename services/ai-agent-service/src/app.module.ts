@@ -1,8 +1,7 @@
 import { join } from 'path';
 import { Module, Injectable, UnauthorizedException, ExecutionContext } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { GraphQLModule } from '@nestjs/graphql';
-import { GqlExecutionContext } from '@nestjs/graphql';
+import { GraphQLModule, GqlExecutionContext } from '@nestjs/graphql';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
@@ -16,6 +15,8 @@ import { AuthGuard } from '@nestjs/passport';
 import * as jwksRsa from 'jwks-rsa';
 
 import { AgentModule } from './agent/agent.module';
+import { EventBusModule } from './event-bus/event-bus.module';
+import { WorkflowModule } from './workflow/workflow.module';
 
 // =============================================================================
 // INLINE AUTHENTICATION COMPONENTS
@@ -26,23 +27,18 @@ import { AgentModule } from './agent/agent.module';
 //
 // This setup implements JWT validation based on an OIDC-compliant Identity Provider
 // using a JWKS (JSON Web Key Set) endpoint to fetch public keys for signature verification.
-//
-// Required dependencies to be added to package.json:
-// "@nestjs/passport", "passport", "@nestjs/jwt", "passport-jwt", "jwks-rsa"
-// "@types/passport-jwt"
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(configService: ConfigService) {
     const authConfig = {
-      jwksUri: configService.get<string>('AUTH_JWKS_URI'),
-      audience: configService.get<string>('AUTH_AUDIENCE'),
-      issuer: configService.get<string>('AUTH_ISSUER_URL'),
+      issuerUrl: configService.get<string>('IDENTITY_PROVIDER_URL'),
+      audience: configService.get<string>('IDENTITY_PROVIDER_AUDIENCE'),
     };
 
-    if (!authConfig.jwksUri || !authConfig.audience || !authConfig.issuer) {
+    if (!authConfig.issuerUrl || !authConfig.audience) {
       throw new Error(
-        'Auth configuration (AUTH_JWKS_URI, AUTH_AUDIENCE, AUTH_ISSUER_URL) is missing from environment variables.',
+        'Auth configuration (IDENTITY_PROVIDER_URL, IDENTITY_PROVIDER_AUDIENCE) is missing from environment variables.',
       );
     }
 
@@ -56,12 +52,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         cache: true,
         rateLimit: true,
         jwksRequestsPerMinute: 5,
-        jwksUri: authConfig.jwksUri,
+        jwksUri: `${authConfig.issuerUrl}/.well-known/jwks.json`,
       }),
       // These options ensure that the token was intended for this service (audience)
       // and was issued by the trusted identity provider (issuer).
       audience: authConfig.audience,
-      issuer: authConfig.issuer,
+      issuer: authConfig.issuerUrl,
       algorithms: ['RS256'], // Algorithm used by most OIDC providers like Keycloak, Auth0.
     });
   }
@@ -73,8 +69,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    */
   async validate(payload: any) {
     // The payload is already validated at this point (signature, expiration, audience, issuer).
-    // We can perform additional checks here, like checking if the user is in a blocklist.
-    // For service-to-service communication via token exchange, the payload itself is sufficient.
     if (!payload.sub) {
       throw new UnauthorizedException(
         'Invalid token: Subject (sub) claim is missing.',
@@ -106,6 +100,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     // Global configuration module to handle environment variables.
     ConfigModule.forRoot({
       isGlobal: true,
+      cache: true,
     }),
 
     // Passport module for authentication strategy handling.
@@ -116,16 +111,28 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     JwtModule.register({}),
 
     // GraphQL module configured for Apollo Federation.
-    GraphQLModule.forRoot<ApolloFederationDriverConfig>({
+    GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: {
-        federation: 2,
-        path: join(process.cwd(), 'src/schema.gql'),
-      },
+      useFactory: (configService: ConfigService) => ({
+        autoSchemaFile: {
+          federation: 2,
+          path: join(process.cwd(), 'src/schema.gql'),
+        },
+        // Enable playground in non-production environments for easier debugging.
+        playground: configService.get<string>('NODE_ENV') !== 'production',
+      }),
+      inject: [ConfigService],
     }),
 
     // The primary feature module for this service.
     AgentModule,
+
+    // Module for connecting to the event bus (e.g., Kafka).
+    EventBusModule,
+
+    // Module for workflow orchestration (e.g., Temporal).
+    // This is the core of the new architectural change for handling long-running Sagas.
+    WorkflowModule,
   ],
   providers: [
     // The JWT strategy for validating incoming tokens.
