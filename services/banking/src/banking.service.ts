@@ -13,21 +13,23 @@ import {
 } from 'plaid';
 
 // --- DTO Placeholder Interfaces ---
-// In a real application, these would be imported from a shared DTOs file.
+
 interface PlaidLinkTokenDto {
   link_token: string;
   expiration: string;
   request_id: string;
 }
 
+interface ChartDataPoint {
+  name: string;
+  value: number;
+}
+
+// Updated to align with GraphQL schema requirements for the FinancialSummary type
 interface FinancialSummaryDto {
   totalBalance: number;
-  totalDebt: number;
-  netWorth: number;
-  monthlySpending: number;
-  monthlyIncome: number;
-  accountCount: number;
-  transactionCount30d: number;
+  balanceChartData: ChartDataPoint[];
+  spendingByCategory: ChartDataPoint[];
 }
 
 @Injectable()
@@ -58,8 +60,7 @@ export class BankingService {
   private getAccessTokenForUser(userId: string): string {
     const item = this.userItems.get(userId);
     if (!item) {
-      // This would be a 404 in a REST context, but for a service layer, a clear error is better.
-      throw new Error('User has no linked Plaid items.');
+      throw new HttpException('User has not linked a bank account.', HttpStatus.NOT_FOUND);
     }
     return item.accessToken;
   }
@@ -108,7 +109,7 @@ export class BankingService {
       const response = await this.plaidClient.accountsGet({ access_token: accessToken });
       return response.data.accounts;
     } catch (error) {
-      this.logger.error(`Failed to fetch accounts for user ${userId}`, error.message);
+      this.logger.error(`Failed to fetch accounts for user ${userId}`, error.response?.data || error.message);
       throw new HttpException('Could not fetch accounts.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
@@ -119,7 +120,7 @@ export class BankingService {
       const accessToken = this.getAccessTokenForUser(userId);
       const startDate = new Date();
       const endDate = new Date();
-      startDate.setDate(endDate.getDate() - 30); // Last 30 days
+      startDate.setDate(endDate.getDate() - 30); // Last 30 days by default
 
       const formatDate = (date: Date) => date.toISOString().split('T')[0];
 
@@ -132,11 +133,10 @@ export class BankingService {
           account_ids: accountId ? [accountId] : undefined,
         },
       };
-      // Note: For production, use /transactions/sync for updates instead of /transactions/get.
       const response = await this.plaidClient.transactionsGet(request);
       return response.data.transactions;
     } catch (error) {
-      this.logger.error(`Failed to fetch transactions for user ${userId}`, error.message);
+      this.logger.error(`Failed to fetch transactions for user ${userId}`, error.response?.data || error.message);
       throw new HttpException('Could not fetch transactions.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
@@ -146,38 +146,80 @@ export class BankingService {
     try {
       const accessToken = this.getAccessTokenForUser(userId);
 
-      const accountsResponse = await this.plaidClient.accountsGet({ access_token: accessToken });
-      const accounts = accountsResponse.data.accounts;
+      // 1. Fetch accounts and recent transactions in parallel.
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 90); // Fetch last 90 days for chart data
+      const endDate = new Date();
+      const formatDate = (date: Date) => date.toISOString().split('T')[0];
 
+      const [accountsResponse, transactionsResponse] = await Promise.all([
+        this.plaidClient.accountsGet({ access_token: accessToken }),
+        this.plaidClient.transactionsGet({
+          access_token: accessToken,
+          start_date: formatDate(startDate),
+          end_date: formatDate(endDate),
+          options: { count: 500 }, // Max transactions per request
+        }),
+      ]);
+
+      const accounts = accountsResponse.data.accounts;
+      const allTransactions = transactionsResponse.data.transactions;
+
+      // 2. Calculate Total Balance from depository accounts.
       const totalBalance = accounts
         .filter(acc => acc.type === 'depository')
         .reduce((sum, acc) => sum + (acc.balances.current || 0), 0);
 
-      const totalDebt = accounts
-        .filter(acc => acc.type === 'credit' || acc.type === 'loan')
-        .reduce((sum, acc) => sum + (acc.balances.current || 0), 0);
+      // 3. Calculate Spending by Category.
+      const spendingByCategoryMap = new Map<string, number>();
+      allTransactions
+        .filter(tx => tx.amount > 0 && !tx.pending) // Posted expenses
+        .forEach(tx => {
+          const category = tx.category?.[0] || 'Uncategorized';
+          const currentAmount = spendingByCategoryMap.get(category) || 0;
+          spendingByCategoryMap.set(category, currentAmount + tx.amount);
+        });
 
-      const transactions = await this.getTransactions(userId);
+      const spendingByCategory: ChartDataPoint[] = Array.from(
+        spendingByCategoryMap,
+        ([name, value]) => ({ name, value }),
+      ).sort((a, b) => b.value - a.value);
 
-      const monthlySpending = transactions
-        .filter(tx => tx.amount > 0 && !tx.pending)
-        .reduce((sum, tx) => sum + tx.amount, 0);
+      // 4. Calculate daily balance for the last 30 days for the chart.
+      const dailyNet = new Map<string, number>();
+      allTransactions.forEach(tx => {
+        // Net change to balance is the inverse of transaction amount
+        const netChange = -tx.amount;
+        const currentNet = dailyNet.get(tx.date) || 0;
+        dailyNet.set(tx.date, currentNet + netChange);
+      });
 
-      const monthlyIncome = transactions
-        .filter(tx => tx.amount < 0 && !tx.pending)
-        .reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+      const balanceChartData: ChartDataPoint[] = [];
+      let rollingBalance = totalBalance;
+
+      for (let i = 0; i < 30; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dateString = formatDate(date);
+
+        balanceChartData.push({
+          name: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          value: rollingBalance,
+        });
+
+        const netChangeForDay = dailyNet.get(dateString) || 0;
+        // To get the previous day's balance, we reverse the net change of the current day.
+        rollingBalance -= netChangeForDay;
+      }
+      balanceChartData.reverse(); // Order from oldest to newest
 
       return {
         totalBalance,
-        totalDebt,
-        netWorth: totalBalance - totalDebt,
-        monthlySpending,
-        monthlyIncome,
-        accountCount: accounts.length,
-        transactionCount30d: transactions.length,
+        balanceChartData,
+        spendingByCategory,
       };
     } catch (error) {
-      this.logger.error(`Failed to create financial summary for user ${userId}`, error.message);
+      this.logger.error(`Failed to create financial summary for user ${userId}`, error.response?.data || error.message);
       throw new HttpException('Could not create financial summary.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }

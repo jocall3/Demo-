@@ -1,188 +1,94 @@
-import {
-  Args,
-  Directive,
-  Field,
-  Float,
-  ID,
-  ObjectType,
-  Query,
-  Resolver,
-  Mutation,
-  Parent,
-  ResolveField,
-  ResolveReference,
-} from '@nestjs/graphql';
+import { Args, Field, Float, ID, InputType, Mutation, ObjectType, Resolver } from '@nestjs/graphql';
 import { BankingService } from './banking.service';
+
+// NOTE: As part of the refactoring to a domain-oriented structure,
+// the User entity extension and its related object types (Account, Transaction)
+// have been moved to their respective domain modules (e.g., UsersModule, AccountsModule, TransactionsModule).
+// This resolver now focuses on top-level mutations for banking integrations.
 
 // --- GraphQL Object Types ---
 
-@ObjectType()
-class Balance {
-  @Field(() => Float)
-  current: number;
-
-  @Field(() => Float, { nullable: true })
-  available: number;
-
-  @Field()
-  iso_currency_code: string;
-}
-
-@ObjectType()
-export class Account {
-  @Field(() => ID)
-  account_id: string;
-
-  @Field()
-  name: string;
-
-  @Field({ nullable: true })
-  mask: string;
-
-  @Field()
-  type: string;
-
-  @Field()
-  subtype: string;
-
-  @Field(() => Balance)
-  balances: Balance;
-}
-
-@ObjectType()
-export class Transaction {
-  @Field(() => ID)
-  transaction_id: string;
-
-  @Field(() => ID)
-  account_id: string;
-
-  @Field(() => Float)
-  amount: number;
-
-  @Field()
-  iso_currency_code: string;
-
-  @Field()
-  date: string;
-
-  @Field()
-  name: string;
-
-  @Field(() => [String])
-  category: string[];
-
-  @Field()
-  pending: boolean;
-}
-
-@ObjectType()
-class ChartDataPoint {
-  @Field()
-  name: string;
-
-  @Field(() => Float)
-  value: number;
-}
-
-@ObjectType()
-export class FinancialSummary {
-  @Field(() => Float)
-  totalBalance: number;
-
-  @Field(() => [ChartDataPoint])
-  balanceChartData: ChartDataPoint[];
-
-  @Field(() => [ChartDataPoint])
-  spendingByCategory: ChartDataPoint[];
-}
-
-@ObjectType()
+@ObjectType({ description: 'Response containing a Plaid Link token.' })
 class CreateLinkTokenResponse {
-  @Field()
+  @Field(() => String, { description: 'The token to initialize Plaid Link on the frontend.' })
   link_token: string;
 
-  @Field()
+  @Field(() => String, { description: 'The expiration date of the link token in ISO 8601 format.' })
   expiration: string;
 }
 
-@ObjectType()
-@Directive('@key(fields: "id")')
-export class User {
-  @Field(() => ID)
-  id: string;
+@ObjectType({ description: 'Confirms the status of a money transfer.' })
+class SendMoneyResponse {
+  @Field(() => ID, { description: 'A unique identifier for the initiated transaction.' })
+  transactionId: string;
 
-  // These fields are added by this subgraph to the User entity
-  @Field(() => [Account], { nullable: true })
-  accounts?: Account[];
-
-  @Field(() => [Transaction], { nullable: true })
-  transactions?: Transaction[];
-
-  @Field(() => FinancialSummary, { nullable: true })
-  financialSummary?: FinancialSummary;
+  @Field(() => String, { description: 'The current status of the payment (e.g., SUBMITTED, PROCESSING, COMPLETED).' })
+  status: string;
 }
 
-// --- Resolver ---
+// --- GraphQL Input Types ---
 
-@Resolver(() => User)
+@InputType({ description: 'Input for the sendMoney mutation.' })
+class SendMoneyInput {
+  @Field(() => ID, { description: 'The ID of the user initiating the payment.' })
+  userId: string; // In a production app, this would be derived from the auth context.
+
+  @Field({ description: 'An identifier for the recipient (e.g., account number, email, or username).' })
+  recipient: string;
+
+  @Field(() => Float, { description: 'The amount of money to send.' })
+  amount: number;
+
+  @Field({ nullable: true, defaultValue: 'USD', description: 'The ISO currency code.' })
+  currency?: string;
+}
+
+// --- Main Resolver for Banking Mutations ---
+
+/**
+ * Handles top-level mutations related to banking integrations like Plaid and Stripe.
+ * This resolver is part of the refactoring to separate concerns. Entity-specific
+ * fields (like a user's accounts) are resolved in their own domain-specific resolvers.
+ */
+@Resolver()
 export class BankingResolver {
   constructor(private readonly bankingService: BankingService) {}
 
   // --- Mutations ---
 
   @Mutation(() => CreateLinkTokenResponse, {
-    description:
-      'Creates a Plaid Link token to initialize the Plaid Link flow on the client.',
+    description: 'Creates a Plaid Link token to initialize the Plaid Link flow on the client.',
   })
   async createLinkToken(
-    @Args('userId', { type: () => ID }) userId: string,
+    @Args('userId', { type: () => ID })
+    userId: string,
   ): Promise<CreateLinkTokenResponse> {
-    // In a real app, userId would come from an authenticated context
-    return this.bankingService.createLinkToken(userId);
+    // The service returns a bit more data than we need to expose, so we select what's needed.
+    const { request_id, ...tokenData } = await this.bankingService.createLinkToken(userId);
+    return tokenData;
   }
 
   @Mutation(() => Boolean, {
-    description:
-      'Exchanges a Plaid public token for an access token and links the account.',
+    description: 'Exchanges a Plaid public token for an access token and links the account.',
   })
   async exchangePublicToken(
-    @Args('publicToken') publicToken: string,
-    @Args('userId', { type: () => ID }) userId: string,
+    @Args('publicToken', { type: () => String })
+    publicToken: string,
+    @Args('userId', { type: () => ID })
+    userId: string,
   ): Promise<boolean> {
-    // The service is responsible for securely storing the access token
-    await this.bankingService.exchangeAndStorePublicToken(publicToken, userId);
-    return true;
+    const { success } = await this.bankingService.exchangeAndStorePublicToken(publicToken, userId);
+    return success;
   }
 
-  // --- Field Resolvers for extending the User Entity ---
-
-  @ResolveField('accounts', () => [Account])
-  async getAccountsForUser(@Parent() user: User): Promise<Account[]> {
-    return this.bankingService.getAccounts(user.id);
-  }
-
-  @ResolveField('transactions', () => [Transaction])
-  async getTransactionsForUser(
-    @Parent() user: User,
-    @Args('accountId', { type: () => ID, nullable: true }) accountId?: string,
-  ): Promise<Transaction[]> {
-    return this.bankingService.getTransactions(user.id, accountId);
-  }
-
-  @ResolveField('financialSummary', () => FinancialSummary)
-  async getFinancialSummaryForUser(@Parent() user: User): Promise<FinancialSummary> {
-    return this.bankingService.getFinancialSummary(user.id);
-  }
-
-  // --- Resolve Reference for Federation ---
-  // This allows other services to get a User object from this service
-  // using just the user's ID. The gateway then uses this stub to call
-  // the field resolvers above.
-  @ResolveReference()
-  resolveReference(reference: { __typename: string; id: string }): User {
-    return {
-      id: reference.id,
-    };
+  @Mutation(() => SendMoneyResponse, {
+    description: 'Initiates a payment to a recipient, potentially via an external service like Stripe.',
+  })
+  async sendMoney(
+    @Args('input') input: SendMoneyInput,
+  ): Promise<SendMoneyResponse> {
+    // The BankingService would orchestrate this call, possibly involving a StripeService.
+    const transactionId = await this.bankingService.sendMoney(input);
+    return { transactionId, status: 'SUBMITTED' };
   }
 }
