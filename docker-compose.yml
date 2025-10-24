@@ -12,6 +12,7 @@ volumes:
   kong_db_data: {}
   kafka_data: {}
   es_data: {}
+  temporal_db_data: {}
 
 services:
   # --------------------------------------------------------------------------
@@ -147,6 +148,51 @@ services:
       - apollo-gateway
 
   # --------------------------------------------------------------------------
+  # Workflow Orchestration Engine (Temporal)
+  # --------------------------------------------------------------------------
+  temporal-db:
+    image: postgres:15-alpine
+    container_name: temporal-db
+    networks:
+      - app-net
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=temporal
+      - POSTGRES_PASSWORD=temporal
+      - POSTGRES_DB=temporal
+    volumes:
+      - temporal_db_data:/var/lib/postgresql/data
+
+  temporal:
+    image: temporalio/auto-setup:1.22.3
+    container_name: temporal
+    ports:
+      - "7233:7233" # gRPC
+      - "8088:8088" # Web UI
+    networks:
+      - app-net
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - DB_HOST=temporal-db
+      - DB_USER=temporal
+      - DB_PASSWORD=temporal
+      - POSTGRES_SEEDS=temporal-db
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamic_config.yaml
+      - TEMPORAL_WEBSERVER_PORT=8088
+      - TEMPORAL_CLI_ADDRESS=temporal:7233
+      # Enable advanced visibility with Elasticsearch
+      - ES_SEEDS=elasticsearch
+      - ES_PORT=9200
+      - ES_SCHEME=http
+      - ES_VERSION=v8
+      - ES_VISIBILITY_INDEX=temporal_visibility_v1_dev
+    depends_on:
+      - temporal-db
+      - elasticsearch
+
+  # --------------------------------------------------------------------------
   # Application Services (Apollo Gateway & Subgraphs)
   # --------------------------------------------------------------------------
   apollo-gateway:
@@ -206,7 +252,8 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
-    depends_on: [otel-collector, vault, kafka]
+      TEMPORAL_ADDRESS: temporal:7233
+    depends_on: [otel-collector, vault, kafka, temporal]
 
   transactions-service:
     build: ./services/transactions-service
@@ -220,7 +267,8 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
-    depends_on: [otel-collector, vault, kafka]
+      TEMPORAL_ADDRESS: temporal:7233
+    depends_on: [otel-collector, vault, kafka, temporal]
 
   ai-agent-service:
     build: ./services/ai-agent-service
@@ -234,7 +282,8 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
-    depends_on: [otel-collector, vault, kafka]
+      TEMPORAL_ADDRESS: temporal:7233
+    depends_on: [otel-collector, vault, kafka, temporal]
 
   plaid-integration-service:
     build: ./services/plaid-integration-service

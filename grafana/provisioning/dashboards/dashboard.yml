@@ -1,17 +1,39 @@
 apiVersion: 1
 
 providers:
-  # This provider loads all dashboard JSON files from the specified path.
-  - name: 'service-dashboards'
+  # This provider group loads dashboards for core business domain services.
+  - name: 'business-services'
     orgId: 1
-    # Dashboards will appear in a folder named 'Microservices' in the Grafana UI,
-    # aligning with the new microservices architecture.
-    folder: 'Microservices'
+    folder: 'Business Services'
     type: file
     disableDeletion: false
     editable: true
     options:
-      # This path is inside the Grafana container and should be mapped
-      # to the local `./grafana/dashboards` directory via a volume mount
-      # in the docker-compose.yml file.
-      path: /etc/grafana/dashboards
+      # Path assumes dashboard JSONs for services like 'accounts', 'users', etc.,
+      # are located in a 'business' sub-directory.
+      path: /etc/grafana/dashboards/business
+
+  # This provider group loads dashboards for cross-cutting platform services.
+  - name: 'platform-services'
+    orgId: 1
+    folder: 'Platform Infrastructure'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      # This path assumes dashboards for components like the API Gateway and Message Bus
+      # are located in a 'platform' sub-directory.
+      path: /etc/grafana/dashboards/platform
+
+  # NEW: Provider for Workflow & Saga Dashboards.
+  # This gives high-level visibility to the new orchestration engine, aligning with the
+  # architectural directive for "full visibility and auditability" of these critical operations.
+  - name: 'workflow-orchestration'
+    orgId: 1
+    folder: 'Workflow Orchestration'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      # This path assumes a new directory for workflow-specific dashboards will be created.
+      path: /etc/grafana/dashboards/workflows
