@@ -1,0 +1,555 @@
+# ============================================================================
+# Demo Bank BFF GraphQL Schema
+# This schema defines the API contract between the frontend applications and
+# the Backend-for-Frontend layer. It abstracts away the complexities of
+# downstream services like Plaid, Stripe, and Google Gemini.
+# ============================================================================
+
+# ============================================================================
+# SCALARS & ENUMS
+# ============================================================================
+
+"""
+A custom scalar for representing date and time values in ISO 8601 format.
+"""
+scalar Date
+
+"""
+A custom scalar representing a file upload, used for mutations involving files.
+"""
+scalar Upload
+
+"""
+The type of a financial transaction.
+"""
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+"""
+The category of a redeemable reward item.
+"""
+enum RewardType {
+  CASHBACK
+  GIFTCARD
+  IMPACT
+}
+
+"""
+A rating for credit-related metrics.
+"""
+enum CreditRating {
+  EXCELLENT
+  GOOD
+  FAIR
+  POOR
+}
+
+"""
+An enumeration of all external API providers integrated with the system.
+"""
+enum APIProvider {
+  Plaid
+  Stripe
+  Marqeta
+  ModernTreasury
+  GoogleGemini
+}
+
+"""
+The operational status of an API provider.
+"""
+enum APIStatusType {
+  Operational
+  DegradedPerformance
+  PartialOutage
+  MajorOutage
+}
+
+"""
+The current stage of the Quantum Weaver business incubation flow.
+"""
+enum WeaverStage {
+  Pitch
+  Analysis
+  Test
+  FinalReview
+  Approved
+  Error
+}
+
+# ============================================================================
+# OBJECT TYPES
+# ============================================================================
+
+"""
+Represents a single financial transaction.
+"""
+type Transaction {
+  id: ID!
+  type: TransactionType!
+  category: String!
+  description: String!
+  amount: Float!
+  date: Date!
+  carbonFootprint: Float
+}
+
+"""
+Represents a class of investment assets held by the user.
+"""
+type Asset {
+  name: String!
+  value: Float!
+  color: String!
+  esgRating: Int
+  description: String
+  performanceYTD: Float
+}
+
+"""
+Represents data points for a chart within an AI Insight.
+"""
+type AIInsightChartData {
+  name: String!
+  value: Float!
+}
+
+"""
+Represents a single piece of AI-generated advice or observation.
+"""
+type AIInsight {
+  id: ID!
+  title: String!
+  description: String!
+  urgency: String!
+  chartData: [AIInsightChartData!]
+}
+
+"""
+Represents a user-defined budget for a specific spending category.
+"""
+type BudgetCategory {
+  id: ID!
+  name: String!
+  limit: Float!
+  spent: Float!
+  color: String!
+}
+
+"""
+Represents the user's gamified financial health status.
+"""
+type GamificationState {
+  score: Int!
+  level: Int!
+  levelName: String!
+  progress: Float!
+  credits: Int!
+}
+
+"""
+Represents a recurring subscription payment detected from transactions.
+"""
+type Subscription {
+  id: ID!
+  name: String!
+  amount: Float!
+  nextPayment: Date!
+  iconName: String!
+}
+
+"""
+Represents the user's credit score.
+"""
+type CreditScore {
+  score: Int!
+  change: Int!
+  rating: CreditRating!
+}
+
+"""
+Represents a single factor contributing to the overall credit score.
+"""
+type CreditFactor {
+  name: String!
+  status: CreditRating!
+  description: String!
+}
+
+"""
+Aggregates all credit-related information for the user.
+"""
+type CreditHealth {
+  score: CreditScore!
+  factors: [CreditFactor!]!
+  aiTip: String
+}
+
+"""
+Represents an upcoming bill payment.
+"""
+type UpcomingBill {
+  id: ID!
+  name: String!
+  amount: Float!
+  dueDate: Date!
+}
+
+"""
+Represents a single step in an AI-generated plan for a financial goal.
+"""
+type AIGoalPlanStep {
+  title: String!
+  description: String!
+  category: String!
+}
+
+"""
+Represents an AI-generated plan to achieve a financial goal.
+"""
+type AIGoalPlan {
+  feasibilitySummary: String!
+  monthlyContribution: Float!
+  steps: [AIGoalPlanStep!]!
+}
+
+"""
+Represents a single contribution made towards a financial goal.
+"""
+type Contribution {
+  id: ID!
+  amount: Float!
+  date: Date!
+  type: String!
+}
+
+"""
+Represents a user's financial goal, such as saving for a house or vacation.
+"""
+type FinancialGoal {
+  id: ID!
+  name: String!
+  targetAmount: Float!
+  targetDate: Date!
+  currentAmount: Float!
+  iconName: String!
+  plan: AIGoalPlan
+  contributions: [Contribution!]
+}
+
+"""
+Represents a cryptocurrency asset in the user's portfolio.
+"""
+type CryptoAsset {
+  ticker: String!
+  name: String!
+  value: Float!
+  amount: Float!
+  color: String!
+}
+
+"""
+Represents a non-fungible token (NFT) owned by the user.
+"""
+type NFTAsset {
+  id: ID!
+  name: String!
+  imageUrl: String!
+  contractAddress: String!
+}
+
+"""
+Aggregates all of the user's crypto-related assets.
+"""
+type CryptoPortfolio {
+  assets: [CryptoAsset!]!
+  nfts: [NFTAsset!]!
+}
+
+"""
+Represents the spending controls for a corporate card.
+"""
+type CorporateCardControls {
+  atm: Boolean!
+  contactless: Boolean!
+  online: Boolean!
+  monthlyLimit: Float!
+}
+
+"""
+Represents a single corporate card.
+"""
+type CorporateCard {
+  id: ID!
+  holderName: String!
+  cardNumberMask: String!
+  status: String!
+  frozen: Boolean!
+  controls: CorporateCardControls!
+}
+
+"""
+Represents a transaction made with a corporate card.
+"""
+type CorporateTransaction {
+  id: ID!
+  cardId: String!
+  holderName: String!
+  merchant: String!
+  amount: Float!
+  status: String!
+  timestamp: String!
+}
+
+"""
+Aggregates all corporate finance data.
+"""
+type CorporateData {
+  cards: [CorporateCard!]!
+  transactions: [CorporateTransaction!]!
+  aiAnomalyInsight: String
+}
+
+"""
+Represents the user's balance of reward points.
+"""
+type RewardPoints {
+  balance: Int!
+  currency: String!
+}
+
+"""
+Represents an item that can be redeemed with reward points.
+"""
+type RewardItem {
+  id: ID!
+  name: String!
+  cost: Int!
+  type: RewardType!
+  description: String!
+  iconName: String!
+}
+
+"""
+Aggregates all rewards-related information.
+"""
+type Rewards {
+  points: RewardPoints!
+  items: [RewardItem!]!
+}
+
+"""
+Represents a user notification.
+"""
+type Notification {
+  id: ID!
+  message: String!
+  timestamp: String!
+  read: Boolean!
+  view: String
+}
+
+"""
+Represents the operational status of an external API.
+"""
+type APIStatus {
+  provider: APIProvider!
+  status: APIStatusType!
+  responseTime: Int!
+}
+
+"""
+A comprehensive object containing the majority of a user's financial data, suitable for hydrating the main dashboard.
+"""
+type UserData {
+  transactions: [Transaction!]!
+  assets: [Asset!]!
+  aiInsights: [AIInsight!]!
+  budgets: [BudgetCategory!]!
+  gamification: GamificationState!
+  subscriptions: [Subscription!]!
+  upcomingBills: [UpcomingBill!]!
+  financialGoals: [FinancialGoal!]!
+  cryptoPortfolio: CryptoPortfolio!
+  corporateData: CorporateData!
+  creditHealth: CreditHealth!
+  rewards: Rewards!
+  notifications: [Notification!]!
+  apiStatus: [APIStatus!]!
+}
+
+"""
+Represents a single part of a message in the AI Advisor conversation.
+"""
+type AIAdvisorMessagePart {
+  text: String
+}
+
+"""
+Represents a single message in the AI Advisor conversation.
+"""
+type AIAdvisorMessage {
+  id: ID!
+  role: String!
+  parts: [AIAdvisorMessagePart!]!
+  timestamp: Date!
+}
+
+"""
+Represents the response from the AI Advisor, containing the conversation history.
+"""
+type AIAdvisorResponse {
+  messages: [AIAdvisorMessage!]!
+}
+
+"""
+Represents the result of an asynchronous video generation operation.
+"""
+type VideoGenerationResult {
+  operationId: String!
+  status: String!
+  videoUrl: String
+}
+
+"""
+Represents a single AI-generated question in the Quantum Weaver flow.
+"""
+type AIQuestion {
+  id: ID!
+  question: String!
+  category: String!
+}
+
+"""
+Represents the full state of the Quantum Weaver business incubation process.
+"""
+type QuantumWeaverState {
+  stage: WeaverStage!
+  businessPlan: String
+  feedback: String
+  questions: [AIQuestion!]
+  loanAmount: Float
+  coachingPlan: AIGoalPlan
+  error: String
+}
+
+# ============================================================================
+# INPUT TYPES
+# ============================================================================
+
+"""
+Input for the sendMoney mutation.
+"""
+input SendMoneyInput {
+  recipient: String!
+  amount: Float!
+}
+
+"""
+Input for the generateAdVideo mutation.
+"""
+input GenerateAdVideoInput {
+  prompt: String!
+  style: String
+  length: Int
+  voice: String
+}
+
+"""
+Input for the generateCardImage mutation, includes a file upload.
+"""
+input GenerateCardImageInput {
+  baseImage: Upload!
+  prompt: String!
+}
+
+# ============================================================================
+# QUERY & MUTATION
+# ============================================================================
+
+type Query {
+  """
+  Fetches the primary data payload for the dashboard and most views.
+  This is the main query for the application.
+  """
+  userData: UserData!
+
+  """
+  Fetches the current state of a Quantum Weaver session.
+  """
+  quantumWeaverState: QuantumWeaverState!
+
+  """
+  Fetches the server status for all integrated APIs.
+  """
+  apiStatus: [APIStatus!]!
+}
+
+type Mutation {
+  """
+  Creates a Plaid Link token to initialize the Plaid Link flow.
+  """
+  createLinkToken: String!
+
+  """
+  Exchanges a Plaid public token for an access token and links the account.
+  """
+  exchangePublicToken(publicToken: String!): Boolean!
+
+  """
+  Sends money to a recipient. This is a simplified example.
+  """
+  sendMoney(input: SendMoneyInput!): Transaction!
+
+  """
+  Starts the Quantum Weaver process by submitting a business plan.
+  """
+  pitchBusinessPlan(plan: String!): QuantumWeaverState!
+
+  """
+  Simulates the user passing the AI-generated test in the Quantum Weaver flow.
+  """
+  simulateWeaverTestPass: QuantumWeaverState!
+
+  """
+  Generates a personalized financial plan for a specific goal using AI.
+  """
+  generateGoalPlan(goalId: ID!): FinancialGoal!
+
+  """
+  Sends a message to the AI Financial Advisor and gets a response.
+  """
+  askAIAdvisor(message: String!, conversationId: String): AIAdvisorResponse!
+
+  """
+  Generates a video ad based on a prompt.
+  """
+  generateAdVideo(input: GenerateAdVideoInput!): VideoGenerationResult!
+
+  """
+  Checks the status of a video generation operation.
+  """
+  checkVideoGenerationStatus(operationId: String!): VideoGenerationResult!
+
+  """
+  Generates a custom image for a bank card using AI.
+  """
+  generateCardImage(input: GenerateCardImageInput!): String! # Returns the URL of the generated image
+
+  """
+  Generates a short story for a custom card design.
+  """
+  generateCardStory(prompt: String!): String!
+
+  """
+  Redeems a reward item using the user's points.
+  """
+  redeemReward(itemId: ID!): Boolean!
+
+  """
+  Marks a notification as read.
+  """
+  markNotificationAsRead(notificationId: ID!): Notification
+}
