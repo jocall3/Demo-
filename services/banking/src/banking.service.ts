@@ -10,9 +10,13 @@ import {
   TransactionsGetRequest,
   AccountBase,
   Transaction,
+  ItemPublicTokenExchangeRequest,
 } from 'plaid';
+import { StripeService } from './stripe.service'; // Assuming a Stripe service for payments
 
 // --- DTO Placeholder Interfaces ---
+// These interfaces define the shape of data returned by the service methods,
+// ensuring a clear contract with the resolvers that consume them.
 
 interface PlaidLinkTokenDto {
   link_token: string;
@@ -25,23 +29,34 @@ interface ChartDataPoint {
   value: number;
 }
 
-// Updated to align with GraphQL schema requirements for the FinancialSummary type
+// Aligns with the GraphQL schema requirements for the FinancialSummary type.
 interface FinancialSummaryDto {
   totalBalance: number;
   balanceChartData: ChartDataPoint[];
   spendingByCategory: ChartDataPoint[];
 }
 
+interface SendMoneyInput {
+  userId: string;
+  recipient: string;
+  amount: number;
+  currency?: string;
+}
+
+
 @Injectable()
 export class BankingService {
   private readonly logger = new Logger(BankingService.name);
   private readonly plaidClient: PlaidApi;
 
-  // In a real microservice, this would be a database (e.g., PostgreSQL, MongoDB).
-  // For this exercise, an in-memory map simulates the persistence layer.
+  // In a real microservice, this would be a persistent, encrypted database (e.g., PostgreSQL, MongoDB).
+  // An in-memory map is used here to simulate the persistence layer for demonstration purposes.
   private userItems = new Map<string, { itemId: string; accessToken: string }>();
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private stripeService: StripeService, // Injected for payment processing
+  ) {
     const plaidEnv = this.configService.get('PLAID_ENV', 'sandbox');
     const configuration = new Configuration({
       basePath: PlaidEnvironments[plaidEnv],
@@ -86,7 +101,8 @@ export class BankingService {
   async exchangeAndStorePublicToken(publicToken: string, userId: string): Promise<{ success: boolean }> {
     this.logger.log(`Exchanging public token for user: ${userId}`);
     try {
-      const response = await this.plaidClient.itemPublicTokenExchange({ public_token: publicToken });
+      const request: ItemPublicTokenExchangeRequest = { public_token: publicToken };
+      const response = await this.plaidClient.itemPublicTokenExchange(request);
       const { access_token, item_id } = response.data;
 
       this.userItems.set(userId, {
@@ -95,6 +111,7 @@ export class BankingService {
       });
 
       this.logger.log(`Successfully linked item ${item_id} for user ${userId}`);
+      // In a real system, an event 'plaid.item.created' would be emitted here.
       return { success: true };
     } catch (error) {
       this.logger.error('Failed to exchange public token', error.response?.data || error.message);
@@ -120,7 +137,7 @@ export class BankingService {
       const accessToken = this.getAccessTokenForUser(userId);
       const startDate = new Date();
       const endDate = new Date();
-      startDate.setDate(endDate.getDate() - 30); // Last 30 days by default
+      startDate.setDate(endDate.getDate() - 90); // Last 90 days for better summary data
 
       const formatDate = (date: Date) => date.toISOString().split('T')[0];
 
@@ -129,7 +146,7 @@ export class BankingService {
         start_date: formatDate(startDate),
         end_date: formatDate(endDate),
         options: {
-          count: 250,
+          count: 500, // Max per request
           account_ids: accountId ? [accountId] : undefined,
         },
       };
@@ -140,37 +157,39 @@ export class BankingService {
       throw new HttpException('Could not fetch transactions.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
+  
+  async sendMoney(input: SendMoneyInput): Promise<string> {
+    this.logger.log(`Initiating payment for user ${input.userId} to ${input.recipient}`);
+    try {
+      // Delegate payment processing to the StripeService
+      const charge = await this.stripeService.createCharge({
+        amount: input.amount,
+        currency: input.currency || 'usd',
+        description: `Transfer to ${input.recipient}`,
+        source: 'tok_visa', // Placeholder for a real payment source
+      });
+      this.logger.log(`Stripe charge created with ID: ${charge.id}`);
+      return charge.id;
+    } catch (error) {
+       this.logger.error(`Failed to send money for user ${input.userId}`, error.stack);
+       throw new HttpException('Payment processing failed.', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 
   async getFinancialSummary(userId: string): Promise<FinancialSummaryDto> {
     this.logger.log(`Generating financial summary for user ${userId}`);
     try {
-      const accessToken = this.getAccessTokenForUser(userId);
-
-      // 1. Fetch accounts and recent transactions in parallel.
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 90); // Fetch last 90 days for chart data
-      const endDate = new Date();
-      const formatDate = (date: Date) => date.toISOString().split('T')[0];
-
-      const [accountsResponse, transactionsResponse] = await Promise.all([
-        this.plaidClient.accountsGet({ access_token: accessToken }),
-        this.plaidClient.transactionsGet({
-          access_token: accessToken,
-          start_date: formatDate(startDate),
-          end_date: formatDate(endDate),
-          options: { count: 500 }, // Max transactions per request
-        }),
+      const [accounts, allTransactions] = await Promise.all([
+        this.getAccounts(userId),
+        this.getTransactions(userId),
       ]);
 
-      const accounts = accountsResponse.data.accounts;
-      const allTransactions = transactionsResponse.data.transactions;
-
-      // 2. Calculate Total Balance from depository accounts.
+      // 1. Calculate Total Balance from depository accounts.
       const totalBalance = accounts
         .filter(acc => acc.type === 'depository')
         .reduce((sum, acc) => sum + (acc.balances.current || 0), 0);
 
-      // 3. Calculate Spending by Category.
+      // 2. Calculate Spending by Category.
       const spendingByCategoryMap = new Map<string, number>();
       allTransactions
         .filter(tx => tx.amount > 0 && !tx.pending) // Posted expenses
@@ -183,19 +202,19 @@ export class BankingService {
       const spendingByCategory: ChartDataPoint[] = Array.from(
         spendingByCategoryMap,
         ([name, value]) => ({ name, value }),
-      ).sort((a, b) => b.value - a.value);
+      ).sort((a, b) => b.value - a.value).slice(0, 5); // Top 5 categories
 
-      // 4. Calculate daily balance for the last 30 days for the chart.
+      // 3. Calculate daily balance for the last 30 days for the chart.
       const dailyNet = new Map<string, number>();
       allTransactions.forEach(tx => {
-        // Net change to balance is the inverse of transaction amount
-        const netChange = -tx.amount;
+        const netChange = -tx.amount; // Net change to balance is the inverse of transaction amount
         const currentNet = dailyNet.get(tx.date) || 0;
         dailyNet.set(tx.date, currentNet + netChange);
       });
 
       const balanceChartData: ChartDataPoint[] = [];
       let rollingBalance = totalBalance;
+      const formatDate = (date: Date) => date.toISOString().split('T')[0];
 
       for (let i = 0; i < 30; i++) {
         const date = new Date();
@@ -219,7 +238,10 @@ export class BankingService {
         spendingByCategory,
       };
     } catch (error) {
-      this.logger.error(`Failed to create financial summary for user ${userId}`, error.response?.data || error.message);
+      this.logger.error(`Failed to create financial summary for user ${userId}`, error.stack);
+      // If it's an expected error (like no linked account), re-throw it.
+      if (error instanceof HttpException) throw error;
+      // Otherwise, wrap it.
       throw new HttpException('Could not create financial summary.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }

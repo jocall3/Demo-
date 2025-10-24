@@ -1,0 +1,181 @@
+{
+  "realm": "demobank",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginTheme": "keycloak",
+  "accountTheme": "keycloak",
+  "adminTheme": "keycloak",
+  "emailTheme": "keycloak",
+  "accessTokenLifespan": 300,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "roles": {
+    "realm": [
+      {
+        "name": "user",
+        "description": "Default user role for all authenticated users."
+      },
+      {
+        "name": "admin",
+        "description": "Administrator with elevated privileges."
+      }
+    ]
+  },
+  "defaultRoles": [
+    "offline_access",
+    "uma_authorization",
+    "user"
+  ],
+  "clients": [
+    {
+      "clientId": "demobank-frontend",
+      "name": "DemoBank Frontend",
+      "description": "The primary web application client for user authentication.",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "https://demobank.example.com/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "https://demobank.example.com"
+      ],
+      "protocolMappers": [
+        {
+          "name": "audience-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "api-gateway",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+              "multivalued": "true",
+              "user.attribute": "realm.roles",
+              "id.token.claim": "true",
+              "access.token.claim": "true",
+              "claim.name": "realm_access.roles",
+              "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "api-gateway",
+      "name": "API Gateway",
+      "description": "Internal client representing the API Gateway for token validation.",
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false
+    },
+    {
+      "clientId": "accounts-service",
+      "name": "Accounts Service",
+      "description": "Microservice for managing user accounts. Acts as a resource in token exchange.",
+      "secret": "${ACCOUNTS_SERVICE_CLIENT_SECRET}",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "authorizationServicesEnabled": true,
+      "policyEnforcementMode": "ENFORCING",
+      "authorizationSettings": {
+        "allowRemoteResourceManagement": true,
+        "policyEnforcementMode": "ENFORCING",
+        "policies": [
+          {
+            "name": "Allow Token Exchange from specific services",
+            "description": "Grants permission to specific clients to exchange tokens for new tokens with an audience of this service.",
+            "type": "client",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "clients": "[\"transactions-service\", \"user-service\"]"
+            }
+          }
+        ],
+        "permissions": [
+           {
+            "name": "Token Exchange Permission",
+            "description": "Allows clients that satisfy the policy to perform a token exchange.",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "policies": "[\"Allow Token Exchange from specific services\"]",
+              "default": true,
+              "scopes": "[\"urn:ietf:params:oauth:grant-type:token-exchange\"]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "clientId": "transactions-service",
+      "name": "Transactions Service",
+      "description": "Microservice for managing transactions. Acts as a client in token exchange.",
+      "secret": "${TRANSACTIONS_SERVICE_CLIENT_SECRET}",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "authorizationServicesEnabled": true
+    },
+    {
+      "clientId": "user-service",
+      "name": "User Service",
+      "description": "Microservice for managing user profiles.",
+      "secret": "${USER_SERVICE_CLIENT_SECRET}",
+      "publicClient": false,
+      "serviceAccountsEnabled": true
+    },
+    {
+        "clientId": "ai-agent-service",
+        "name": "AI Agent Service",
+        "description": "Microservice for AI-powered agents and tasks.",
+        "secret": "${AI_AGENT_SERVICE_CLIENT_SECRET}",
+        "publicClient": false,
+        "serviceAccountsEnabled": true
+    },
+    {
+        "clientId": "plaid-integration-service",
+        "name": "Plaid Integration Service",
+        "description": "Microservice for interacting with the Plaid API.",
+        "secret": "${PLAID_INTEGRATION_SERVICE_CLIENT_SECRET}",
+        "publicClient": false,
+        "serviceAccountsEnabled": true
+    }
+  ],
+  "users": [
+    {
+      "username": "the_visionary",
+      "enabled": true,
+      "email": "visionary@demobank.com",
+      "firstName": "The",
+      "lastName": "Visionary",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "user",
+        "admin"
+      ],
+      "emailVerified": true
+    }
+  ]
+}

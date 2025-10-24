@@ -7,6 +7,7 @@ import {
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { join } from 'path';
 import { MetricsModule } from './metrics.module';
+import { HttpModule } from '@nestjs/axios';
 
 /**
  * The root module for the Metrics microservice.
@@ -22,6 +23,13 @@ import { MetricsModule } from './metrics.module';
     ConfigModule.forRoot({
       isGlobal: true,
       // In a production setup, consider using a schema for env validation (e.g., with Joi).
+    }),
+
+    // HttpModule is imported at the root level to make HttpService available
+    // throughout the application, including the MetricsService which uses it to query Prometheus.
+    HttpModule.register({
+      timeout: 5000,
+      maxRedirects: 3,
     }),
 
     // GraphQL module configured to run as a federated subgraph.

@@ -1,148 +1,194 @@
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import {
-  AccountBase,
-  AccountsGetRequest,
-  Configuration,
-  CountryCode,
-  ItemPublicTokenExchangeRequest,
-  LinkTokenCreateRequest,
-  PlaidApi,
-  PlaidEnvironments,
-  Products,
-} from 'plaid';
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Account } from './entities/account.entity';
+import { PlaidItem } from './entities/plaid-item.entity';
+import { PlaidService } from './plaid.service';
+import { Account as PlaidAccountDto } from 'plaid';
 
 /**
- * @Injectable
- * Service responsible for all business logic related to financial accounts.
- * It interacts with the Plaid API to link accounts, fetch account data, and manage balances.
- * This service is a core component of the `accounts-service` microservice.
+ * @description Defines the structure of the payload for a 'user.created' event.
+ */
+interface UserCreatedPayload {
+  userId: string;
+  email: string;
+  name: string;
+}
+
+/**
+ * @description Defines the structure of the payload for a 'plaid.item.created' event.
+ */
+interface PlaidItemCreatedPayload {
+  userId: string;
+  itemId: string;
+  institutionName: string;
+}
+
+/**
+ * Service responsible for managing user financial accounts.
+ *
+ * This service handles the business logic for creating and retrieving account information.
+ * It interacts with the database to persist account data and communicates with the
+ * dedicated Plaid Integration Service (via an injected PlaidService client) to fetch
+ * account details from external institutions.
  */
 @Injectable()
 export class AccountService {
   private readonly logger = new Logger(AccountService.name);
-  private readonly plaidClient: PlaidApi;
 
-  // In a production microservice, this would be a persistent, encrypted database (e.g., PostgreSQL, DynamoDB).
-  // Using an in-memory map is for demonstration purposes only.
-  private itemsByUser = new Map<string, { accessToken: string; itemId: string }>();
+  constructor(
+    @InjectRepository(Account)
+    private readonly accountRepository: Repository<Account>,
+    @InjectRepository(PlaidItem)
+    private readonly plaidItemRepository: Repository<PlaidItem>,
+    private readonly plaidService: PlaidService,
+  ) {}
 
-  constructor(private configService: ConfigService) {
-    const plaidConfig = {
-      clientID: this.configService.get<string>('PLAID_CLIENT_ID'),
-      secret: this.configService.get<string>('PLAID_SECRET'),
-      env: this.configService.get<string>('PLAID_ENV', 'sandbox'),
-    };
-
-    if (!plaidConfig.clientID || !plaidConfig.secret) {
-      const errorMessage = 'Plaid client ID or secret is not configured. Account functionality will be disabled.';
-      this.logger.error(errorMessage);
-      throw new Error(errorMessage);
-    }
-
-    const configuration = new Configuration({
-      basePath: PlaidEnvironments[plaidConfig.env],
-      baseOptions: {
-        headers: {
-          'PLAID-CLIENT-ID': plaidConfig.clientID,
-          'PLAID-SECRET': plaidConfig.secret,
-        },
-      },
+  /**
+   * Creates a default internal "Demo Bank" account for a new user.
+   * This is triggered by a `user.created` event from the message bus.
+   * @param payload - Data for the new user.
+   * @returns The created account entity.
+   */
+  async createDefaultAccountForUser(payload: UserCreatedPayload): Promise<Account> {
+    this.logger.log(`Creating default "Demo Bank" account for user ${payload.userId}`);
+    const existingAccount = await this.accountRepository.findOne({
+      where: { userId: payload.userId, institutionName: 'Demo Bank' },
     });
 
-    this.plaidClient = new PlaidApi(configuration);
-    this.logger.log(`Plaid client initialized for '${plaidConfig.env}' environment.`);
-  }
-
-  /**
-   * Retrieves the access token for a given user from the secure store.
-   * @param userId - The ID of the user.
-   * @returns The user's Plaid access token.
-   * @throws {HttpException} If no token is found for the user.
-   */
-  private getAccessToken(userId: string): string {
-    const item = this.itemsByUser.get(userId);
-    if (!item) {
-      this.logger.warn(`No Plaid item found for user ${userId}. Account may not be linked.`);
-      throw new HttpException('Plaid account not linked for this user.', HttpStatus.NOT_FOUND);
+    if (existingAccount) {
+      this.logger.warn(`Default account already exists for user ${payload.userId}.`);
+      return existingAccount;
     }
-    return item.accessToken;
+
+    const defaultAccount = this.accountRepository.create({
+      // Using a predictable ID for the internal account for easier reference.
+      id: `demobank-acct-${payload.userId}`,
+      userId: payload.userId,
+      name: 'Demo Bank Checking',
+      mask: '0000',
+      type: 'depository',
+      subtype: 'checking',
+      institutionName: 'Demo Bank',
+      currentBalance: 1000, // Starting balance for new users
+      availableBalance: 1000,
+      isoCurrencyCode: 'USD',
+    });
+
+    return this.accountRepository.save(defaultAccount);
   }
 
   /**
-   * Creates a Plaid Link token for a user to initiate the frontend Link flow.
-   * @param userId - A unique identifier for the end user.
-   * @returns An object containing the generated link_token and its expiration.
+   * Links an external institution to a user after a successful Plaid Link flow.
+   * This is triggered by a `plaid.item.created` event. It fetches account details
+   * from the Plaid Integration Service and persists them.
+   * @param payload - Event data containing user, item, and institution info.
    */
-  async createLinkToken(userId: string): Promise<{ link_token: string; expiration: string }> {
-    const request: LinkTokenCreateRequest = {
-      user: {
-        client_user_id: userId,
+  async linkExternalInstitution(payload: PlaidItemCreatedPayload): Promise<void> {
+    const { userId, itemId, institutionName } = payload;
+    this.logger.log(`Linking institution for user ${userId}, itemId ${itemId}`);
+
+    const existingItem = await this.plaidItemRepository.findOne({ where: { itemId } });
+    if (existingItem) {
+      this.logger.warn(`Plaid item ${itemId} has already been processed.`);
+      return;
+    }
+
+    // Persist the Plaid item to our database. We DO NOT store access tokens here.
+    const newPlaidItem = this.plaidItemRepository.create({
+      itemId,
+      userId,
+      institutionName,
+    });
+    await this.plaidItemRepository.save(newPlaidItem);
+
+    try {
+      this.logger.log(`Fetching accounts from Plaid Integration Service for user ${userId}`);
+      // The injected PlaidService acts as a client to the dedicated Plaid microservice.
+      const plaidAccounts: PlaidAccountDto[] = await this.plaidService.getAccounts(userId);
+      this.logger.log(`Received ${plaidAccounts.length} accounts from Plaid Integration Service.`);
+
+      const accountEntities = plaidAccounts.map((plaidAccount) =>
+        this.accountRepository.create({
+          id: plaidAccount.account_id,
+          userId: userId,
+          plaidItem: newPlaidItem,
+          name: plaidAccount.name,
+          mask: plaidAccount.mask,
+          type: plaidAccount.type,
+          subtype: plaidAccount.subtype,
+          institutionName: institutionName,
+          currentBalance: plaidAccount.balances.current,
+          availableBalance: plaidAccount.balances.available,
+          isoCurrencyCode: plaidAccount.balances.iso_currency_code,
+        }),
+      );
+
+      await this.accountRepository.save(accountEntities);
+      this.logger.log(`Successfully saved ${accountEntities.length} new accounts for user ${userId}.`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch or save accounts from Plaid Integration Service for user ${userId}.`,
+        error.stack,
+      );
+      // In a real system, implement retry logic or a dead-letter queue for this failed event.
+      throw new Error(`Could not sync accounts for item ${itemId}.`);
+    }
+  }
+
+  /**
+   * Finds all accounts for a user from this service's local database.
+   * @param userId - The ID of the user.
+   * @returns A promise that resolves to an array of account objects formatted for GraphQL.
+   */
+  async findAccountsByUserId(userId: string): Promise<any[]> {
+    this.logger.log(`Finding accounts in local DB for user ${userId}`);
+    const accounts = await this.accountRepository.find({
+      where: { userId },
+      order: { institutionName: 'ASC', name: 'ASC' },
+    });
+    return accounts.map(this.mapEntityToGqlObject);
+  }
+
+  /**
+   * Finds a single account by its ID from the local database.
+   * @param id - The unique ID of the account.
+   * @returns A promise that resolves to a single account object formatted for GraphQL, or null.
+   */
+  async findAccountById(id: string): Promise<any | null> {
+    this.logger.log(`Finding account by ID ${id} in local DB`);
+    const account = await this.accountRepository.findOne({ where: { id } });
+    return this.mapEntityToGqlObject(account);
+  }
+
+  /**
+   * Maps a flat database entity to the nested GraphQL object structure.
+   * This decouples the database schema from the GraphQL API schema.
+   * @param accountEntity - The TypeORM Account entity from the database.
+   * @returns An object matching the structure of the GraphQL Account type.
+   */
+  private mapEntityToGqlObject(accountEntity: Account | null): any {
+    if (!accountEntity) {
+      return null;
+    }
+
+    // This destructuring assumes the entity has flat columns for balance.
+    const {
+      currentBalance,
+      availableBalance,
+      isoCurrencyCode,
+      plaidItem, // Exclude the relation object from the final output
+      ...rest
+    } = accountEntity;
+
+    return {
+      ...rest,
+      // Reconstruct the nested 'balance' object expected by the GraphQL schema.
+      balance: {
+        current: currentBalance,
+        available: availableBalance,
+        iso_currency_code: isoCurrencyCode,
       },
-      client_name: 'Demo Bank Platform',
-      // Note: We include 'transactions' so the TransactionsService can later fetch them.
-      products: [Products.Auth, Products.Transactions, Products.Identity],
-      country_codes: [CountryCode.Us],
-      language: 'en',
     };
-
-    try {
-      this.logger.log(`Creating Plaid Link token for user: ${userId}`);
-      const response = await this.plaidClient.linkTokenCreate(request);
-      return response.data;
-    } catch (error) {
-      this.logger.error('Failed to create Plaid Link token.', error.response?.data || error.message);
-      throw new HttpException('Could not create Plaid Link token.', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  /**
-   * Exchanges a temporary public token from Plaid Link for a permanent access token and item ID.
-   * The access token is then stored securely, associated with the user.
-   * In a real event-driven system, this would also publish an `AccountLinked` event.
-   * @param publicToken - The public token from the Plaid Link `onSuccess` callback.
-   * @param userId - The user ID to associate with the new Plaid Item.
-   * @returns A success status object.
-   */
-  async exchangePublicToken(publicToken: string, userId: string): Promise<{ success: boolean; item_id: string }> {
-    const request: ItemPublicTokenExchangeRequest = { public_token: publicToken };
-
-    try {
-      this.logger.log(`Exchanging public token for user: ${userId}`);
-      const response = await this.plaidClient.itemPublicTokenExchange(request);
-      const { access_token, item_id } = response.data;
-
-      // --- SECURITY CRITICAL --- //
-      // Persist the access_token and item_id in a secure, encrypted database.
-      this.itemsByUser.set(userId, { accessToken: access_token, itemId: item_id });
-      this.logger.log(`Successfully exchanged and stored access token for item ID: ${item_id}`);
-
-      // In a real system, you would publish an event here, e.g.:
-      // this.eventEmitter.emit('account.linked', { userId, itemId });
-
-      return { success: true, item_id };
-    } catch (error) {
-      this.logger.error('Failed to exchange public token.', error.response?.data || error.message);
-      throw new HttpException('Could not exchange public token.', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  /**
-   * Fetches account information for a given user.
-   * @param userId - The ID of the user.
-   * @returns A list of accounts associated with the user's Plaid Item.
-   */
-  async getAccountsByUserId(userId: string): Promise<AccountBase[]> {
-    const accessToken = this.getAccessToken(userId);
-    const request: AccountsGetRequest = { access_token: accessToken };
-
-    try {
-      this.logger.log(`Fetching accounts for user: ${userId}`);
-      const response = await this.plaidClient.accountsGet(request);
-      return response.data.accounts;
-    } catch (error) {
-      this.logger.error(`Failed to fetch accounts for user ${userId}.`, error.response?.data || error.message);
-      throw new HttpException('Could not fetch account information.', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
   }
 }

@@ -22,7 +22,7 @@ const otelSDK = new NodeSDK({
   traceExporter: new OTLPTraceExporter(),
   // PrometheusExporter exposes a /metrics endpoint for Prometheus to scrape.
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.METRICS_PORT || '9464', 10),
+    port: parseInt(process.env.METRICS_PORT || '9465', 10),
   }),
   // Auto-instrument popular libraries (e.g., @nestjs/core, http, graphql)
   instrumentations: [getNodeAutoInstrumentations()],
@@ -135,15 +135,15 @@ async function bootstrap() {
   logger.log('Global ValidationPipe configured.');
 
   // Get port from environment variables, with a fallback.
-  // Using 4002 to align with docker-compose.yml for banking-subgraph
-  const port = configService.get<number>('PORT') || 4002;
+  // Using 4001 which was the original port for this service.
+  const port = configService.get<number>('PORT') || 4001;
 
   await app.listen(port);
 
   logger.log(`Banking subgraph is running on: http://localhost:${port}`);
   logger.log(`GraphQL endpoint available at: http://localhost:${port}/graphql`);
   logger.log(
-    `Prometheus metrics available on port ${process.env.METRICS_PORT || '9464'}`,
+    `Prometheus metrics available on port ${process.env.METRICS_PORT || '9465'}`,
   );
 }
 

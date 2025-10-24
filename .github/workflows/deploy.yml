@@ -1,27 +1,27 @@
-# .github/workflows/deploy.yml
-# This GitHub Actions workflow handles the continuous deployment for the DemoBank application.
-# It orchestrates a sequential deployment:
-# 1. Build and push Docker images for all backend services.
-# 2. Deploy the backend services to a cloud provider (e.g., Google Cloud Run).
-# 3. Build and deploy the frontend application, injecting the newly deployed backend URL.
+# .github/workflows/deploy.yml - RE-ARCHITECTED
+# This GitHub Actions workflow orchestrates the deployment of the entire microservices architecture.
+# It aligns with a secure, multi-service, cloud-native deployment strategy.
+#
+# Architectural Changes Reflected:
+# 1. Monorepo Support: Builds and deploys multiple services from the monorepo.
+# 2. Microservice Deployment: Each service (API Gateway, User Service, etc.) is deployed independently to Cloud Run.
+# 3. Security Hardening:
+#    - Subgraph services are deployed with internal-only ingress, preventing direct public access.
+#    - Secrets are managed via Google Secret Manager and injected at runtime, not passed as plaintext environment variables.
+# 4. Dependency Management: Deployment is sequenced to ensure subgraphs are available before the API Gateway that consumes them.
 
-name: CI/CD for DemoBank Services
+name: CI/CD for Monorepo Services
 
 on:
-  # Triggers the workflow on push events but only for the "main" branch
   push:
     branches: ["main"]
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# Grant GITHUB_TOKEN the permissions required for GCloud authentication and Pages deployment
 permissions:
   contents: 'read'
   pages: 'write'
   id-token: 'write'
 
-# Allow only one concurrent deployment, but do not cancel in-progress runs
-# to ensure production deployments always complete.
 concurrency:
   group: "production-deploy"
   cancel-in-progress: false
@@ -29,22 +29,25 @@ concurrency:
 jobs:
   # =================================================================================
   # JOB 1: Build and Push Docker Images
-  # This job builds container images for backend services and pushes them to a registry.
-  # It outputs the unique image URI for each service to be used in the deploy job.
+  # This job builds container images for all backend services and pushes them to
+  # Google Artifact Registry. It runs steps sequentially to provide clear, distinct
+  # outputs for each service's image URI.
   # =================================================================================
   build-and-push-images:
     name: Build & Push Service Images
     runs-on: ubuntu-latest
     outputs:
-      bff_image_uri: ${{ steps.build-bff.outputs.image_uri }}
-      # In a full microservices architecture, add more outputs for other subgraphs:
-      # users_image_uri: ${{ steps.build-users.outputs.image_uri }}
+      api_gateway_image_uri: ${{ steps.build-api-gateway.outputs.image_uri }}
+      user_service_image_uri: ${{ steps.build-user-service.outputs.image_uri }}
+      accounts_service_image_uri: ${{ steps.build-accounts-service.outputs.image_uri }}
+      transactions_service_image_uri: ${{ steps.build-transactions-service.outputs.image_uri }}
+      ai_agent_service_image_uri: ${{ steps.build-ai-agent-service.outputs.image_uri }}
+      plaid_integration_service_image_uri: ${{ steps.build-plaid-integration-service.outputs.image_uri }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- Authenticate to Google Cloud using Workload Identity Federation ---
       - name: Authenticate to Google Cloud
         id: auth
         uses: 'google-github-actions/auth@v2'
@@ -58,28 +61,66 @@ jobs:
       - name: Configure Docker for Google Artifact Registry
         run: gcloud auth configure-docker ${{ secrets.GAR_LOCATION }}-docker.pkg.dev
 
-      # --- Build and Push BFF Service Image ---
-      - name: Build and Push BFF Image
-        id: build-bff
+      - name: Build and Push API Gateway Image
+        id: build-api-gateway
         run: |
-          IMAGE_URI="${{ secrets.GAR_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/demobank/bff:${{ github.sha }}"
-          docker build -t $IMAGE_URI ./bff
+          IMAGE_URI="${{ secrets.GAR_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/demobank/api-gateway:${{ github.sha }}"
+          docker build -t $IMAGE_URI ./api-gateway
           docker push $IMAGE_URI
           echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
-      # Add similar steps for other microservices (subgraphs) here
+
+      - name: Build and Push User Service Image
+        id: build-user-service
+        run: |
+          IMAGE_URI="${{ secrets.GAR_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/demobank/user-service:${{ github.sha }}"
+          docker build -t $IMAGE_URI ./services/user-service
+          docker push $IMAGE_URI
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+      - name: Build and Push Accounts Service Image
+        id: build-accounts-service
+        run: |
+          IMAGE_URI="${{ secrets.GAR_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/demobank/accounts-service:${{ github.sha }}"
+          docker build -t $IMAGE_URI ./services/accounts-service
+          docker push $IMAGE_URI
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+      - name: Build and Push Transactions Service Image
+        id: build-transactions-service
+        run: |
+          IMAGE_URI="${{ secrets.GAR_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/demobank/transactions-service:${{ github.sha }}"
+          docker build -t $IMAGE_URI ./services/transactions-service
+          docker push $IMAGE_URI
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+      - name: Build and Push AI Agent Service Image
+        id: build-ai-agent-service
+        run: |
+          IMAGE_URI="${{ secrets.GAR_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/demobank/ai-agent-service:${{ github.sha }}"
+          docker build -t $IMAGE_URI ./services/ai-agent-service
+          docker push $IMAGE_URI
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+      
+      - name: Build and Push Plaid Integration Service Image
+        id: build-plaid-integration-service
+        run: |
+          IMAGE_URI="${{ secrets.GAR_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/demobank/plaid-integration-service:${{ github.sha }}"
+          docker build -t $IMAGE_URI ./services/plaid-integration-service
+          docker push $IMAGE_URI
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
 
   # =================================================================================
   # JOB 2: Deploy Backend Services
-  # This job takes the container images from the previous job and deploys them to
-  # the hosting environment (Google Cloud Run). It outputs the public URL of the
-  # gateway/BFF to be used by the frontend.
+  # This job deploys all backend services to Google Cloud Run in sequence.
+  # Subgraphs are deployed first with internal-only ingress. The API Gateway is
+  # deployed last, configured with the internal URLs of the subgraphs.
   # =================================================================================
-  deploy-backend:
+  deploy-backend-services:
     name: Deploy Backend Services
     runs-on: ubuntu-latest
     needs: build-and-push-images
     outputs:
-      bff_url: ${{ steps.deploy-bff.outputs.url }}
+      api_gateway_url: ${{ steps.deploy-api-gateway.outputs.url }}
 
     steps:
       - name: Checkout repository
@@ -92,36 +133,143 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_SA_EMAIL }}
 
-      - name: Deploy BFF to Cloud Run
-        id: deploy-bff
+      - name: Deploy User Service
+        id: deploy-user-service
         uses: google-github-actions/deploy-cloudrun@v2
         with:
-          service: 'bff' # The name of the Cloud Run service
+          service: 'user-service'
           region: ${{ secrets.GCP_REGION }}
-          image: ${{ needs.build-and-push-images.outputs.bff_image_uri }}
+          image: ${{ needs.build-and-push-images.outputs.user_service_image_uri }}
+          flags: --ingress=internal-and-cloud-load-balancing
+          secrets:
+            - name: DATABASE_URL
+              secret: USER_SERVICE_DB_URL
+            - name: KAFKA_BROKERS
+              secret: KAFKA_BROKERS
+          env_vars: |
+            NODE_ENV=production
+            PORT=8080
+            OTEL_SERVICE_NAME=user-service
+            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+
+      - name: Deploy Accounts Service
+        id: deploy-accounts-service
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: 'accounts-service'
+          region: ${{ secrets.GCP_REGION }}
+          image: ${{ needs.build-and-push-images.outputs.accounts_service_image_uri }}
+          flags: --ingress=internal-and-cloud-load-balancing
+          secrets:
+            - name: DATABASE_URL
+              secret: ACCOUNTS_SERVICE_DB_URL
+            - name: KAFKA_BROKERS
+              secret: KAFKA_BROKERS
+            - name: JWT_SECRET
+              secret: JWT_SECRET
+          env_vars: |
+            NODE_ENV=production
+            PORT=8080
+            OTEL_SERVICE_NAME=accounts-service
+            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+
+      - name: Deploy Transactions Service
+        id: deploy-transactions-service
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: 'transactions-service'
+          region: ${{ secrets.GCP_REGION }}
+          image: ${{ needs.build-and-push-images.outputs.transactions_service_image_uri }}
+          flags: --ingress=internal-and-cloud-load-balancing
+          secrets:
+            - name: DATABASE_URL
+              secret: TRANSACTIONS_SERVICE_DB_URL
+            - name: KAFKA_BROKERS
+              secret: KAFKA_BROKERS
+          env_vars: |
+            NODE_ENV=production
+            PORT=8080
+            OTEL_SERVICE_NAME=transactions-service
+            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+      
+      - name: Deploy AI Agent Service
+        id: deploy-ai-agent-service
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: 'ai-agent-service'
+          region: ${{ secrets.GCP_REGION }}
+          image: ${{ needs.build-and-push-images.outputs.ai_agent_service_image_uri }}
+          flags: --ingress=internal-and-cloud-load-balancing
+          secrets:
+            - name: GOOGLE_GENAI_API_KEY
+              secret: GOOGLE_GENAI_API_KEY
+            - name: KAFKA_BROKERS
+              secret: KAFKA_BROKERS
+          env_vars: |
+            NODE_ENV=production
+            PORT=8080
+            OTEL_SERVICE_NAME=ai-agent-service
+            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+
+      - name: Deploy Plaid Integration Service
+        id: deploy-plaid-integration-service
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: 'plaid-integration-service'
+          region: ${{ secrets.GCP_REGION }}
+          image: ${{ needs.build-and-push-images.outputs.plaid_integration_service_image_uri }}
+          flags: --ingress=internal-and-cloud-load-balancing
+          secrets:
+            - name: DATABASE_URL
+              secret: PLAID_INTEGRATION_DB_URL
+            - name: KAFKA_BROKERS
+              secret: KAFKA_BROKERS
+            - name: PLAID_CLIENT_ID
+              secret: PLAID_CLIENT_ID
+            - name: PLAID_SECRET
+              secret: PLAID_SECRET
+            - name: PLAID_ENV
+              secret: PLAID_ENV
+          env_vars: |
+            NODE_ENV=production
+            PORT=8080
+            OTEL_SERVICE_NAME=plaid-integration-service
+            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+
+      - name: Deploy API Gateway
+        id: deploy-api-gateway
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: 'api-gateway'
+          region: ${{ secrets.GCP_REGION }}
+          image: ${{ needs.build-and-push-images.outputs.api_gateway_image_uri }}
+          flags: --allow-unauthenticated # This is the public entry point for now
+          secrets:
+            - name: JWT_SECRET
+              secret: JWT_SECRET
+            - name: SUBGRAPH_API_KEY
+              secret: SUBGRAPH_API_KEY
           env_vars: |
             NODE_ENV=production
             PORT=8080
             FRONTEND_URL=${{ secrets.FRONTEND_URL }}
-            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-            PLAID_CLIENT_ID=${{ secrets.PLAID_CLIENT_ID }}
-            PLAID_SECRET=${{ secrets.PLAID_SECRET }}
-            PLAID_ENV=sandbox
-            OTEL_SERVICE_NAME=bff-service
+            OTEL_SERVICE_NAME=api-gateway
             OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
-          # The BFF is a public API in this architecture. Use IAM for private services.
-          flags: --allow-unauthenticated
-      # Add similar steps to deploy other subgraph services here
+            USERS_SERVICE_URL=${{ steps.deploy-user-service.outputs.url }}/graphql
+            ACCOUNTS_SERVICE_URL=${{ steps.deploy-accounts-service.outputs.url }}/graphql
+            TRANSACTIONS_SERVICE_URL=${{ steps.deploy-transactions-service.outputs.url }}/graphql
+            AI_AGENT_SERVICE_URL=${{ steps.deploy-ai-agent-service.outputs.url }}/graphql
+            PLAID_INTEGRATION_SERVICE_URL=${{ steps.deploy-plaid-integration-service.outputs.url }}/graphql
 
   # =================================================================================
   # JOB 3: Build and Deploy Frontend
   # This job builds the static frontend, injecting the URL of the newly deployed
-  # backend, and then deploys the assets to GitHub Pages.
+  # API Gateway, and then deploys the assets to GitHub Pages.
   # =================================================================================
   deploy-frontend:
-    name: Deploy Frontend to GitHub Pages
+    name: Deploy Frontend
     runs-on: ubuntu-latest
-    needs: deploy-backend
+    needs: deploy-backend-services
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -140,8 +288,9 @@ jobs:
 
       - name: Build application
         env:
-          # Use the dynamic URL from the deployed backend service
-          VITE_BFF_URL: ${{ needs.deploy-backend.outputs.bff_url }}
+          # VITE_BFF_URL is kept for compatibility with the existing frontend code.
+          # It now points to the new, publicly accessible API Gateway.
+          VITE_BFF_URL: ${{ needs.deploy-backend-services.outputs.api_gateway_url }}
           VITE_OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
           VITE_OTEL_SERVICE_NAME: 'frontend-client'
         run: npm run build

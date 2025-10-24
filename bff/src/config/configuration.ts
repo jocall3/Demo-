@@ -1,12 +1,9 @@
 import { registerAs } from '@nestjs/config';
 
 /**
- * Defines and loads application configuration from environment variables.
- * This function is registered with NestJS's ConfigModule to provide
- * a structured, typed configuration object for the application. In its
- * current phase of the architectural transformation, this BFF is acting
- * as a federated subgraph, containing the business logic that will eventually
- * be broken out into separate microservices.
+ * Defines and loads application configuration from environment variables for the API Gateway.
+ * This function is registered with NestJS's ConfigModule to provide a structured,
+ * typed configuration object for the application, aligning with the new microservices architecture.
  */
 export default registerAs('config', () => {
   return {
@@ -14,43 +11,83 @@ export default registerAs('config', () => {
     env: process.env.NODE_ENV || 'development',
     isProd: process.env.NODE_ENV === 'production',
 
-    // Port the subgraph will listen on
-    port: parseInt(process.env.PORT, 10) || 3001,
+    // Port the API Gateway will listen on.
+    port: parseInt(process.env.PORT, 10) || 4000,
 
-    // CORS configuration for allowing requests from the frontend
+    // CORS configuration for the frontend application.
     cors: {
       origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     },
 
-    // Configuration for external services this subgraph depends on
-    plaid: {
-      clientId: process.env.PLAID_CLIENT_ID,
-      secret: process.env.PLAID_SECRET,
-      env: process.env.PLAID_ENV || 'sandbox',
-    },
-    google: {
-      geminiApiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY,
-    },
-    stripe: {
-      secretKey: process.env.STRIPE_SECRET_KEY,
-      publicKey: process.env.STRIPE_PUBLIC_KEY,
-    },
-
-    // JWT configuration for potential authentication/authorization logic within the subgraph
-    jwt: {
-      secret: process.env.JWT_SECRET,
-      expiresIn: process.env.JWT_EXPIRES_IN || '1d',
+    // OIDC-compliant authentication configuration.
+    // Secrets are placeholders; in production, they'd be fetched from Vault.
+    auth: {
+      // The URL of the OpenID Connect provider (e.g., Keycloak, Auth0).
+      issuer: process.env.OIDC_ISSUER_URL,
+      // The audience identifier for the API, used to validate the 'aud' claim in JWTs.
+      audience: process.env.OIDC_AUDIENCE,
+      // URL for fetching the JSON Web Key Set (JWKS) to verify token signatures.
+      jwksUri: `${process.env.OIDC_ISSUER_URL}/.well-known/jwks.json`,
+      // Client ID for the Gateway itself, used for token exchange flows.
+      clientId: process.env.OIDC_GATEWAY_CLIENT_ID,
+      // Path in Vault to fetch the client secret.
+      clientSecretPath:
+        process.env.OIDC_GATEWAY_CLIENT_SECRET_PATH ||
+        'secret/data/demobank/oidc/gateway-client',
     },
 
-    // Observability configuration for OpenTelemetry
+    // Configuration for the centralized secrets manager (HashiCorp Vault).
+    secrets: {
+      address: process.env.VAULT_ADDR,
+      // Role used by the service to authenticate with Vault.
+      roleId: process.env.VAULT_ROLE_ID,
+      // A wrapped secret ID for initial authentication.
+      secretId: process.env.VAULT_SECRET_ID,
+    },
+
+    // Observability configuration for OpenTelemetry.
     observability: {
-      // Service name for traces, logs, and metrics, updated for the subgraph role.
-      serviceName: process.env.OTEL_SERVICE_NAME || 'bff-subgraph',
-      // OTLP exporter endpoint (URL of the OpenTelemetry Collector).
+      serviceName: process.env.OTEL_SERVICE_NAME || 'api-gateway',
       exporterUrl:
-        process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318',
-      // Log level for structured logging.
+        process.env.OTEL_EXPORTER_OTLP_ENDPOINT ||
+        'http://localhost:4318/v1/traces',
       logLevel: process.env.LOG_LEVEL || 'info',
+    },
+
+    // Apollo Gateway configuration for federating GraphQL subgraphs.
+    gateway: {
+      // A list of all microservice subgraphs to be composed into the supergraph.
+      subgraphs: [
+        {
+          name: 'users',
+          url: process.env.USERS_SERVICE_URL || 'http://localhost:4001/graphql',
+        },
+        {
+          name: 'accounts',
+          url:
+            process.env.ACCOUNTS_SERVICE_URL || 'http://localhost:4002/graphql',
+        },
+        {
+          name: 'transactions',
+          url:
+            process.env.TRANSACTIONS_SERVICE_URL ||
+            'http://localhost:4003/graphql',
+        },
+        {
+          name: 'ai-agent',
+          url: process.env.AI_AGENT_SERVICE_URL || 'http://localhost:4004/graphql',
+        },
+        {
+          name: 'plaid-integration',
+          url:
+            process.env.PLAID_INTEGRATION_SERVICE_URL ||
+            'http://localhost:4005/graphql',
+        },
+      ],
+      // Path in Vault to fetch the shared secret for authenticating requests from the gateway to subgraphs.
+      subgraphApiKeyPath:
+        process.env.SUBGRAPH_API_KEY_PATH ||
+        'secret/data/demobank/subgraph-api-key',
     },
   };
 });

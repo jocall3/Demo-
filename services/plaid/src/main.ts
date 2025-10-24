@@ -4,6 +4,11 @@
  * This is the entry point for the Plaid subgraph service.
  * It initializes and configures the NestJS application for the Apollo Federation,
  * setting up observability (tracing, metrics, logging) and starting the server.
+ *
+ * ARCHITECTURAL UPDATE:
+ * - Added integration with HashiCorp Vault to fetch secrets at runtime.
+ * - Uses AppRole authentication for secure, automated secret retrieval.
+ * - Secrets are injected into the process environment before the application starts.
  */
 
 // --- 1. Observability Setup (MUST be imported and executed before ANY other module) ---
@@ -42,14 +47,65 @@ process.on('SIGTERM', () => {
 
 otelSDK.start();
 
-// --- 2. NestJS Application Imports (after OTel setup) ---
+// --- 2. Application Imports (after OTel setup) ---
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import vault from 'node-vault';
 import pino from 'pino';
 
-// --- 3. Structured Logging with OpenTelemetry Context ---
+// --- 3. Vault Secret Fetching ---
+// A simple logger for pre-bootstrap tasks like secret fetching.
+const preBootstrapLogger = pino({ level: process.env.LOG_LEVEL || 'info' });
+
+async function fetchSecretsFromVault() {
+  try {
+    const vaultAddr = process.env.VAULT_ADDR;
+    const roleId = process.env.VAULT_ROLE_ID;
+    const secretId = process.env.VAULT_SECRET_ID;
+
+    if (!vaultAddr || !roleId || !secretId) {
+      preBootstrapLogger.warn(
+        'Vault environment variables (VAULT_ADDR, VAULT_ROLE_ID, VAULT_SECRET_ID) are not set. Skipping secret fetching. This is not suitable for production.',
+      );
+      return;
+    }
+
+    const vaultClient = vault({
+      apiVersion: 'v1',
+      endpoint: vaultAddr,
+    });
+
+    preBootstrapLogger.info('Authenticating to Vault with AppRole...');
+    const result = await vaultClient.approleLogin({
+      role_id: roleId,
+      secret_id: secretId,
+    });
+
+    vaultClient.token = result.auth.client_token;
+    preBootstrapLogger.info('Successfully authenticated to Vault.');
+
+    const secretPath = 'secret/data/demobank/plaid';
+    preBootstrapLogger.info(`Fetching secrets from Vault at path: ${secretPath}`);
+    const secrets = await vaultClient.read(secretPath);
+
+    if (!secrets?.data?.data) {
+      throw new Error(`Plaid secrets not found in Vault at path '${secretPath}' or data is empty.`);
+    }
+
+    // Set secrets as environment variables for ConfigService to pick up
+    process.env.PLAID_CLIENT_ID = secrets.data.data.CLIENT_ID;
+    process.env.PLAID_SECRET = secrets.data.data.SECRET;
+
+    preBootstrapLogger.info('Successfully fetched and configured Plaid secrets from Vault.');
+  } catch (error) {
+    preBootstrapLogger.error({ err: error }, 'Failed to fetch secrets from Vault. Application will exit.');
+    process.exit(1);
+  }
+}
+
+// --- 4. Structured Logging with OpenTelemetry Context ---
 class StructuredLogger implements LoggerService {
   private readonly pino: pino.Logger;
   private readonly serviceName = SERVICE_NAME;
@@ -103,8 +159,11 @@ class StructuredLogger implements LoggerService {
   }
 }
 
-// --- 4. Application Bootstrap ---
+// --- 5. Application Bootstrap ---
 async function bootstrap() {
+  // First, fetch secrets from Vault and populate the environment
+  await fetchSecretsFromVault();
+
   const app = await NestFactory.create(AppModule, {
     logger: new StructuredLogger(),
   });
@@ -128,16 +187,14 @@ async function bootstrap() {
   );
   logger.log('Global ValidationPipe configured.');
 
-  const port = configService.get<number>('port') || 4003; // Default port for Plaid service
+  const port = configService.get<number>('port') || 4005; // Default port for Plaid service
   const prometheusPort = process.env.PLAID_PROMETHEUS_PORT || '9466';
 
   await app.listen(port);
 
   const appUrl = await app.getUrl();
-  logger.log(`🚀 Plaid subgraph is running on: ${appUrl}/graphql`);
-  logger.log(
-    `Prometheus metrics available on port ${prometheusPort}`,
-  );
+  logger.log(`ðŸš€ Plaid subgraph is running on: ${appUrl}/graphql`);
+  logger.log(`Prometheus metrics available on port ${prometheusPort}`);
 }
 
 bootstrap();

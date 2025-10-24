@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
-import { APIProvider, APIStatus, APIStatusType } from './graphql.schema';
+import { APIProvider, APIStatus, APIStatusType } from './metrics.resolver';
 
 /**
  * Interface for the structure of a successful Prometheus query response.
@@ -24,13 +24,13 @@ interface PrometheusResponse {
  * for each specific downstream service that is part of the supergraph.
  */
 const providerToJobMapping: Record<string, string> = {
-  // These job names should match the `job_name` in prometheus.yml
-  [APIProvider.Plaid]: 'subgraph-banking',
-  [APIProvider.GoogleGemini]: 'subgraph-ai',
-  // The following are placeholders for services not yet instrumented or scraped
-  [APIProvider.Stripe]: 'subgraph-payments',
-  [APIProvider.Marqeta]: 'subgraph-cards',
-  [APIProvider.ModernTreasury]: 'subgraph-treasury',
+  // These job names must match the `job_name` in prometheus.yml
+  [APIProvider.Plaid]: 'plaid-service',
+  [APIProvider.GoogleGemini]: 'genai-service',
+  // The following are placeholders for services not yet instrumented or scraped in prometheus.yml
+  [APIProvider.Stripe]: 'stripe-service', // Placeholder
+  [APIProvider.Marqeta]: 'marqeta-service', // Placeholder
+  [APIProvider.ModernTreasury]: 'modern-treasury-service', // Placeholder
 };
 
 @Injectable()
@@ -142,9 +142,12 @@ export class MetricsService {
    */
   private determineStatus(errorRate: number, latencyMs: number): APIStatusType {
     if (errorRate > 10) {
-      return APIStatusType.PartialOutage;
+      return APIStatusType.MajorOutage;
     }
-    if (errorRate > 2 || latencyMs > 1000) {
+    if (errorRate > 5) {
+        return APIStatusType.PartialOutage;
+    }
+    if (errorRate > 1 || latencyMs > 1000) {
       return APIStatusType.DegradedPerformance;
     }
     return APIStatusType.Operational;

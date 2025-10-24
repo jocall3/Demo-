@@ -1,226 +1,198 @@
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
+import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  Configuration,
-  PlaidApi,
-  PlaidEnvironments,
-  CountryCode,
-  Products,
-  LinkTokenCreateRequest,
-  ItemPublicTokenExchangeRequest,
-  TransactionsGetRequest,
-  AccountBase,
-  Transaction,
-  AccountsGetRequest,
-  ItemGetResponse,
-  AccountsBalanceGetRequest,
-  ItemRemoveRequest,
-  ItemRemoveResponse,
-} from 'plaid';
+import { firstValueFrom } from 'rxjs';
+import { AxiosError } from 'axios';
 
-// In a production app, this would be a persistent store (e.g., Redis, PostgreSQL).
-const itemsByUser = new Map<string, { accessToken: string; itemId: string }>();
+// Define types that match the GraphQL schema of the plaid-integration subgraph.
+// These are essential for type safety when interacting with the subgraph.
+export interface PlaidAccount {
+  id: string;
+  name: string;
+  mask: string | null;
+  type: string;
+  subtype: string | null;
+  balance: {
+    current: number;
+    available: number | null;
+    iso_currency_code: string | null;
+  };
+}
+
+export interface PlaidTransaction {
+  id: string;
+  account_id: string;
+  amount: number;
+  iso_currency_code: string | null;
+  date: string;
+  name: string;
+  category: string[];
+  pending: boolean;
+}
 
 /**
- * Service responsible for all interactions with the Plaid API.
- * This service acts as a clean, typed wrapper around the Plaid client,
- * abstracting the details of API calls and managing user access tokens.
+ * REFACTORED: PlaidService
+ *
+ * This service has been refactored to act as a client for the new, independent
+ * 'plaid-integration-service' microservice (subgraph). It no longer contains
+ * direct Plaid SDK logic or manages any state like access tokens.
+ *
+ * Its responsibility is to construct GraphQL queries/mutations and send them
+ * to the plaid-integration subgraph, abstracting this communication from the BFF's resolvers.
  */
 @Injectable()
 export class PlaidService {
   private readonly logger = new Logger(PlaidService.name);
-  private readonly plaidClient: PlaidApi;
+  private readonly plaidSubgraphUrl: string;
 
-  constructor(private configService: ConfigService) {
-    const plaidEnv = this.configService.get<string>('PLAID_ENV');
-    const clientId = this.configService.get<string>('PLAID_CLIENT_ID');
-    const secret = this.configService.get<string>('PLAID_SECRET');
+  constructor(
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
+  ) {
+    // Dynamically find the plaid-integration subgraph URL from the gateway configuration.
+    const plaidSubgraph = this.configService
+      .get<any[]>('gateway.subgraphs', [])
+      .find((s) => s.name === 'plaid_integration');
 
-    if (!plaidEnv || !clientId || !secret) {
-      this.logger.error('Plaid configuration is missing. PlaidService will not function.');
-      throw new Error('Plaid environment variables (PLAID_ENV, PLAID_CLIENT_ID, PLAID_SECRET) must be set.');
+    if (!plaidSubgraph?.url) {
+      this.logger.error('Plaid subgraph URL is not configured!');
+      throw new Error('Plaid integration subgraph URL must be configured.');
     }
+    this.plaidSubgraphUrl = plaidSubgraph.url;
+    this.logger.log(`Plaid subgraph client initialized for URL: ${this.plaidSubgraphUrl}`);
+  }
 
-    const configuration = new Configuration({
-      basePath: PlaidEnvironments[plaidEnv],
-      baseOptions: {
-        headers: {
-          'PLAID-CLIENT-ID': clientId,
-          'PLAID-SECRET': secret,
-        },
-      },
+  /**
+   * A generic method to execute a GraphQL operation against the Plaid subgraph.
+   * @param query The GraphQL query or mutation string.
+   * @param variables Optional variables for the GraphQL operation.
+   * @returns The data from the GraphQL response.
+   */
+  private async querySubgraph<T>(query: string, variables?: Record<string, any>): Promise<T> {
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(this.plaidSubgraphUrl, { query, variables }),
+      );
+
+      if (response.data.errors) {
+        const error = response.data.errors[0];
+        this.logger.error(`GraphQL error from Plaid subgraph: ${error.message}`, error);
+        // Propagate the specific error message from the downstream service.
+        throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+      }
+
+      return response.data.data;
+    } catch (error) {
+      this.logger.error(`Failed to query Plaid subgraph at ${this.plaidSubgraphUrl}`, error.stack);
+      if (error instanceof AxiosError) {
+        throw new HttpException(`Network error communicating with Plaid service: ${error.code}`, HttpStatus.SERVICE_UNAVAILABLE);
+      }
+      // Re-throw if it's already an HttpException or another type of error.
+      throw error;
+    }
+  }
+
+  /**
+   * Creates a Plaid Link token by calling the plaid-integration subgraph.
+   * @param userId The ID of the user.
+   * @returns The link token and its expiration.
+   */
+  async createLinkToken(userId: string): Promise<{ link_token: string; expiration: string }> {
+    const mutation = `
+      mutation CreatePlaidLinkToken($userId: ID!) {
+        createLinkToken(userId: $userId) {
+          link_token
+          expiration
+        }
+      }
+    `;
+    const data = await this.querySubgraph<{ createLinkToken: { link_token: string; expiration: string } }>(mutation, { userId });
+    return data.createLinkToken;
+  }
+
+  /**
+   * Exchanges a public token by calling the plaid-integration subgraph.
+   * @param publicToken The public token from Plaid Link.
+   * @param userId The ID of the user.
+   * @returns A boolean indicating success.
+   */
+  async exchangePublicToken(publicToken: string, userId: string): Promise<boolean> {
+    const mutation = `
+      mutation ExchangePlaidPublicToken($publicToken: String!, $userId: ID!) {
+        exchangePublicToken(publicToken: $publicToken, userId: $userId)
+      }
+    `;
+    const data = await this.querySubgraph<{ exchangePublicToken: boolean }>(mutation, { publicToken, userId });
+    return data.exchangePublicToken;
+  }
+
+  /**
+   * Gets all Plaid accounts for a user by querying the plaid-integration subgraph's federated User entity.
+   * @param userId The ID of the user.
+   * @returns An array of accounts.
+   */
+  async getAccounts(userId: string): Promise<PlaidAccount[]> {
+    const query = `
+      query GetUserPlaidAccounts($representations: [_Any!]!) {
+        _entities(representations: $representations) {
+          ... on User {
+            accounts {
+              id
+              name
+              mask
+              type
+              subtype
+              balance {
+                current
+                available
+                iso_currency_code
+              }
+            }
+          }
+        }
+      }
+    `;
+    const data = await this.querySubgraph<{ _entities: [{ accounts: PlaidAccount[] }] }>(query, {
+      representations: [{ __typename: 'User', id: userId }],
     });
-
-    this.plaidClient = new PlaidApi(configuration);
-    this.logger.log(`Plaid client initialized for environment: ${plaidEnv}`);
+    return data._entities[0].accounts || [];
   }
 
   /**
-   * Retrieves the access token for a given user from the in-memory store.
-   * @param userId The unique identifier for the user.
-   * @returns The stored Plaid access token.
-   * @throws {HttpException} If no access token is found for the user.
-   */
-  private getAccessToken(userId: string): string {
-    const item = itemsByUser.get(userId);
-    if (!item) {
-      this.logger.warn(`No Plaid access token found for user: ${userId}`);
-      throw new HttpException('User has not linked a bank account.', HttpStatus.NOT_FOUND);
-    }
-    return item.accessToken;
-  }
-
-  /**
-   * Creates a Plaid Link token for a given user to initialize the frontend Link flow.
-   * @param userId A unique identifier for the end user.
-   * @returns The generated link_token and its expiration.
-   */
-  async createLinkToken(userId: string): Promise<{ link_token: string; expiration: string; request_id: string }> {
-    const request: LinkTokenCreateRequest = {
-      user: { client_user_id: userId },
-      client_name: 'Demo Bank',
-      products: [Products.Transactions, Products.Auth],
-      country_codes: [CountryCode.Us],
-      language: 'en',
-    };
-
-    try {
-      this.logger.log(`Creating Plaid Link token for user: ${userId}`);
-      const response = await this.plaidClient.linkTokenCreate(request);
-      this.logger.log('Successfully created Plaid Link token.');
-      return response.data;
-    } catch (error) {
-      this.logger.error('Failed to create Plaid Link token.', error.response?.data || error.message);
-      throw new HttpException('Could not create Plaid Link token.', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  /**
-   * Exchanges a temporary public token for a permanent access token and stores it.
-   * @param publicToken The public token from the Plaid Link onSuccess callback.
-   * @param userId The user ID to associate with the new Plaid Item.
-   * @returns An object confirming the success of the operation.
-   */
-  async exchangeAndStorePublicToken(publicToken: string, userId: string): Promise<{ success: boolean }> {
-    const request: ItemPublicTokenExchangeRequest = { public_token: publicToken };
-
-    try {
-      this.logger.log(`Exchanging public token for user: ${userId}`);
-      const response = await this.plaidClient.itemPublicTokenExchange(request);
-      const { access_token, item_id } = response.data;
-
-      itemsByUser.set(userId, { accessToken: access_token, itemId: item_id });
-      this.logger.log(`Successfully exchanged and stored access token for item ID: ${item_id}`);
-
-      return { success: true };
-    } catch (error) {
-      this.logger.error('Failed to exchange public token.', error.response?.data || error.message);
-      throw new HttpException('Could not exchange public token.', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  /**
-   * Fetches all account information for a given user.
-   * @param userId The ID of the user.
-   * @returns A list of accounts associated with the user's Plaid Item.
-   */
-  async getAccounts(userId: string): Promise<AccountBase[]> {
-    const accessToken = this.getAccessToken(userId);
-    const request: AccountsGetRequest = { access_token: accessToken };
-
-    try {
-      this.logger.log(`Fetching accounts for user: ${userId}`);
-      const response = await this.plaidClient.accountsGet(request);
-      return response.data.accounts;
-    } catch (error) {
-      this.logger.error(`Failed to fetch accounts for user ${userId}.`, error.response?.data || error.message);
-      throw new HttpException('Could not fetch account information.', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  /**
-   * Fetches account balances for all of a user's accounts.
-   * @param userId The ID of the user.
-   * @returns An object containing accounts and their balance information.
-   */
-  async getBalances(userId: string): Promise<AccountBase[]> {
-    const accessToken = this.getAccessToken(userId);
-    const request: AccountsBalanceGetRequest = { access_token: accessToken };
-
-    try {
-      this.logger.log(`Fetching balances for user: ${userId}`);
-      const response = await this.plaidClient.accountsBalanceGet(request);
-      return response.data.accounts;
-    } catch (error) {
-      this.logger.error(`Failed to fetch balances for user ${userId}.`, error.response?.data || error.message);
-      throw new HttpException('Could not fetch balance information.', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  /**
-   * Fetches transactions for a given user over a specified date range.
+   * Gets transactions for a user by querying the plaid-integration subgraph's federated User entity.
    * @param userId The ID of the user.
    * @param startDate The start date for the transaction query.
    * @param endDate The end date for the transaction query.
-   * @returns A list of transactions.
+   * @returns An array of transactions.
    */
-  async getTransactions(userId: string, startDate: Date, endDate: Date): Promise<Transaction[]> {
-    const accessToken = this.getAccessToken(userId);
-    const formatDate = (date: Date) => date.toISOString().split('T')[0];
-
-    const request: TransactionsGetRequest = {
-      access_token: accessToken,
-      start_date: formatDate(startDate),
-      end_date: formatDate(endDate),
-      options: { count: 500, offset: 0 },
-    };
-
-    try {
-      this.logger.log(`Fetching transactions for user: ${userId} from ${formatDate(startDate)} to ${formatDate(endDate)}`);
-      const response = await this.plaidClient.transactionsGet(request);
-      this.logger.log(`Successfully fetched ${response.data.transactions.length} transactions.`);
-      return response.data.transactions;
-    } catch (error) {
-      this.logger.error(`Failed to fetch transactions for user ${userId}.`, error.response?.data || error.message);
-      throw new HttpException('Could not fetch transaction information.', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
+  async getTransactions(userId: string, startDate: string, endDate: string): Promise<PlaidTransaction[]> {
+    const query = `
+      query GetUserPlaidTransactions($representations: [_Any!]!, $input: TransactionsByDateInput!) {
+        _entities(representations: $representations) {
+          ... on User {
+            transactions(input: $input) {
+              id
+              account_id
+              amount
+              iso_currency_code
+              date
+              name
+              category
+              pending
+            }
+          }
+        }
+      }
+    `;
+    const data = await this.querySubgraph<{ _entities: [{ transactions: PlaidTransaction[] }] }>(query, {
+      representations: [{ __typename: 'User', id: userId }],
+      input: { startDate, endDate },
+    });
+    return data._entities[0].transactions || [];
   }
 
-  /**
-   * Fetches information about a user's Plaid Item.
-   * @param userId The ID of the user.
-   * @returns The Item object from Plaid.
-   */
-  async getItem(userId: string): Promise<ItemGetResponse> {
-    const accessToken = this.getAccessToken(userId);
-    try {
-      this.logger.log(`Fetching item information for user: ${userId}`);
-      const response = await this.plaidClient.itemGet({ access_token: accessToken });
-      this.logger.log(`Successfully fetched info for item ID: ${response.data.item.item_id}`);
-      return response.data;
-    } catch (error) {
-      this.logger.error('Failed to fetch item information.', error.response?.data || error.message);
-      throw new HttpException('Could not fetch Plaid Item information.', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  /**
-   * Removes a user's Plaid Item. This invalidates the access token.
-   * @param userId The ID of the user whose item should be removed.
-   * @returns An object indicating success.
-   */
-  async removeItem(userId: string): Promise<ItemRemoveResponse> {
-    const accessToken = this.getAccessToken(userId);
-    const request: ItemRemoveRequest = { access_token: accessToken };
-    try {
-      this.logger.log(`Removing Plaid item for user: ${userId}`);
-      const response = await this.plaidClient.itemRemove(request);
-      itemsByUser.delete(userId); // Also remove from our in-memory store
-      this.logger.log(`Successfully removed item for user ${userId}. Request ID: ${response.data.request_id}`);
-      return response.data;
-    } catch (error) {
-      this.logger.error(`Failed to remove Plaid item for user ${userId}.`, error.response?.data || error.message);
-      throw new HttpException('Could not remove Plaid Item.', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
+  // The methods below were part of the original service but are no longer directly
+  // exposed by the new subgraph's GraphQL API. `getBalances` is now part of the `getAccounts` call.
+  // `getItem` and `removeItem` are internal implementation details of the plaid-integration service.
+  // They are removed here to reflect the new, simplified client-side service contract.
 }

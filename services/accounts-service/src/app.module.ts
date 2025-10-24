@@ -1,27 +1,29 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GraphQLModule } from '@nestjs/graphql';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
 
-import { AccountsModule } from './accounts/accounts.module';
-import { PlaidModule } from './plaid/plaid.module';
-import { UsersModule } from './users/users.module';
-import { HealthModule } from './health/health.module';
+import { AccountModule } from './account/account.module';
+import { EventBusModule } from './event-bus/event-bus.module';
 
 /**
  * The root module for the Accounts microservice.
  *
- * This module orchestrates the entire service by:
+ * This module has been updated to centralize infrastructure configuration (Database, GraphQL)
+ * and import domain-specific feature modules. This pattern improves clarity and aligns
+ * with best practices for building scalable NestJS microservices.
+ *
+ * It orchestrates the entire service by:
  * 1.  Setting up global configuration management (ConfigModule).
- * 2.  Establishing the database connection (TypeOrmModule).
+ * 2.  Establishing the database connection (TypeOrmModule), absorbing the previous DatabaseModule.
  * 3.  Configuring the GraphQL server as a federated subgraph (GraphQLModule).
- * 4.  Importing all domain-specific feature modules (AccountsModule, PlaidModule).
- * 5.  Importing modules required for federation (UsersModule) and health checks (HealthModule).
+ * 4.  Importing the domain-specific feature module (AccountModule).
+ * 5.  Importing the event bus module for inter-service communication (EventBusModule).
  */
 @Module({
   imports: [
@@ -30,53 +32,50 @@ import { HealthModule } from './health/health.module';
     // Global configuration module to handle environment variables.
     ConfigModule.forRoot({
       isGlobal: true,
-      // In production, consider using a more sophisticated config strategy
-      // like loading from a different file or a config service.
-      envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
+      // In production, consider a more robust config strategy.
+      envFilePath: `.env`,
+      cache: true,
     }),
 
-    // Database connection module. Configured asynchronously to use ConfigService.
+    // Database connection module, configured asynchronously to use ConfigService.
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
-        host: configService.get<string>('DATABASE_HOST'),
-        port: configService.get<number>('DATABASE_PORT'),
-        username: configService.get<string>('DATABASE_USER'),
-        password: configService.get<string>('DATABASE_PASSWORD'),
-        database: configService.get<string>('DATABASE_NAME'),
-        // Automatically load all entities registered by feature modules.
+        url: configService.get<string>('DATABASE_URL'),
+        // Automatically load all entities registered by feature modules via forFeature().
         autoLoadEntities: true,
         // `synchronize` should be `false` in production. Use migrations instead.
         synchronize: configService.get<string>('NODE_ENV') !== 'production',
+        logging: configService.get<string>('NODE_ENV') !== 'production',
       }),
       inject: [ConfigService],
     }),
 
     // GraphQL module configured for Apollo Federation v2.
-    GraphQLModule.forRoot<ApolloFederationDriverConfig>({
+    GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      // Automatically generate the schema file based on resolvers.
-      // The `federation: 2` option is crucial for compatibility with the latest gateway.
-      autoSchemaFile: {
-        federation: 2,
-        path: join(process.cwd(), 'src/schema.gql'),
-      },
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        // Automatically generate the schema file based on resolvers.
+        autoSchemaFile: {
+          federation: 2,
+          path: join(process.cwd(), 'src/schema.gql'),
+        },
+        // Sort schema lexicographically for consistency.
+        sortSchema: true,
+        // Enable playground in non-production environments for easier debugging.
+        playground: configService.get<string>('NODE_ENV') !== 'production',
+      }),
     }),
 
     // --- Feature & Domain Modules ---
 
-    // Health check module for Kubernetes liveness/readiness probes.
-    HealthModule,
-
     // The core module for this service, handling account-related logic.
-    AccountsModule,
+    AccountModule,
 
-    // Module for interacting with the Plaid API to fetch account data.
-    PlaidModule,
-
-    // Module for resolving federated entities (e.g., extending the User entity).
-    UsersModule,
+    // Module for connecting to the event bus (e.g., Kafka) for inter-service communication.
+    EventBusModule,
   ],
 })
 export class AppModule {}

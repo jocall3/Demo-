@@ -5,7 +5,7 @@ import App from './App';
 // Apollo Client for GraphQL integration
 import { ApolloClient, InMemoryCache, ApolloProvider } from '@apollo/client';
 
-// Import OpenTelemetry packages for client-side web instrumentation
+// OpenTelemetry for client-side web instrumentation
 import { WebTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-web';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';

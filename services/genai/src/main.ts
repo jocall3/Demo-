@@ -10,17 +10,19 @@ import { diag, DiagConsoleLogger, DiagLogLevel, trace, context } from '@opentele
 // For troubleshooting OpenTelemetry, set the log level to DiagLogLevel.DEBUG
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
+const SERVICE_NAME = 'genai-service';
+
 const otelSDK = new NodeSDK({
   // The service name is a required attribute for all telemetry data.
   resource: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: 'genai-service',
+    [SemanticResourceAttributes.SERVICE_NAME]: SERVICE_NAME,
   }),
   // OTLPTraceExporter will send traces to an OTel Collector.
   // The endpoint is configurable via the OTEL_EXPORTER_OTLP_ENDPOINT env var.
   traceExporter: new OTLPTraceExporter(),
   // PrometheusExporter exposes a /metrics endpoint for Prometheus to scrape.
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.PROMETHEUS_PORT || '9464', 10), // Aligned with prometheus.yml scrape config
+    port: parseInt(process.env.PROMETHEUS_PORT || '9465', 10), // Aligned with prometheus.yml scrape config
   }),
   // Auto-instrument popular libraries (Express, HTTP, Axios, gRPC, etc.)
   instrumentations: [getNodeAutoInstrumentations()],
@@ -52,7 +54,7 @@ import pino from 'pino';
  */
 class StructuredLogger implements LoggerService {
   private readonly pino: pino.Logger;
-  private readonly serviceName = 'genai-service';
+  private readonly serviceName = SERVICE_NAME;
 
   constructor() {
     this.pino = pino({
@@ -133,15 +135,15 @@ async function bootstrap() {
   );
   logger.log('Global ValidationPipe configured for GraphQL inputs.');
 
-  // Get port from environment variables, with a fallback
-  const port = configService.get<number>('PORT') || 4003;
+  // Get port from environment variables, with a fallback that matches the docker-compose config
+  const port = configService.get<number>('port') || 4002;
 
   await app.listen(port);
 
   const appUrl = await app.getUrl();
   logger.log(`GenAI Subgraph is running on: ${appUrl}/graphql`);
   logger.log(
-    `Prometheus metrics available on port ${process.env.PROMETHEUS_PORT || '9464'}`,
+    `Prometheus metrics available on port ${process.env.PROMETHEUS_PORT || '9465'}`,
   );
 }
 

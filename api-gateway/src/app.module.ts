@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
@@ -8,24 +8,30 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import configuration from './config/configuration';
 
-// Observability Modules
+// --- Feature Modules ---
+import { AuthModule } from './auth/auth.module';
+import { IdentityService } from './auth/identity.service';
+
+// --- Observability & Health ---
 import { MetricsModule } from './modules/metrics/metrics.module';
 
 /**
  * The root module for the API Gateway.
  *
- * This module is responsible for:
- * 1. Setting up global configuration management.
- * 2. Configuring the Apollo Gateway to introspect and compose the various
- *    microservice subgraphs into a single, unified Supergraph.
- * 3. Handling cross-cutting concerns like observability (metrics) and health checks.
- * 4. Removing all domain-specific business logic, which has been migrated to
- *    dedicated microservices (e.g., Banking, GenAI).
+ * ARCHITECTURAL REFACTOR:
+ * This module now implements a sophisticated security model based on OAuth 2.0 Token Exchange (RFC 8693).
+ * It no longer validates client JWTs directly; that is the responsibility of an upstream API Security Gateway.
+ *
+ * Core responsibilities:
+ * 1.  Receive a validated client token from the upstream gateway.
+ * 2.  For each request to a downstream subgraph, exchange the client token for a new, audience-restricted
+ *     token from a central Identity Provider (e.g., Auth0, Keycloak).
+ * 3.  Forward the new, scoped token to the appropriate subgraph, ensuring zero-trust security.
+ * 4.  Compose the subgraphs into a single supergraph.
+ * 5.  Handle cross-cutting concerns like observability (metrics) and health checks.
  */
 @Module({
   imports: [
-    // --- Core Modules ---
-
     // Global configuration module to handle environment variables.
     ConfigModule.forRoot({
       isGlobal: true,
@@ -33,62 +39,92 @@ import { MetricsModule } from './modules/metrics/metrics.module';
       cache: true,
     }),
 
+    // Module responsible for Identity Provider interactions (e.g., token exchange).
+    AuthModule,
+
     // --- GraphQL Gateway Module ---
-    // Sets up the GraphQL server as a federated gateway.
     GraphQLModule.forRootAsync<ApolloGatewayDriverConfig>({
       driver: ApolloGatewayDriver,
-      useFactory: (configService: ConfigService) => ({
-        // The `server` property allows us to configure the underlying Apollo Server,
-        // for example, to pass context to the gateway.
+      imports: [AuthModule], // Make IdentityService available for injection.
+      useFactory: (
+        configService: ConfigService,
+        identityService: IdentityService,
+      ) => ({
+        // The `server` property configures the underlying Apollo Server.
+        // We use it to extract the client token from incoming request headers.
         server: {
-          context: ({ req }) => ({
-            headers: req.headers,
-          }),
+          context: ({ req }) => {
+            // The upstream API Security Gateway is responsible for JWT validation.
+            // We extract the token here to make it available for the token exchange flow.
+            const token = req.headers.authorization?.replace('Bearer ', '');
+            return {
+              token, // The original token from the client.
+              headers: req.headers, // Forward other headers like trace IDs.
+            };
+          },
         },
-        // The `gateway` configuration is the core of the API Gateway setup.
+        // The `gateway` configuration is the core of the Apollo Gateway setup.
         gateway: {
-          // `supergraphSdl` tells the gateway how to obtain the supergraph schema.
-          // `IntrospectAndCompose` will query all subgraphs to compose the schema on startup.
           supergraphSdl: new IntrospectAndCompose({
-            subgraphs: configService.get('gateway.subgraphs'),
-            // In production, you might want to add a pollInterval to refresh the schema periodically.
-            // pollIntervalInMs: 10000,
+            subgraphs: configService.get<any[]>('gateway.subgraphs'),
           }),
-          // The `buildService` function allows us to customize how the gateway communicates
-          // with each subgraph. This is crucial for adding authentication headers.
-          buildService({ url }) {
+          // buildService customizes how the gateway communicates with each subgraph.
+          // This is where we implement the Token Exchange security pattern.
+          buildService({ name, url }) {
             return new RemoteGraphQLDataSource({
               url,
-              willSendRequest({ request, context }) {
-                // Forward specific headers from the original client request to the subgraph.
-                // This is how authentication tokens (e.g., JWTs) are passed down.
-                if (context.headers?.authorization) {
-                  request.http.headers.set(
-                    'authorization',
-                    context.headers.authorization,
-                  );
+              async willSendRequest({ request, context }) {
+                // Forward essential observability headers.
+                if (context.headers) {
+                  for (const key of [
+                    'x-request-id',
+                    'x-b3-traceid',
+                    'x-b3-spanid',
+                    'x-b3-parentspanid',
+                    'x-b3-sampled',
+                  ]) {
+                    if (context.headers[key]) {
+                      request.http?.headers.set(key, context.headers[key]);
+                    }
+                  }
                 }
 
-                // Add a shared API key for secure inter-service communication between
-                // the gateway and the subgraphs.
-                const subgraphApiKey = configService.get<string>(
-                  'gateway.subgraphApiKey',
-                );
-                if (subgraphApiKey) {
-                  request.http.headers.set('x-api-key', subgraphApiKey);
+                // Find the configured audience for the target subgraph.
+                const subgraph = configService
+                  .get<any[]>('gateway.subgraphs')
+                  .find((s) => s.name === name);
+
+                if (context.token && subgraph?.audience) {
+                  try {
+                    // Perform Token Exchange to get a new, audience-restricted token.
+                    const exchangedToken = await identityService.exchangeToken(
+                      context.token,
+                      subgraph.audience,
+                    );
+                    request.http?.headers.set(
+                      'authorization',
+                      `Bearer ${exchangedToken}`,
+                    );
+                  } catch (error) {
+                    // It is crucial to handle token exchange failures.
+                    // We log the error and proceed without an auth header. The subgraph should reject unauthorized requests.
+                    Logger.error(
+                      `Token exchange failed for subgraph '${name}'. Request will be unauthenticated. Error: ${error.message}`,
+                      'GatewayDataSource',
+                    );
+                  }
                 }
               },
             });
           },
         },
       }),
-      inject: [ConfigService],
+      inject: [ConfigService, IdentityService],
     }),
 
-    // --- Observability & Health ---
-    MetricsModule, // Provides custom metrics for the gateway itself.
+    // Observability & Health
+    MetricsModule,
   ],
-  // The AppController provides a root-level health check endpoint (e.g., /health).
   controllers: [AppController],
   providers: [AppService],
 })

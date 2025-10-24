@@ -1,0 +1,148 @@
+_format_version: "3.0"
+_comment: "Declarative configuration for Kong API Security Gateway for DemoBank."
+
+# -----------------------------------------------------------------------------
+# Upstream Services
+# -----------------------------------------------------------------------------
+# Defines the backend services that Kong will proxy requests to.
+
+services:
+- name: apollo-gateway-service
+  # The internal URL of the Apollo Gateway service. This should match the
+  # service name and port defined in the docker-compose.yml file.
+  url: http://api-gateway:4000
+  connect_timeout: 6000
+  write_timeout: 15000
+  read_timeout: 15000
+  retries: 3
+  tags:
+  - apollo
+  - graphql
+  - core
+
+# -----------------------------------------------------------------------------
+# Routes
+# -----------------------------------------------------------------------------
+# Defines how requests from clients are mapped to upstream services.
+
+routes:
+- name: graphql-api-route
+  service: apollo-gateway-service
+  # This route will handle all requests to the /graphql path.
+  paths:
+  - /graphql
+  strip_path: false
+  methods:
+  - GET
+  - POST
+  - OPTIONS
+  tags:
+  - public-api
+  - graphql
+
+# -----------------------------------------------------------------------------
+# Global Plugins
+# -----------------------------------------------------------------------------
+# These plugins are applied to all services and routes unless overridden.
+
+plugins:
+- name: prometheus
+  config:
+    per_consumer: false
+  tags:
+  - observability
+  - monitoring
+
+- name: cors
+  config:
+    origins:
+    - "${FRONTEND_URL}" # e.g., http://localhost:5173
+    methods:
+    - GET
+    - POST
+    - OPTIONS
+    - PUT
+    - PATCH
+    - DELETE
+    headers:
+    - "Authorization"
+    - "Content-Type"
+    - "x-request-id"
+    - "traceparent" # For OpenTelemetry
+    - "tracestate"
+    exposed_headers:
+    - "Content-Length"
+    - "X-Kong-Upstream-Latency"
+    - "X-Kong-Proxy-Latency"
+    credentials: true
+    max_age: 3600
+  tags:
+  - security
+  - browser
+
+# -----------------------------------------------------------------------------
+# Route-Specific Plugins (Applied to the GraphQL API route)
+# -----------------------------------------------------------------------------
+# OIDC Plugin for Authentication
+- name: oidc
+  route: graphql-api-route
+  config:
+    # The discovery endpoint for the OpenID Connect provider (e.g., Keycloak, Auth0).
+    # This URL should be an environment variable.
+    discovery: "${OIDC_DISCOVERY_ENDPOINT}/.well-known/openid-configuration"
+    client_id: "${OIDC_CLIENT_ID}"
+    client_secret: "${OIDC_CLIENT_SECRET}"
+    # Standard OIDC scopes. 'offline_access' is needed for refresh tokens.
+    scope: "openid profile email offline_access"
+    response_type: "code"
+    # Session management configuration.
+    session_secret: "${KONG_SESSION_SECRET}"
+    session_cookie_name: "demobank_session"
+    session_cookie_http_only: true
+    session_cookie_secure: false # CHANGE TO TRUE IN PRODUCTION WITH HTTPS
+    session_cookie_samesite: "Lax"
+    # After authentication, Kong extracts the id_token and userinfo,
+    # and can pass them as headers to the upstream service (Apollo Gateway).
+    pass_id_token: true
+    pass_userinfo: true
+    # This header will contain the userinfo JSON object.
+    userinfo_header_name: "X-User-Info"
+    # This header will contain the id_token.
+    id_token_header_name: "X-Id-Token"
+    # This header will contain the access_token from the IdP.
+    access_token_header_name: "X-Access-Token"
+  tags:
+  - security
+  - authentication
+  - oidc
+
+# Rate Limiting Plugin for Abuse Protection
+- name: rate-limiting
+  route: graphql-api-route
+  config:
+    minute: 1000
+    hour: 20000
+    policy: local # Use 'redis' in a multi-node Kong cluster
+    limit_by: ip
+  tags:
+  - security
+  - traffic-control
+
+# Bot Detection Plugin for Basic Threat Mitigation
+- name: bot-detection
+  route: graphql-api-route
+  config:
+    # A basic bot detection configuration. In a production environment, this would
+    # be tuned with more sophisticated rules and potentially a custom allow/deny list.
+    allow:
+      # Allow common search engine crawlers if the site has public content.
+      - "googlebot"
+      - "bingbot"
+    deny:
+      # Deny known malicious user agents. This list should be updated regularly.
+      - "badbot"
+      - "evilbot"
+      - "sqlmap"
+  tags:
+  - security
+  - threat-detection

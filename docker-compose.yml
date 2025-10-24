@@ -1,20 +1,21 @@
-version: "3.8"
+version: "3.9"
 
-# Defines the custom network that allows all services to communicate via their service names.
 networks:
   app-net:
     driver: bridge
 
-# Defines named volumes for persistent data storage for stateful services.
 volumes:
   prometheus_data: {}
   grafana_data: {}
-  es_data: {}
+  keycloak_db_data: {}
+  vault_data: {}
+  kong_db_data: {}
   kafka_data: {}
+  es_data: {}
 
 services:
   # --------------------------------------------------------------------------
-  # Event Bus (Kafka)
+  # Core Infrastructure
   # --------------------------------------------------------------------------
   zookeeper:
     image: confluentinc/cp-zookeeper:7.3.0
@@ -39,126 +40,238 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
 
   # --------------------------------------------------------------------------
-  # API Gateway & Subgraphs (Apollo Federation)
+  # Security Services (New Architecture)
   # --------------------------------------------------------------------------
-  api-gateway:
-    container_name: api-gateway
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: vault
+    ports:
+      - "8200:8200"
+    networks:
+      - app-net
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=root
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+      - VAULT_ADDR=http://127.0.0.1:8200
+    volumes:
+      - vault_data:/vault/file
+    cap_add:
+      - IPC_LOCK
+
+  keycloak-db:
+    image: postgres:15-alpine
+    container_name: keycloak-db
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    networks:
+      - app-net
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: password
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: keycloak
+    command: start-dev
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: password
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8180:8080"
+    networks:
+      - app-net
+    depends_on:
+      - keycloak-db
+
+  kong-db:
+    image: postgres:13
+    container_name: kong-db
+    networks:
+      - app-net
+    environment:
+      POSTGRES_DB: kong
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: kong
+    volumes:
+      - kong_db_data:/var/lib/postgresql/data
+
+  kong-migrations:
+    image: kong:3.6
+    container_name: kong-migrations
+    command: "kong migrations bootstrap"
+    networks:
+      - app-net
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kong
+    depends_on:
+      - kong-db
+    restart: on-failure
+
+  kong-gateway:
+    image: kong:3.6
+    container_name: kong-gateway
+    networks:
+      - app-net
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kong
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_PLUGINS: "bundled,oidc"
+    ports:
+      - "8000:8000" # Proxy traffic
+      - "8001:8001" # Admin API
+    depends_on:
+      - kong-migrations
+      - apollo-gateway
+
+  # --------------------------------------------------------------------------
+  # Application Services (Apollo Gateway & Subgraphs)
+  # --------------------------------------------------------------------------
+  apollo-gateway:
     build:
-      context: ./bff
-      dockerfile: Dockerfile # NOTE: Assumes a Dockerfile exists in the root 'bff' directory
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: apollo-gateway
+    networks:
+      - app-net
     ports:
       - "4000:4000"
-    volumes: # For hot-reloading in development
-      - ./bff:/app
-      - /app/node_modules
-    environment:
-      - PORT=4000
-      - NODE_ENV=development
-      - BANKING_SUBGRAPH_URL=http://banking-subgraph:4002/graphql
-      - GENAI_SUBGRAPH_URL=http://ai-subgraph:4003/graphql
-      - PLAID_SUBGRAPH_URL=http://plaid-subgraph:4005/graphql
-      - OTEL_SERVICE_NAME=api-gateway
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
-    depends_on:
-      - banking-subgraph
-      - ai-subgraph
-      - plaid-subgraph
-    networks:
-      - app-net
-
-  banking-subgraph:
-    container_name: banking-subgraph
-    build:
-      context: ./services/banking
-      dockerfile: Dockerfile
-    ports:
-      - "4002:4002"
     volumes:
-      - ./services/banking:/app
+      - ./api-gateway:/app
       - /app/node_modules
     environment:
-      - PORT=4002
-      - NODE_ENV=development
-      - OTEL_SERVICE_NAME=banking-subgraph
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
-      - PROMETHEUS_PORT=9465
+      PORT: 4000
+      NODE_ENV: development
+      OTEL_SERVICE_NAME: apollo-gateway
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      USERS_SERVICE_URL: http://user-service:4001/graphql
+      ACCOUNTS_SERVICE_URL: http://accounts-service:4002/graphql
+      TRANSACTIONS_SERVICE_URL: http://transactions-service:4003/graphql
+      AI_AGENT_SERVICE_URL: http://ai-agent-service:4004/graphql
+      PLAID_INTEGRATION_SERVICE_URL: http://plaid-integration-service:4005/graphql
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
     depends_on:
-      - otel-collector
-      - kafka
-    networks:
-      - app-net
+      - user-service
+      - accounts-service
+      - transactions-service
+      - ai-agent-service
+      - plaid-integration-service
 
-  ai-subgraph:
-    container_name: ai-subgraph
-    build:
-      context: ./services/genai
-      dockerfile: Dockerfile
-    ports:
-      - "4003:4003"
-    volumes:
-      - ./services/genai:/app
-      - /app/node_modules
+  user-service:
+    build: ./services/user-service
+    container_name: user-service
+    networks: [app-net]
+    ports: ["4001:4001"]
+    volumes: ['./services/user-service:/app', '/app/node_modules']
     environment:
-      - PORT=4003
-      - NODE_ENV=development
-      - OTEL_SERVICE_NAME=ai-subgraph
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
-      - PROMETHEUS_PORT=9465
-    depends_on:
-      - otel-collector
-      - kafka
-    networks:
-      - app-net
+      PORT: 4001
+      OTEL_SERVICE_NAME: user-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
+    depends_on: [otel-collector, vault, kafka]
 
-  plaid-subgraph:
-    container_name: plaid-subgraph
-    build:
-      context: ./services/plaid
-      dockerfile: Dockerfile
-    ports:
-      - "4005:4005"
-    volumes:
-      - ./services/plaid:/app
-      - /app/node_modules
+  accounts-service:
+    build: ./services/accounts-service
+    container_name: accounts-service
+    networks: [app-net]
+    ports: ["4002:4002"]
+    volumes: ['./services/accounts-service:/app', '/app/node_modules']
     environment:
-      - PORT=4005
-      - NODE_ENV=development
-      - OTEL_SERVICE_NAME=plaid-subgraph
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
-      - PLAID_PROMETHEUS_PORT=9465
-    depends_on:
-      - otel-collector
-      - kafka
-    networks:
-      - app-net
+      PORT: 4002
+      OTEL_SERVICE_NAME: accounts-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
+    depends_on: [otel-collector, vault, kafka]
+
+  transactions-service:
+    build: ./services/transactions-service
+    container_name: transactions-service
+    networks: [app-net]
+    ports: ["4003:4003"]
+    volumes: ['./services/transactions-service:/app', '/app/node_modules']
+    environment:
+      PORT: 4003
+      OTEL_SERVICE_NAME: transactions-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
+    depends_on: [otel-collector, vault, kafka]
+
+  ai-agent-service:
+    build: ./services/ai-agent-service
+    container_name: ai-agent-service
+    networks: [app-net]
+    ports: ["4004:4004"]
+    volumes: ['./services/ai-agent-service:/app', '/app/node_modules']
+    environment:
+      PORT: 4004
+      OTEL_SERVICE_NAME: ai-agent-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
+    depends_on: [otel-collector, vault, kafka]
+
+  plaid-integration-service:
+    build: ./services/plaid-integration-service
+    container_name: plaid-integration-service
+    networks: [app-net]
+    ports: ["4005:4005"]
+    volumes: ['./services/plaid-integration-service:/app', '/app/node_modules']
+    environment:
+      PORT: 4005
+      OTEL_SERVICE_NAME: plaid-integration-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
+    depends_on: [otel-collector, vault, kafka]
 
   # --------------------------------------------------------------------------
-  # Client Application
+  # Frontend
   # --------------------------------------------------------------------------
   frontend:
-    container_name: demobank-frontend
+    container_name: frontend
     image: node:20-alpine
     working_dir: /app
-    command: sh -c "npm install && npm run dev:ui"
+    command: sh -c "npm install && npm run dev"
     ports:
       - "5173:5173"
+    networks:
+      - app-net
     volumes:
       - .:/app
       - /app/node_modules
     environment:
-      - NODE_ENV=development
-      - VITE_GRAPHQL_GATEWAY_URL=http://localhost:4000
-      - VITE_OTEL_COLLECTOR_URL=http://localhost:4318/v1/traces
+      NODE_ENV: development
+      VITE_GRAPHQL_GATEWAY_URL: http://localhost:8000/graphql # Points to Kong
+      VITE_OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318/v1/traces
+      VITE_OTEL_SERVICE_NAME: 'frontend-client'
     depends_on:
-      - api-gateway
-    networks:
-      - app-net
+      - kong-gateway
 
   # --------------------------------------------------------------------------
   # Observability Stack
@@ -168,24 +281,13 @@ services:
     container_name: otel-collector
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
-      - ./observability/otel-collector-config.yml:/etc/otelcol-contrib/config.yaml # NOTE: Assumes this config file exists
+      - ./observability/otel-collector-config.yml:/etc/otelcol-contrib/config.yaml
     ports:
-      - "4317:4317"
-      - "4318:4318"
+      - "4317:4317" # gRPC
+      - "4318:4318" # HTTP
+      - "8889:8889" # Prometheus
     networks:
       - app-net
-
-  jaeger:
-    image: jaegertracing/all-in-one:1.53
-    container_name: jaeger
-    ports:
-      - "16686:16686"
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
-    networks:
-      - app-net
-    depends_on:
-      - otel-collector
 
   prometheus:
     image: prom/prometheus:v2.45.0
@@ -206,7 +308,7 @@ services:
     image: grafana/grafana:10.4.1
     container_name: grafana
     ports:
-      - "3002:3000"
+      - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
@@ -219,6 +321,18 @@ services:
     depends_on:
       - prometheus
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.53
+    container_name: jaeger
+    ports:
+      - "16686:16686"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - app-net
+    depends_on:
+      - otel-collector
+
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.2
     container_name: elasticsearch
@@ -226,6 +340,10 @@ services:
       - discovery.type=single-node
       - xpack.security.enabled=false
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
     volumes:
       - es_data:/usr/share/elasticsearch/data
     ports:
