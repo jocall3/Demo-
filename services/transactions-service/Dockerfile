@@ -44,7 +44,7 @@ ENV NODE_ENV=production
 
 WORKDIR /usr/src/app
 
-# Copy package files to install only production dependencies
+# Copy the package files to install only production dependencies
 COPY package*.json ./
 
 # Install ONLY production dependencies using `npm ci` for faster, deterministic installs.
@@ -54,10 +54,10 @@ RUN npm ci --omit=dev
 # Copy the compiled application code from the 'build' stage into the 'dist' directory.
 COPY --from=build /usr/src/app/dist ./dist
 
-# Expose the port the Transactions service will run on.
-# This should match the PORT environment variable used by the application.
+# Expose the port the application will run on. This should match the port
+# configured in the service's main.ts or .env file.
 EXPOSE 4003
 
-# Command to run the application.
+# The command to start the application when the container launches
 # We execute the compiled main.js file located in the 'dist' folder using Node.
 CMD ["node", "dist/main"]
