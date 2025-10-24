@@ -1,9 +1,20 @@
-
-
 import React, { useContext, useMemo } from 'react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, TooltipProps } from 'recharts';
 import Card from './Card';
 import { DataContext } from '../context/DataContext';
+import { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent';
+
+const CustomTooltip: React.FC<TooltipProps<ValueType, NameType>> = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+        return (
+            <div className="p-2 bg-gray-800/80 border border-gray-700 rounded-md shadow-lg text-sm">
+                <p className="label text-gray-300">{`${label}`}</p>
+                <p className="intro text-cyan-400">{`Balance: $${(payload[0].value as number).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</p>
+            </div>
+        );
+    }
+    return null;
+};
 
 const BalanceSummary: React.FC = () => {
     const context = useContext(DataContext);
@@ -12,30 +23,26 @@ const BalanceSummary: React.FC = () => {
 
     const { chartData, totalBalance, change30d } = useMemo(() => {
         const sortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        let runningBalance = 0;
+        
         const balanceHistory: { date: Date, balance: number }[] = [];
+        const startingBalance = 5000; // Assume a starting balance for demo purposes
+        let runningBalance = startingBalance;
 
-        // We assume a starting balance of 5000 for a more realistic chart base
-        runningBalance = 5000;
+        // Add initial balance point, dated at the first transaction or now.
         balanceHistory.push({ date: new Date(sortedTx[0]?.date || Date.now()), balance: runningBalance });
 
-
         for (const tx of sortedTx) {
-            if (tx.type === 'income') {
-                runningBalance += tx.amount;
-            } else {
-                runningBalance -= tx.amount;
-            }
+            runningBalance += tx.type === 'income' ? tx.amount : -tx.amount;
             balanceHistory.push({ date: new Date(tx.date), balance: runningBalance });
         }
         
         const totalBalance = runningBalance;
 
-        // For chart, group by month
+        // For chart, group by month, taking the last balance record of each month
         const monthlyData: { [key: string]: { date: Date, balance: number} } = {};
         for (const record of balanceHistory) {
             const monthKey = record.date.toISOString().substring(0, 7); // YYYY-MM
-            monthlyData[monthKey] = record; // Store last balance record of the month
+            monthlyData[monthKey] = record; 
         }
         
         const chartData = Object.values(monthlyData).map(record => ({ 
@@ -43,7 +50,7 @@ const BalanceSummary: React.FC = () => {
             balance: record.balance 
         }));
 
-        // 30 day change
+        // Robust 30-day change calculation
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -51,12 +58,17 @@ const BalanceSummary: React.FC = () => {
           .reverse()
           .find(h => h.date < thirtyDaysAgo)?.balance;
 
-        const change30d = totalBalance - (lastKnownBalanceBefore30d || totalBalance);
+        // If no balance is found before 30 days (e.g., new account), use the very first balance in history.
+        const referenceBalance = lastKnownBalanceBefore30d ?? (balanceHistory[0]?.balance ?? 0);
+        const change30d = totalBalance - referenceBalance;
 
         return { chartData, totalBalance, change30d };
     }, [transactions]);
     
-    const changePercentage = (totalBalance - change30d) !== 0 ? (change30d / (totalBalance - change30d)) * 100 : 0;
+    const previousBalance = totalBalance - change30d;
+    const changePercentage = previousBalance !== 0 ? (change30d / previousBalance) * 100 : (change30d !== 0 ? 100 : 0);
+
+    const formatYAxis = (tick: number) => `$${(tick / 1000).toFixed(0)}k`;
 
     return (
         <Card title="Balance Summary">
@@ -82,16 +94,10 @@ const BalanceSummary: React.FC = () => {
                             </linearGradient>
                         </defs>
                         <XAxis dataKey="name" stroke="#9ca3af" fontSize={12} />
-                        <YAxis stroke="#9ca3af" fontSize={12} domain={['dataMin - 1000', 'dataMax + 1000']} />
+                        <YAxis stroke="#9ca3af" fontSize={12} domain={['dataMin - 1000', 'dataMax + 1000']} tickFormatter={formatYAxis} />
                         <CartesianGrid strokeDasharray="3 3" stroke="#4b5563" />
-                        <Tooltip
-                            contentStyle={{
-                                backgroundColor: 'rgba(31, 41, 55, 0.8)',
-                                borderColor: '#4b5563',
-                                color: '#e5e7eb',
-                            }}
-                        />
-                        <Area type="monotone" dataKey="balance" stroke="#06b6d4" fillOpacity={1} fill="url(#colorBalance)" />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Area type="monotone" dataKey="balance" stroke="#06b6d4" fillOpacity={1} fill="url(#colorBalance)" name="Balance" />
                     </AreaChart>
                 </ResponsiveContainer>
             </div>

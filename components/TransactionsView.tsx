@@ -2,8 +2,6 @@ import React, { useContext, useState, useMemo } from 'react';
 import { DataContext } from '../context/DataContext';
 import Card from './Card';
 import type { Transaction, DetectedSubscription } from '../types';
-import { GoogleGenAI, Type } from "@google/genai";
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 // ================================================================================================
 // MODAL & DETAIL COMPONENTS
@@ -24,7 +22,7 @@ const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClos
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Date:</span> <span className="text-white">{transaction.date}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Category:</span> <span className="text-white">{transaction.category}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Transaction ID:</span> <span className="text-white font-mono text-xs">{transaction.id}</span></div>
-                    {transaction.carbonFootprint && <div className="flex justify-between text-sm"><span className="text-gray-400">Carbon Footprint:</span> <span className="text-green-300">{transaction.carbonFootprint.toFixed(1)} kg CO₂</span></div>}
+                    {transaction.carbonFootprint && <div className="flex justify-between text-sm"><span className="text-gray-400">Carbon Footprint:</span> <span className="text-green-300">{transaction.carbonFootprint.toFixed(1)} kg COâ‚‚</span></div>}
                 </div>
             </div>
         </div>
@@ -32,18 +30,15 @@ const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClos
 };
 
 // ================================================================================================
-// AI WIDGET COMPONENT (REFACTORED)
+// AI WIDGET COMPONENT (REFACTORED FOR BFF ARCHITECTURE)
 // ================================================================================================
 
 const AITransactionWidget: React.FC<{
     title: string;
-    prompt: string;
+    insightType: 'subscription_hunter' | 'anomaly_detection' | 'tax_deduction_finder' | 'savings_finder';
     transactions: Transaction[];
-    responseSchema?: any; // Allow passing a response schema for structured JSON
     children?: (result: any) => React.ReactNode;
-}> = ({ title, prompt, transactions, responseSchema, children }) => {
-    const context = useContext(DataContext);
-    const { geminiApiKey } = context || {};
+}> = ({ title, insightType, transactions, children }) => {
     const [result, setResult] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -52,33 +47,32 @@ const AITransactionWidget: React.FC<{
         setIsLoading(true);
         setError('');
         setResult(null);
-        if (!geminiApiKey) {
-            setError('Please set your Gemini API key in the API Status view.');
-            setIsLoading(false);
-            return;
-        }
         try {
-            const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-            const transactionSummary = transactions.slice(0, 20).map(t => `${t.date} - ${t.description}: $${t.amount.toFixed(2)} (${t.type})`).join('\n');
-            const fullPrompt = `${prompt}\n\nHere are the most recent transactions for context:\n${transactionSummary}`;
-            
-            const config: any = { responseMimeType: responseSchema ? "application/json" : "text/plain" };
-            if (responseSchema) {
-                config.responseSchema = responseSchema;
-            }
-
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: fullPrompt,
-                config: config,
+            // As per the new architecture, frontend calls the BFF, not Google GenAI directly.
+            // The BFF endpoint will handle authentication, prompt engineering, and the actual API call.
+            const response = await fetch('/api/ai/transaction-insight', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    insightType,
+                    transactions: transactions.slice(0, 20), // Pass recent transactions to the BFF
+                }),
             });
 
-            const textResult = response.text.trim();
-            setResult(responseSchema ? JSON.parse(textResult) : textResult);
+            if (!response.ok) {
+                // Handle HTTP errors from the BFF
+                const errorData = await response.json();
+                throw new Error(errorData.message || `Failed to generate ${title}.`);
+            }
 
-        } catch (err) {
-            console.error(`Error generating ${title}:`, err);
-            setError('Plato AI could not generate this insight.');
+            const data = await response.json();
+            setResult(data.result);
+
+        } catch (err: any) {
+            console.error(`Error generating ${title} via BFF:`, err);
+            setError('Plato AI could not generate this insight at the moment.');
         } finally {
             setIsLoading(false);
         }
@@ -135,39 +129,21 @@ const TransactionsView: React.FC = () => {
             });
     }, [transactions, filter, sort, searchTerm]);
     
-    // Schema for Subscription Hunter
-    const subscriptionSchema = {
-        type: Type.OBJECT,
-        properties: {
-            subscriptions: {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        name: { type: Type.STRING },
-                        estimatedAmount: { type: Type.NUMBER },
-                        lastCharged: { type: Type.STRING }
-                    }
-                }
-            }
-        }
-    };
-
     return (
         <>
             <div className="space-y-6">
                  <Card title="Plato's Intelligence Suite" isCollapsible>
                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <AITransactionWidget title="Subscription Hunter" prompt="Analyze these transactions to find potential recurring subscriptions the user might have forgotten about. Look for repeated payments to the same merchant around the same time each month." transactions={transactions} responseSchema={subscriptionSchema}>
+                        <AITransactionWidget title="Subscription Hunter" insightType="subscription_hunter" transactions={transactions}>
                            {(result: { subscriptions: DetectedSubscription[] }) => (
                                 <ul className="text-xs text-gray-300 space-y-1">
                                     {result.subscriptions.map(sub => <li key={sub.name}>- {sub.name} (~${sub.estimatedAmount.toFixed(2)})</li>)}
                                 </ul>
                            )}
                         </AITransactionWidget>
-                        <AITransactionWidget title="Anomaly Detection" prompt="Analyze these transactions and identify one transaction that seems most unusual or out of place compared to the others. Briefly explain why." transactions={transactions} />
-                        <AITransactionWidget title="Tax Deduction Finder" prompt="Scan these transactions and identify one potential tax-deductible expense. Explain your reasoning." transactions={transactions} />
-                        <AITransactionWidget title="Savings Finder" prompt="Based on spending patterns, suggest one specific and actionable way to save money." transactions={transactions} />
+                        <AITransactionWidget title="Anomaly Detection" insightType="anomaly_detection" transactions={transactions} />
+                        <AITransactionWidget title="Tax Deduction Finder" insightType="tax_deduction_finder" transactions={transactions} />
+                        <AITransactionWidget title="Savings Finder" insightType="savings_finder" transactions={transactions} />
                      </div>
                 </Card>
                 <Card>
