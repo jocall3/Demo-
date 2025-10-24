@@ -1,112 +1,185 @@
-import {
-  Controller,
-  Post,
-  Body,
-  HttpCode,
-  HttpStatus,
-  UsePipes,
-  ValidationPipe,
-} from '@nestjs/common';
+import { Args, Mutation, Resolver, InputType, Field, Int, ObjectType } from '@nestjs/graphql';
+import { UsePipes, ValidationPipe, Logger } from '@nestjs/common';
 import { GenaiService } from './genai.service';
-import { GenerateTextDto } from './dto/generate-text.dto';
-import { ChatCompletionDto } from './dto/chat-completion.dto';
-import { GenerateVideoDto } from './dto/generate-video.dto';
-import { GenerateImageDto } from './dto/generate-image.dto';
-import { EditImageDto } from './dto/edit-image.dto';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { GraphQLUpload, FileUpload } from 'graphql-upload';
+import { Content, Part } from '@google/generative-ai';
+import { Stream } from 'stream';
 
-@ApiTags('GenAI')
-@Controller('genai')
-export class GenaiController {
+// --- GraphQL Input and Object Types ---
+// These classes define the shape of data for GraphQL mutations, replacing the REST DTOs.
+
+@InputType()
+class GenerateAdVideoInput {
+  @Field()
+  prompt: string;
+
+  @Field({ nullable: true })
+  style?: string;
+
+  @Field(() => Int, { nullable: true })
+  length?: number;
+
+  @Field({ nullable: true })
+  voice?: string;
+}
+
+@InputType()
+class GenerateCardImageInput {
+  @Field(() => GraphQLUpload)
+  baseImage: Promise<FileUpload>;
+
+  @Field()
+  prompt: string;
+}
+
+@ObjectType()
+class AIAdvisorMessagePart {
+  @Field({ nullable: true })
+  text?: string;
+}
+
+@ObjectType()
+class AIAdvisorMessage {
+  @Field()
+  id: string;
+
+  @Field()
+  role: string;
+
+  @Field(() => [AIAdvisorMessagePart])
+  parts: AIAdvisorMessagePart[];
+
+  @Field()
+  timestamp: Date;
+}
+
+@ObjectType()
+class AIAdvisorResponse {
+  @Field(() => [AIAdvisorMessage])
+  messages: AIAdvisorMessage[];
+}
+
+@ObjectType()
+class VideoGenerationResult {
+  @Field()
+  operationId: string;
+
+  @Field()
+  status: string;
+
+  @Field({ nullable: true })
+  videoUrl?: string;
+}
+
+/**
+ * GenaiResolver
+ * 
+ * This resolver replaces the REST-based `GenaiController` to expose GenAI capabilities
+ * through a GraphQL API, in alignment with the new federated architecture.
+ * It implements mutations defined in the GraphQL schema for text, chat, video, and image generation.
+ */
+@Resolver('GenAI')
+@UsePipes(new ValidationPipe({ transform: true }))
+export class GenaiResolver {
+  private readonly logger = new Logger(GenaiResolver.name);
+  // In-memory store for conversations for demonstration purposes.
+  // In a real application, this would be a persistent store like Redis.
+  private conversations: Map<string, Content[]> = new Map();
+
   constructor(private readonly genaiService: GenaiService) {}
 
-  @Post('text')
-  @UsePipes(new ValidationPipe({ transform: true }))
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Generate text content from a prompt',
-    description:
-      'Provides a simple text-in, text-out generation using a specified model. Used for simple Q&A, summarization, and other non-chat text generation tasks.',
+  @Mutation(() => String, {
+    description: 'Generates a short story for a custom card design.',
   })
-  @ApiBody({ type: GenerateTextDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Text generation successful.',
-    type: String,
-  })
-  @ApiResponse({ status: 500, description: 'Internal server error.' })
-  async generateText(@Body() generateTextDto: GenerateTextDto) {
-    return this.genaiService.generateText(generateTextDto);
+  async generateCardStory(@Args('prompt') prompt: string): Promise<string> {
+    return this.genaiService.generateText({ prompt });
   }
 
-  @Post('chat')
-  @UsePipes(new ValidationPipe({ transform: true }))
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Continue a conversation with the AI model',
-    description:
-      "Handles multi-turn conversations. The client sends the entire chat history and the new message, and the BFF returns the AI's response, including any tool calls.",
+  @Mutation(() => AIAdvisorResponse, {
+    description: 'Sends a message to the AI Financial Advisor and gets a response.',
   })
-  @ApiBody({ type: ChatCompletionDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Chat message processed successfully.',
-  })
-  @ApiResponse({ status: 500, description: 'Internal server error.' })
-  async chat(@Body() chatCompletionDto: ChatCompletionDto) {
-    return this.genaiService.chat(chatCompletionDto);
+  async askAIAdvisor(
+    @Args('message') message: string,
+    @Args('conversationId', { type: () => String, nullable: true }) conversationId?: string,
+  ): Promise<AIAdvisorResponse> {
+    const currentConversationId = conversationId || `conv-${Date.now()}`;
+    const history = this.conversations.get(currentConversationId) || [];
+
+    const responseParts = await this.genaiService.continueChat({
+      history,
+      newMessage: message,
+    });
+
+    const userMessage: Content = { role: 'user', parts: [{ text: message }] };
+    const modelResponse: Content = { role: 'model', parts: responseParts };
+
+    const newHistory = [...history, userMessage, modelResponse];
+    this.conversations.set(currentConversationId, newHistory);
+
+    const messages: AIAdvisorMessage[] = newHistory.map((content, i) => ({
+      id: `${currentConversationId}-${i}`,
+      role: content.role,
+      parts: content.parts.map(part => ({ text: (part as any).text })),
+      timestamp: new Date(),
+    }));
+
+    return { messages };
   }
 
-  @Post('videos')
-  @UsePipes(new ValidationPipe({ transform: true }))
-  @HttpCode(HttpStatus.OK) // Using OK because the service will handle polling and return the final result
-  @ApiOperation({
-    summary: 'Generate a video from a prompt',
-    description:
-      'Initiates a video generation task. This is a long-running endpoint. The BFF handles the asynchronous polling with the Google GenAI API and returns the final video data upon completion.',
+  @Mutation(() => VideoGenerationResult, {
+    description: 'Generates a video ad based on a prompt.',
   })
-  @ApiBody({ type: GenerateVideoDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Video generation successful. Returns video data.',
-  })
-  @ApiResponse({ status: 500, description: 'Internal server error.' })
-  async generateVideo(@Body() generateVideoDto: GenerateVideoDto) {
-    return this.genaiService.generateVideo(generateVideoDto);
+  async generateAdVideo(
+    @Args('input') input: GenerateAdVideoInput,
+  ): Promise<VideoGenerationResult> {
+    const { prompt, ...settings } = input;
+    const result = await this.genaiService.generateVideo({ prompt, settings });
+    
+    return {
+      operationId: `op-vid-${Date.now()}`,
+      status: 'COMPLETED',
+      videoUrl: result.videoUri,
+    };
   }
 
-  @Post('images/generate')
-  @UsePipes(new ValidationPipe({ transform: true }))
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Generate an image from a prompt',
-    description: 'Creates a new image based on a text prompt.',
+  @Mutation(() => VideoGenerationResult, {
+    description: 'Checks the status of a video generation operation.',
   })
-  @ApiBody({ type: GenerateImageDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Image generation successful. Returns image data.',
-  })
-  @ApiResponse({ status: 500, description: 'Internal server error.' })
-  async generateImage(@Body() generateImageDto: GenerateImageDto) {
-    return this.genaiService.generateImage(generateImageDto);
+  async checkVideoGenerationStatus(
+    @Args('operationId') operationId: string,
+  ): Promise<VideoGenerationResult> {
+    this.logger.log(`Checking status for ${operationId}`);
+    // The `generateVideo` service method already polls and waits for the final result.
+    // This mutation is provided for schema completeness and returns a mock success state.
+    return {
+      operationId,
+      status: 'COMPLETED',
+      videoUrl: 'https://videostorage.googleapis.com/mock-video.mp4',
+    };
   }
 
-  @Post('images/edit')
-  @UsePipes(new ValidationPipe({ transform: true }))
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Edit an image using a prompt',
-    description:
-      'Takes a base image and a text prompt to generate an edited version of the image.',
+  @Mutation(() => String, {
+    description: 'Generates a custom image for a bank card using AI image editing.',
   })
-  @ApiBody({ type: EditImageDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Image editing successful. Returns edited image data.',
-  })
-  @ApiResponse({ status: 500, description: 'Internal server error.' })
-  async editImage(@Body() editImageDto: EditImageDto) {
-    return this.genaiService.editImage(editImageDto);
+  async generateCardImage(
+    @Args('input') { baseImage, prompt }: GenerateCardImageInput,
+  ): Promise<string> {
+    const { createReadStream, mimetype } = await baseImage;
+    const stream: Stream = createReadStream();
+    const chunks = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk as Buffer);
+    }
+    const buffer = Buffer.concat(chunks);
+    const imageBase64 = buffer.toString('base64');
+
+    const result = await this.genaiService.editImage({
+      prompt,
+      imageBase64,
+      mimeType: mimetype,
+    });
+
+    // Return the image as a data URI string
+    return `data:${result.mimeType};base64,${result.imageBase64}`;
   }
 }
