@@ -1,84 +1,136 @@
+/**
+ * services/transactionsService.ts
+ *
+ * RE-ARCHITECTED
+ * This service layer has been completely refactored to align with the new federated GraphQL architecture.
+ * It replaces direct REST API calls (`fetch`) with GraphQL queries and mutations executed by an Apollo Client.
+ * This abstracts away the endpoint details and provides a typed, declarative way to interact with the Supergraph.
+ */
+
+import { ApolloClient, InMemoryCache, gql, ApolloError } from '@apollo/client';
 import { Transaction } from '../types';
 
-// The base URL for the banking API, pointing to our BFF.
-// The '/api' prefix is handled by the Vite proxy in development.
-const API_URL = '/api/banking';
+// ====================================================================================
+// Apollo Client Initialization
+// In a production application, this client would be initialized once in a dedicated
+// file (e.g., `services/apolloClient.ts`) and exported for use across all services.
+// It is defined here to keep this example self-contained as per the task requirements.
+// ====================================================================================
+const client = new ApolloClient({
+  // The URI of the federated GraphQL Gateway. This should be configured via an environment variable.
+  uri: import.meta.env.VITE_GRAPHQL_GATEWAY_URL || '/graphql',
+  cache: new InMemoryCache(),
+  // Default options can be set here. Using 'no-cache' for fetchPolicy as React Query will handle caching.
+  defaultOptions: {
+    watchQuery: {
+      fetchPolicy: 'no-cache',
+    },
+    query: {
+      fetchPolicy: 'no-cache',
+    },
+  },
+});
+
+// ====================================================================================
+// GraphQL Queries
+// ====================================================================================
 
 /**
- * Fetches a list of transactions for a specific user from the BFF.
- * This function is designed to be used by a React Query hook (e.g., `useTransactions`).
- * 
- * @param userId The ID of the user whose transactions are to be fetched.
- * @param accountId Optional. If provided, fetches transactions only for this account.
+ * GraphQL query to fetch the user's transactions.
+ * This query targets the `userData` field in the Supergraph, which is expected to resolve
+ * based on the authenticated user's context provided by the gateway.
+ */
+const GET_TRANSACTIONS_QUERY = gql`
+  query GetUserTransactions {
+    userData {
+      transactions {
+        id
+        type
+        category
+        description
+        amount
+        date
+        carbonFootprint
+      }
+    }
+  }
+`;
+
+// ====================================================================================
+// GraphQL Mutations
+// ====================================================================================
+
+/**
+ * GraphQL mutation to send money.
+ * This corresponds to the `sendMoney` mutation defined in the Supergraph schema.
+ */
+const SEND_MONEY_MUTATION = gql`
+  mutation SendMoney($input: SendMoneyInput!) {
+    sendMoney(input: $input) {
+      id
+      type
+      category
+      description
+      amount
+      date
+    }
+  }
+`;
+
+interface SendMoneyInput {
+  recipient: string;
+  amount: number;
+}
+
+// ====================================================================================
+// Service Functions
+// These functions are designed to be used by React Query hooks.
+// ====================================================================================
+
+/**
+ * Fetches a list of all transactions for the authenticated user from the GraphQL gateway.
+ * The `userId` and `accountId` parameters from the previous REST implementation are no longer needed,
+ * as authentication and user context are handled by the gateway and the `userData` resolver.
+ *
  * @returns A promise that resolves to an array of Transaction objects.
- * @throws Will throw an error if the network request fails.
+ * @throws Will throw an ApolloError if the network request or GraphQL query fails.
  */
-export const getTransactions = async (userId: string, accountId?: string): Promise<Transaction[]> => {
-    const url = new URL(`${API_URL}/transactions`);
-    url.searchParams.append('userId', userId);
-    
-    if (accountId) {
-        url.searchParams.append('accountId', accountId);
-    }
-
-    try {
-        const response = await fetch(url.toString());
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ message: 'An unknown API error occurred.' }));
-            throw new Error(errorData.message || `API request failed with status ${response.status}`);
-        }
-        
-        const data = await response.json();
-        // Here we assume the DTO from the BFF matches the frontend Transaction type.
-        // In a more robust setup, we might perform a transformation/validation step.
-        return data as Transaction[];
-    } catch (error) {
-        console.error("Failed to fetch transactions:", error);
-        // Re-throw the error so React Query's error handling mechanisms can catch it.
-        throw error;
-    }
-};
-
-/**
- * NOTE: The following functions are placeholders to demonstrate how this service
- * could be expanded. The corresponding BFF endpoints would need to be implemented.
- */
-
-/**
- * Fetches a single transaction by its ID.
- * @param transactionId The ID of the transaction to fetch.
- * @returns A promise that resolves to a single Transaction object.
- */
-/*
-export const getTransactionById = async (transactionId: string): Promise<Transaction> => {
-    const response = await fetch(`${API_URL}/transactions/${transactionId}`);
-    if (!response.ok) {
-        throw new Error('Failed to fetch transaction details.');
-    }
-    return await response.json();
-};
-*/
-
-/**
- * Creates a new transaction.
- * @param newTransactionData Data for the new transaction, excluding the ID.
- * @returns A promise that resolves to the newly created Transaction object.
- */
-/*
-export const createTransaction = async (newTransactionData: Omit<Transaction, 'id'>): Promise<Transaction> => {
-    const response = await fetch(`${API_URL}/transactions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(newTransactionData),
+export const getTransactions = async (): Promise<Transaction[]> => {
+  try {
+    const { data } = await client.query({
+      query: GET_TRANSACTIONS_QUERY,
     });
 
-    if (!response.ok) {
-        throw new Error('Failed to create transaction.');
+    // The data structure matches the query: { userData: { transactions: [...] } }
+    return data?.userData?.transactions || [];
+  } catch (error) {
+    console.error("Failed to fetch transactions from GraphQL gateway:", error);
+    // Re-throw the error so React Query's error handling can catch it.
+    throw error as ApolloError;
+  }
+};
+
+/**
+ * Executes the `sendMoney` mutation via the GraphQL gateway.
+ *
+ * @param input - An object containing the recipient and amount for the transaction.
+ * @returns A promise that resolves to the newly created Transaction object returned by the mutation.
+ * @throws Will throw an ApolloError if the mutation fails.
+ */
+export const sendMoney = async (input: SendMoneyInput): Promise<Transaction> => {
+  try {
+    const { data } = await client.mutate({
+      mutation: SEND_MONEY_MUTATION,
+      variables: { input },
+    });
+
+    if (!data || !data.sendMoney) {
+      throw new Error('Mutation did not return the expected transaction data.');
     }
 
-    return await response.json();
+    return data.sendMoney;
+  } catch (error) {
+    console.error("Send money mutation failed:", error);
+    throw error as ApolloError;
+  }
 };
-*/
