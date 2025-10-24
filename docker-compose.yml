@@ -10,130 +10,151 @@ volumes:
   prometheus_data: {}
   grafana_data: {}
   es_data: {}
+  kafka_data: {}
 
 services:
   # --------------------------------------------------------------------------
+  # Event Bus (Kafka)
+  # --------------------------------------------------------------------------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: zookeeper
+    networks:
+      - app-net
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: kafka
+    networks:
+      - app-net
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  # --------------------------------------------------------------------------
   # API Gateway & Subgraphs (Apollo Federation)
   # --------------------------------------------------------------------------
-
-  # The main entry point for the application. It runs Apollo Gateway to compose
-  # the subgraphs into a single, unified Supergraph.
   api-gateway:
     container_name: api-gateway
     build:
-      context: ./gateway # Assumes a new 'gateway' directory for the Apollo Gateway service
-      dockerfile: Dockerfile
+      context: ./bff
+      dockerfile: Dockerfile # NOTE: Assumes a Dockerfile exists in the root 'bff' directory
     ports:
       - "4000:4000"
     volumes: # For hot-reloading in development
-      - ./gateway:/app
+      - ./bff:/app
       - /app/node_modules
     environment:
       - PORT=4000
       - NODE_ENV=development
-      # URLs for the subgraph services, which the gateway will introspect.
-      - USERS_SUBGRAPH_URL=http://users-subgraph:4001/graphql
       - BANKING_SUBGRAPH_URL=http://banking-subgraph:4002/graphql
-      - AI_SUBGRAPH_URL=http://ai-subgraph:4003/graphql
-      # OpenTelemetry Configuration
+      - GENAI_SUBGRAPH_URL=http://ai-subgraph:4003/graphql
+      - PLAID_SUBGRAPH_URL=http://plaid-subgraph:4005/graphql
       - OTEL_SERVICE_NAME=api-gateway
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
     depends_on:
-      - users-subgraph
       - banking-subgraph
       - ai-subgraph
+      - plaid-subgraph
     networks:
       - app-net
 
-  # Subgraph service for user management, authentication, etc.
-  users-subgraph:
-    container_name: users-subgraph
-    build:
-      context: ./subgraphs/users # Assumes a new 'subgraphs/users' directory
-      dockerfile: Dockerfile
-    ports:
-      - "4001:4001" # Exposing for easier debugging
-    volumes: # For hot-reloading in development
-      - ./subgraphs/users:/app
-      - /app/node_modules
-    environment:
-      - PORT=4001
-      - NODE_ENV=development
-      - OTEL_SERVICE_NAME=users-subgraph
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
-    depends_on:
-      - otel-collector
-    networks:
-      - app-net
-
-  # Subgraph service for all banking and financial data logic (e.g., Plaid integration).
   banking-subgraph:
     container_name: banking-subgraph
     build:
-      context: ./subgraphs/banking # Assumes a new 'subgraphs/banking' directory
+      context: ./services/banking
       dockerfile: Dockerfile
     ports:
-      - "4002:4002" # Exposing for easier debugging
-    volumes: # For hot-reloading in development
-      - ./subgraphs/banking:/app
+      - "4002:4002"
+    volumes:
+      - ./services/banking:/app
       - /app/node_modules
-    # env_file: # Uncomment to use a dedicated .env file for secrets
-    #   - ./subgraphs/banking/.env
     environment:
       - PORT=4002
       - NODE_ENV=development
       - OTEL_SERVICE_NAME=banking-subgraph
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - PROMETHEUS_PORT=9465
     depends_on:
       - otel-collector
+      - kafka
     networks:
       - app-net
 
-  # Subgraph service for handling all Generative AI features (e.g., Gemini integration).
   ai-subgraph:
     container_name: ai-subgraph
     build:
-      context: ./subgraphs/ai # Assumes a new 'subgraphs/ai' directory
+      context: ./services/genai
       dockerfile: Dockerfile
     ports:
-      - "4003:4003" # Exposing for easier debugging
-    volumes: # For hot-reloading in development
-      - ./subgraphs/ai:/app
+      - "4003:4003"
+    volumes:
+      - ./services/genai:/app
       - /app/node_modules
-    # env_file: # Uncomment to use a dedicated .env file for secrets
-    #   - ./subgraphs/ai/.env
     environment:
       - PORT=4003
       - NODE_ENV=development
       - OTEL_SERVICE_NAME=ai-subgraph
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - PROMETHEUS_PORT=9465
     depends_on:
       - otel-collector
+      - kafka
+    networks:
+      - app-net
+
+  plaid-subgraph:
+    container_name: plaid-subgraph
+    build:
+      context: ./services/plaid
+      dockerfile: Dockerfile
+    ports:
+      - "4005:4005"
+    volumes:
+      - ./services/plaid:/app
+      - /app/node_modules
+    environment:
+      - PORT=4005
+      - NODE_ENV=development
+      - OTEL_SERVICE_NAME=plaid-subgraph
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - PLAID_PROMETHEUS_PORT=9465
+    depends_on:
+      - otel-collector
+      - kafka
     networks:
       - app-net
 
   # --------------------------------------------------------------------------
   # Client Application
   # --------------------------------------------------------------------------
-
   frontend:
     container_name: demobank-frontend
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev:ui"
     ports:
-      - "3000:3000" # Vite dev server port as configured in vite.config.ts
+      - "5173:5173"
     volumes:
       - .:/app
       - /app/node_modules
     environment:
       - NODE_ENV=development
-      - HOST=0.0.0.0
-      # The frontend now communicates with the GraphQL Supergraph via the API Gateway.
-      - VITE_GRAPHQL_ENDPOINT=http://api-gateway:4000/graphql
-      # OpenTelemetry Configuration
-      - OTEL_SERVICE_NAME=frontend-client
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - VITE_GRAPHQL_GATEWAY_URL=http://localhost:4000
+      - VITE_OTEL_COLLECTOR_URL=http://localhost:4318/v1/traces
     depends_on:
       - api-gateway
     networks:
@@ -141,21 +162,16 @@ services:
 
   # --------------------------------------------------------------------------
   # Observability Stack
-  # NOTE: ./prometheus/prometheus.yml must be updated to scrape the new services
-  # (api-gateway, users-subgraph, banking-subgraph, ai-subgraph)
   # --------------------------------------------------------------------------
-
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.97.0
     container_name: otel-collector
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
-      # NOTE: Assumes an otel-collector-config.yml file exists in a local 'observability' directory.
-      - ./observability/otel-collector-config.yml:/etc/otelcol-contrib/config.yaml
+      - ./observability/otel-collector-config.yml:/etc/otelcol-contrib/config.yaml # NOTE: Assumes this config file exists
     ports:
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
-      - "13133:13133" # Health Check
+      - "4317:4317"
+      - "4318:4318"
     networks:
       - app-net
 
@@ -163,8 +179,7 @@ services:
     image: jaegertracing/all-in-one:1.53
     container_name: jaeger
     ports:
-      - "16686:16686" # Jaeger UI
-      - "14268:14268" # Trace receiver
+      - "16686:16686"
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     networks:
@@ -177,14 +192,11 @@ services:
     container_name: prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
     ports:
-      - "9090:9090" # Prometheus UI
+      - "9090:9090"
     networks:
       - app-net
     depends_on:
@@ -194,7 +206,7 @@ services:
     image: grafana/grafana:10.4.1
     container_name: grafana
     ports:
-      - "3002:3000" # Use host port 3002 to avoid conflict with frontend
+      - "3002:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
@@ -206,7 +218,6 @@ services:
       - app-net
     depends_on:
       - prometheus
-      - elasticsearch
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.2

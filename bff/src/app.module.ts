@@ -1,29 +1,31 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GraphQLModule } from '@nestjs/graphql';
 import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
+  ApolloGatewayDriver,
+  ApolloGatewayDriverConfig,
 } from '@nestjs/apollo';
+import { IntrospectAndCompose } from '@apollo/gateway';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import configuration from './config/configuration';
 
-// Observability Modules
-import { MetricsModule } from './modules/metrics/metrics.module';
-
-// Feature Modules
-import { BankingModule } from './modules/banking/banking.module';
-import { GenaiModule } from './modules/genai/genai.module';
-import { PlaidModule } from './modules/plaid/plaid.module';
-import { GeminiModule } from './gemini/gemini.module';
-
+/**
+ * The root module for the API Gateway (formerly BFF).
+ *
+ * As per the architectural transformation, this module's primary responsibility
+ * is to configure and run an Apollo Gateway. It composes the GraphQL schemas
+ * from all downstream microservices (subgraphs) into a single, unified supergraph.
+ *
+ * Business logic modules have been removed, as that logic now resides in the
+ * respective microservices.
+ */
 @Module({
   imports: [
     // --- Core Modules ---
 
-    // Global configuration module.
+    // Global configuration module to handle environment variables and typed config.
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],
@@ -31,28 +33,36 @@ import { GeminiModule } from './gemini/gemini.module';
       envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
     }),
 
-    // --- GraphQL Federation Module ---
-    // Sets up the GraphQL server as a federated subgraph.
-    GraphQLModule.forRoot<ApolloFederationDriverConfig>({
-      driver: ApolloFederationDriver,
-      // Automatically generate schema from code-first resolvers.
-      // Federation 2 is used for compatibility with Apollo Federation v2.
-      autoSchemaFile: {
-        federation: 2,
+    // --- GraphQL Gateway Module ---
+    // Asynchronously configures the GraphQL module to act as a gateway.
+    GraphQLModule.forRootAsync<ApolloGatewayDriverConfig>({
+      driver: ApolloGatewayDriver,
+      // The factory function injects ConfigService to read subgraph URLs.
+      useFactory: (configService: ConfigService) => {
+        const subgraphs = configService.get<any[]>('gateway.subgraphs');
+
+        if (!subgraphs || subgraphs.length === 0) {
+          throw new Error('Gateway subgraphs are not defined in the configuration.');
+        }
+
+        return {
+          // The gateway property is specific to the ApolloGatewayDriver.
+          gateway: {
+            // IntrospectAndCompose dynamically pulls schemas from running subgraphs.
+            supergraphSdl: new IntrospectAndCompose({
+              subgraphs,
+              // In a production environment, you might want to adjust the poll interval
+              // for schema updates or use a managed federation setup.
+              pollIntervalInMs: 15000,
+            }),
+          },
+        };
       },
+      inject: [ConfigService],
     }),
-
-    // --- Observability Modules ---
-    MetricsModule, // Exposes a /metrics endpoint for Prometheus scraping.
-
-    // --- Feature Modules ---
-    // These modules will be updated to provide GraphQL resolvers.
-    BankingModule,
-    GenaiModule,
-    PlaidModule,
-    GeminiModule,
   ],
-  controllers: [AppController], // Keeping for root-level health check endpoint.
+  // A simple health check controller remains for infrastructure monitoring (e.g., liveness probes).
+  controllers: [AppController],
   providers: [AppService],
 })
 export class AppModule {}

@@ -6,45 +6,62 @@ alerting:
   alertmanagers:
     - static_configs:
         - targets:
+            # The Alertmanager service, running on its default port inside the Docker network.
             - alertmanager:9093
 
+# Load alerting rules from this file. In a larger setup, this might be a directory.
 rule_files:
   - "/etc/prometheus/alert.rules.yml"
 
 scrape_configs:
+  # Scrape Prometheus itself for metrics about its own health.
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
 
+  # Scrape the Alertmanager for its metrics.
   - job_name: 'alertmanager'
     static_configs:
       - targets: ['alertmanager:9093']
 
+  # Scrape the OpenTelemetry Collector for its internal metrics and exported Prometheus metrics.
   - job_name: 'otel-collector'
     static_configs:
-      - targets: ['otel-collector:8888']
+      - targets: ['otel-collector:8888'] # Default Prometheus exporter port for OTel Collector
 
-  - job_name: 'gateway'
+  # --- Application Microservices ---
+  # These jobs scrape the /metrics endpoint exposed by each microservice's OpenTelemetry SDK.
+  # The service names (e.g., 'api-gateway') correspond to the hostnames in the Docker network.
+
+  - job_name: 'api-gateway'
     metrics_path: /metrics
     static_configs:
-      - targets: ['gateway:4000']
+      - targets: ['api-gateway:9464'] # Exposed by the new BFF/API Gateway service.
 
-  - job_name: 'subgraph-banking'
+  - job_name: 'user-service'
     metrics_path: /metrics
     static_configs:
-      - targets: ['subgraph-banking:9464']
+      # This service is defined in the architectural directive.
+      # Port is assumed to be consistent with other new microservices.
+      - targets: ['user-service:9465']
 
-  - job_name: 'subgraph-investments'
+  - job_name: 'banking-service'
     metrics_path: /metrics
     static_configs:
-      - targets: ['subgraph-investments:9464']
+      - targets: ['banking-service:9465']
 
-  - job_name: 'subgraph-users'
+  - job_name: 'plaid-service'
     metrics_path: /metrics
     static_configs:
-      - targets: ['subgraph-users:9464']
-
-  - job_name: 'subgraph-ai'
+      - targets: ['plaid-service:9465']
+      
+  - job_name: 'genai-service'
     metrics_path: /metrics
     static_configs:
-      - targets: ['subgraph-ai:9464']
+      - targets: ['genai-service:9465']
+      
+  - job_name: 'metrics-service'
+    metrics_path: /metrics
+    static_configs:
+      # The service responsible for providing business metrics via GraphQL also exposes its own operational metrics.
+      - targets: ['metrics-service:9465']

@@ -1,84 +1,79 @@
 server:
+  # The public-facing port for the edge gateway
   port: 8080
 
 pipelines:
-  - name: bff-public-api
+  # This pipeline handles all incoming GraphQL traffic.
+  - name: graphql-pipeline
     apiEndpoints:
-      - api
+      - graphql
     policies:
-      # 1. OpenTelemetry for distributed tracing
+      # 1. OpenTelemetry for distributed tracing at the edge.
       - opentelemetry:
           action:
-            serviceName: 'api-gateway'
+            serviceName: 'edge-gateway'
             sampler:
-              type: 'always_on' # Trace every request
+              type: 'always_on' # Trace every request in this demo
             exporter:
-              type: 'otlp' # OpenTelemetry Protocol
-              # This endpoint should point to your OpenTelemetry Collector
-              endpoint: 'http://otel-collector:4317' # gRPC endpoint
+              type: 'otlp'
+              endpoint: 'http://otel-collector:4317' # OTel Collector gRPC endpoint
 
-      # 2. Structured logging with trace context
+      # 2. Structured logging with trace context injection.
       - log:
           action:
             format: 'json'
-            # The exact syntax for accessing context may vary by gateway implementation.
-            # This example assumes traceId/spanId are available in the context.
             message: >
               method=${req.method} url=${req.url} statusCode=${res.statusCode} 
               traceId=${context.opentelemetry.traceId} 
               spanId=${context.opentelemetry.spanId}
 
-      # 3. CORS for browser-based clients
+      # 3. CORS to allow requests from the frontend application.
       - cors:
           action:
             origin: ['http://localhost:5173', 'https://demobank.com']
             credentials: true
 
-      # 4. Rate limiting to prevent abuse
+      # 4. Rate limiting to protect the backend services from abuse.
       - rate-limit:
           action:
-            windowMs: 60000 # 1 minute
-            max: 500 # Limit each IP to 500 requests per window
+            windowMs: 60000 # 1 minute window
+            max: 1000 # Limit each IP to 1000 requests per window
             message: 'Too many requests, please try again later.'
 
-      # 5. JWT validation for client authentication
+      # 5. JWT validation for securing the GraphQL API.
       - jwt:
           action:
-            # In a real scenario, JWKS URI would be used for public key validation
             jwksUri: 'https://demobank.us.auth0.com/.well-known/jwks.json'
             audience: 'https://api.demobank.com'
             issuer: 'https://demobank.us.auth0.com/'
 
-      # 6. Proxying to the BFF service
+      # 6. Proxy the validated, traced request to the internal Apollo Gateway.
       - proxy:
           action:
-            serviceEndpoint: bff
+            serviceEndpoint: apollo-gateway
             changeOrigin: true
-            # Strips '/api' prefix: /api/users -> /users
-            pathRewrite:
-              '^/api': ''
+            # No pathRewrite is needed as we are forwarding /graphql to the gateway's /graphql endpoint.
 
-  # New pipeline for exposing Prometheus metrics
-  - name: metrics-api
+  # This pipeline exposes the gateway's own internal metrics for Prometheus to scrape.
+  - name: metrics-pipeline
     apiEndpoints:
       - metrics
     policies:
       - prometheus:
           action:
-            collectDefaultMetrics: true # Automatically collect default Node.js/process metrics
+            collectDefaultMetrics: true
             customLabels:
-              service: 'api-gateway'
+              service: 'edge-gateway'
 
-# Define the public-facing endpoints
+# Define the public-facing API endpoints that this gateway manages.
 apiEndpoints:
-  - name: api
-    path: '/api/*'
+  - name: graphql
+    path: '/graphql' # The single endpoint for the federated GraphQL API
   - name: metrics
-    path: '/metrics'
+    path: '/metrics' # The endpoint for this gateway's metrics
 
-# Define the downstream services
+# Define the downstream services that this gateway can proxy requests to.
 serviceEndpoints:
-  - name: bff
-    # In a containerized environment (e.g., Docker), 'bff' is the service name.
-    # The BFF service runs on port 3001 as per its configuration.
+  - name: apollo-gateway
+    # The 'bff' service, now refactored into the Apollo Gateway, runs on port 3001.
     url: 'http://bff:3001'

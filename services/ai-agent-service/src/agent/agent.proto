@@ -1,0 +1,140 @@
+syntax = "proto3";
+
+package agent;
+
+// AIAgentService provides an interface to generative AI models for various tasks
+// like text generation, conversational chat, and media creation.
+service AIAgentService {
+  // Generates a simple text response based on a prompt.
+  rpc GenerateText(GenerateTextRequest) returns (GenerateTextResponse);
+
+  // Starts a chat session and streams back the model's response.
+  // This is suitable for interactive, conversational experiences.
+  rpc StartChat(StartChatRequest) returns (stream ChatPart);
+
+  // Generates a new image or edits an existing one based on a prompt.
+  rpc GenerateImage(GenerateImageRequest) returns (GenerateImageResponse);
+
+  // Initiates a long-running video generation task.
+  rpc GenerateVideo(GenerateVideoRequest) returns (Task);
+
+  // Retrieves the status and result of a video generation task.
+  rpc GetVideoGenerationStatus(GetTaskRequest) returns (Task);
+}
+
+// ===================================================================
+// Text Generation Messages
+// ===================================================================
+
+message GenerateTextRequest {
+  string prompt = 1;
+}
+
+message GenerateTextResponse {
+  string text = 1;
+}
+
+// ===================================================================
+// Chat Messages
+// ===================================================================
+
+// Represents a part of a message, typically text.
+message ChatMessagePart {
+  string text = 1;
+}
+
+// Represents a single message in a conversation history.
+message ChatMessage {
+  // The role of the author (e.g., "user" or "model").
+  string role = 1;
+  repeated ChatMessagePart parts = 2;
+}
+
+// Request to start or continue a chat stream.
+message StartChatRequest {
+  // The history of the conversation so far.
+  repeated ChatMessage history = 1;
+  // The new message from the user.
+  string new_message = 2;
+  // An optional ID to maintain conversation state.
+  string conversation_id = 3;
+}
+
+// A chunk of the streamed response from the model.
+message ChatPart {
+  string text_chunk = 1;
+}
+
+// ===================================================================
+// Image Generation Messages
+// ===================================================================
+
+// Represents image data.
+message Image {
+  // Raw image data.
+  bytes data = 1;
+  // e.g., "image/png", "image/jpeg"
+  string mime_type = 2;
+}
+
+// Request to generate or edit an image.
+message GenerateImageRequest {
+  string prompt = 1;
+  // The base image to be edited. For new image generation, this can be omitted.
+  optional Image base_image = 2;
+}
+
+// Response containing the generated image.
+message GenerateImageResponse {
+  Image generated_image = 1;
+}
+
+
+// ===================================================================
+// Video Generation & Task Messages (for long-running operations)
+// ===================================================================
+
+// Represents the status of a long-running task.
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  PENDING = 1;
+  RUNNING = 2;
+  SUCCEEDED = 3;
+  FAILED = 4;
+  CANCELLED = 5;
+}
+
+// Settings for video generation.
+message VideoSettings {
+  // e.g., "cinematic", "vibrant"
+  optional string style = 1;
+  // Desired length of the video in seconds.
+  optional int32 length_seconds = 2;
+  // Voice style for any narration.
+  optional string voice = 3;
+}
+
+// Request to start a video generation task.
+message GenerateVideoRequest {
+  string prompt = 1;
+  optional VideoSettings settings = 2;
+}
+
+// Request to get the status of a task.
+message GetTaskRequest {
+  string task_id = 1;
+}
+
+// Represents a long-running task.
+message Task {
+  // Unique identifier for the task.
+  string id = 1;
+  // Current status of the task.
+  TaskStatus status = 2;
+  // URL to the final video artifact, available when status is SUCCEEDED.
+  string video_url = 3;
+  // Progress percentage (0.0 to 100.0).
+  float progress = 4;
+  // Error message, available when status is FAILED.
+  string error_message = 5;
+}

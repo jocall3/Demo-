@@ -78,32 +78,37 @@ export const useInvestmentPortfolio = () => {
     queryKey: ['investmentPortfolio'],
     queryFn: () => fetchGraphQL<InvestmentDataResponse>(GET_INVESTMENT_ASSETS_QUERY),
     staleTime: 1000 * 60 * 5, // 5 minutes
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: false, // Prevents refetching on window focus, suitable for less volatile data.
   });
 
   // Calculate derived values from the fetched portfolio data using useMemo for optimization.
-  // This centralizes business logic away from the presentation component.
-  const portfolioSummary = useMemo(() => {
-    const assets = data?.userData?.assets;
-    if (!assets || assets.length === 0) {
+  // This centralizes business logic away from the presentation component and provides a clean API.
+  const { assets, totalValue, weightedPerformance } = useMemo(() => {
+    const assetsData = data?.userData?.assets;
+
+    if (!assetsData || assetsData.length === 0) {
       return { assets: [], totalValue: 0, weightedPerformance: 0 };
     }
 
-    const totalValue = assets.reduce((sum, asset) => sum + asset.value, 0);
+    const totalValueCalc = assetsData.reduce((sum, asset) => sum + asset.value, 0);
 
-    const weightedPerformance =
-      totalValue > 0
-        ? assets.reduce(
+    const weightedPerformanceCalc =
+      totalValueCalc > 0
+        ? assetsData.reduce(
             (sum, asset) => sum + asset.value * (asset.performanceYTD || 0),
             0
-          ) / totalValue
+          ) / totalValueCalc
         : 0;
 
-    return { assets, totalValue, weightedPerformance };
+    return { assets: assetsData, totalValue: totalValueCalc, weightedPerformance: weightedPerformanceCalc };
   }, [data]);
 
+  // Return a flattened, custom-shaped object that is convenient for the consuming component.
+  // This abstracts away the nested `data` structure from React Query and matches component expectations.
   return {
-    data: portfolioSummary,
+    portfolio: assets,
+    totalValue,
+    weightedPerformance,
     isLoading,
     isError,
     error: error || null,

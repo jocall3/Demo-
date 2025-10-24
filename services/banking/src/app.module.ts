@@ -1,4 +1,3 @@
-import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -6,11 +5,8 @@ import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
-
-import { HealthModule } from './health/health.module';
-import { AccountsModule } from './accounts/accounts.module';
-import { TransactionsModule } from './transactions/transactions.module';
-import { UsersModule } from './users/users.module';
+import { join } from 'path';
+import { BankingModule } from './banking.module';
 
 /**
  * The root module for the Banking microservice.
@@ -18,15 +14,14 @@ import { UsersModule } from './users/users.module';
  * This module is responsible for:
  * 1. Configuring the application's global settings (e.g., environment variables via ConfigModule).
  * 2. Setting up the GraphQL server with Apollo Federation v2. This service will expose a subgraph.
- * 3. Importing all of the feature-specific modules that contain the business logic and GraphQL resolvers
- *    for the banking domain (e.g., AccountsModule, TransactionsModule).
- * 4. Importing modules required for federation, such as the UsersModule which will resolve the User entity.
+ * 3. Importing the primary feature module for the banking domain (`BankingModule`).
  */
 @Module({
   imports: [
     // Global configuration module to handle environment variables.
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
     }),
 
     // GraphQL module configured for Apollo Federation.
@@ -40,15 +35,8 @@ import { UsersModule } from './users/users.module';
       },
     }),
 
-    // Health check module for service discovery and monitoring.
-    HealthModule,
-
-    // Feature modules for the banking domain.
-    AccountsModule,
-    TransactionsModule,
-
-    // Module for resolving federated entities (e.g., User from an auth service).
-    UsersModule,
+    // The primary feature module for this service.
+    BankingModule,
   ],
 })
 export class AppModule {}

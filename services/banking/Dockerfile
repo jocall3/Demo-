@@ -1,4 +1,6 @@
-# Stage 1: Install dependencies
+# Dockerfile for the Banking GraphQL Subgraph Service
+
+# Stage 1: Development - Install dependencies and copy source
 # We use a specific node version on a lean alpine base to keep the image small.
 # Naming this stage 'development' for clarity.
 FROM node:20-alpine AS development
@@ -6,55 +8,56 @@ FROM node:20-alpine AS development
 # Set the working directory in the container
 WORKDIR /usr/src/app
 
-# Copy package.json and package-lock.json (or yarn.lock)
-# Using package*.json to copy both files if they exist
+# Copy package.json and package-lock.json to leverage Docker's layer caching.
+# Using package*.json to copy both files if they exist.
 COPY package*.json ./
 
-# Install all dependencies, including devDependencies, needed for building
+# Install all dependencies, including devDependencies, which are required for the build process.
 RUN npm install
 
-# Copy the rest of the application source code
+# Copy the rest of the application's source code into the container.
 COPY . .
 
 # ---
 
-# Stage 2: Build the application
-# This stage takes the source code and dependencies and builds the production-ready JS files.
-# Naming this stage 'build'
+# Stage 2: Build - Compile the TypeScript source code to JavaScript
+# This stage takes the source code from the 'development' stage and builds the production-ready JS files.
 FROM node:20-alpine AS build
 
 WORKDIR /usr/src/app
 
-# Copy the source code and dependencies from the previous stage
+# Copy the full source code and installed dependencies from the previous stage.
 COPY --from=development /usr/src/app .
 
-# Build the TypeScript project
+# Run the build script defined in package.json (e.g., `nest build`).
 RUN npm run build
 
 # ---
 
-# Stage 3: Production image
-# This is the final, optimized image that will be deployed.
-# It only contains the built application and its production dependencies.
+# Stage 3: Production - Create the final, optimized image for deployment
+# This is the final, lean production image. It only contains the built application
+# and its production dependencies, resulting in a smaller and more secure image.
 FROM node:20-alpine AS production
 
-# Set the node environment to production
+# Set the Node environment to 'production' for performance and security optimizations.
 ENV NODE_ENV=production
 
 WORKDIR /usr/src/app
 
-# Copy the package files
+# Copy package files to install only production dependencies
 COPY package*.json ./
 
-# Install ONLY production dependencies using npm ci for faster, more reliable installs
+# Install ONLY production dependencies using `npm ci` for faster, deterministic installs.
+# The `--omit=dev` flag ensures devDependencies are not installed.
 RUN npm ci --omit=dev
 
-# Copy the built application from the 'build' stage
+# Copy the compiled application code from the 'build' stage into the 'dist' directory.
 COPY --from=build /usr/src/app/dist ./dist
 
-# The default port for a NestJS application is 3000
-EXPOSE 3000
+# Expose the port the Banking service will run on.
+# This should match the PORT environment variable used by the application (defaults to 4001).
+EXPOSE 4001
 
-# Command to run the application
-# We run the compiled main.js file in the dist folder
+# Command to run the application.
+# We execute the compiled main.js file in the 'dist' folder using Node.
 CMD ["node", "dist/main"]

@@ -1,288 +1,224 @@
+import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  Configuration,
-  PlaidApi,
-  PlaidEnvironments,
-  Products,
-  CountryCode,
-  TransactionsGetRequest,
-} from 'plaid';
+import { firstValueFrom } from 'rxjs';
+import { AxiosError } from 'axios';
 
-// --- DTOs would typically be in their own files under a `dto` directory --- //
-// These are included here to make the service self-contained for this example.
+// These types should align with the GraphQL schema of the banking microservice.
+// They are defined here for clarity, but in a real monorepo, they might be
+// in a shared library, potentially auto-generated from the GraphQL schema.
 
-export class AccountDto {
+export interface Account {
   account_id: string;
   name: string;
-  official_name: string | null;
-  subtype: string | null;
+  mask?: string;
   type: string;
-  balance: {
-    available: number | null;
-    current: number | null;
-    iso_currency_code: string | null;
+  subtype: string;
+  balances: {
+    current: number;
+    available?: number;
+    iso_currency_code: string;
   };
 }
 
-export class TransactionDto {
+export interface Transaction {
   transaction_id: string;
   account_id: string;
   amount: number;
-  iso_currency_code: string | null;
-  category: string[] | null;
+  iso_currency_code: string;
   date: string;
   name: string;
-  merchant_name: string | null;
+  category: string[];
   pending: boolean;
 }
 
-export class FinancialSummaryDto {
+export interface FinancialSummary {
   totalBalance: number;
-  totalLiabilities: number;
-  netWorth: number;
-  incomeLast30Days: number;
-  expensesLast30Days: number;
-  lastUpdated: string;
+  balanceChartData: { name: string; value: number }[];
+  spendingByCategory: { name: string; value: number }[];
 }
 
-// In-memory store for user access tokens. In a production app, this would be a database (e.g., PostgreSQL, Redis).
-const userAccessTokens = new Map<string, { accessToken: string; itemId: string }>();
-
+/**
+ * REFACTORED: BankingService
+ *
+ * This service has been refactored to act as a client for the new, independent
+ * 'banking-service' microservice. It no longer contains direct Plaid API logic
+ * or any state (like user access tokens).
+ *
+ * Its responsibility is to construct GraphQL queries/mutations and send them
+ * to the banking subgraph, effectively acting as a proxy between the BFF's
+ * GraphQL layer and the downstream service's GraphQL API.
+ */
 @Injectable()
 export class BankingService {
   private readonly logger = new Logger(BankingService.name);
-  private readonly plaidClient: PlaidApi;
+  private readonly bankingSubgraphUrl: string;
 
-  constructor(private configService: ConfigService) {
-    const plaidEnv = this.configService.get<string>('plaid.env', 'sandbox');
-    const configuration = new Configuration({
-      basePath: PlaidEnvironments[plaidEnv],
-      baseOptions: {
-        headers: {
-          'PLAID-CLIENT-ID': this.configService.get<string>('plaid.clientId'),
-          'PLAID-SECRET': this.configService.get<string>('plaid.secret'),
-        },
-      },
-    });
+  constructor(
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
+  ) {
+    const bankingSubgraph = this.configService
+      .get<any[]>('gateway.subgraphs')
+      .find((s) => s.name === 'banking');
 
-    this.plaidClient = new PlaidApi(configuration);
-    this.logger.log(`Plaid client initialized for ${plaidEnv} environment`);
-  }
-
-  private getAccessTokenForUser(userId: string): string {
-    const tokenInfo = userAccessTokens.get(userId);
-    if (!tokenInfo) {
-      this.logger.warn(`No access token found for user: ${userId}`);
-      throw new HttpException(
-        'User has not linked a bank account.',
-        HttpStatus.NOT_FOUND,
-      );
+    if (!bankingSubgraph || !bankingSubgraph.url) {
+      this.logger.error('Banking subgraph URL is not configured!');
+      throw new Error('Banking subgraph URL must be configured.');
     }
-    return tokenInfo.accessToken;
+    this.bankingSubgraphUrl = bankingSubgraph.url;
+    this.logger.log(`Banking subgraph client initialized for URL: ${this.bankingSubgraphUrl}`);
   }
 
+  /**
+   * A generic method to execute a GraphQL operation against the banking subgraph.
+   * @param query The GraphQL query or mutation string.
+   * @param variables Optional variables for the operation.
+   * @returns The data from the GraphQL response.
+   */
+  private async querySubgraph<T>(query: string, variables?: Record<string, any>): Promise<T> {
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(this.bankingSubgraphUrl, { query, variables }),
+      );
+
+      if (response.data.errors) {
+        const error = response.data.errors[0];
+        this.logger.error(`GraphQL error from banking subgraph: ${error.message}`, error);
+        // Propagate the error message from the subgraph
+        throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+      }
+
+      return response.data.data;
+    } catch (error) {
+      this.logger.error(`Failed to query banking subgraph. URL: ${this.bankingSubgraphUrl}`, error.stack);
+      if (error instanceof AxiosError) {
+        throw new HttpException(`Network error communicating with banking service: ${error.code}`, HttpStatus.SERVICE_UNAVAILABLE);
+      }
+      throw error; // Re-throw if it's already an HttpException or another error type
+    }
+  }
+
+  /**
+   * Creates a Plaid Link token by calling the banking subgraph.
+   * @param userId The ID of the user.
+   * @returns The link token and its expiration.
+   */
   async createLinkToken(userId: string): Promise<{ link_token: string; expiration: string }> {
-    this.logger.log(`Creating Plaid link token for user: ${userId}`);
-    try {
-      const response = await this.plaidClient.linkTokenCreate({
-        user: {
-          client_user_id: userId,
-        },
-        client_name: 'Demo Bank',
-        products: [Products.Transactions, Products.Auth],
-        country_codes: [CountryCode.Us],
-        language: 'en',
-      });
-      this.logger.log('Successfully created Plaid link token.');
-      return response.data;
-    } catch (error) {
-      this.logger.error(
-        'Failed to create Plaid link token',
-        error.response?.data || error.message,
-      );
-      throw new HttpException(
-        'Could not create Plaid link token.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  async exchangeAndStorePublicToken(
-    publicToken: string,
-    userId: string,
-    metadata: any, // In a real app, this would be a typed DTO
-  ): Promise<void> {
-    this.logger.log(`Exchanging public token for user: ${userId}`);
-    try {
-      const response = await this.plaidClient.itemPublicTokenExchange({
-        public_token: publicToken,
-      });
-
-      const { access_token, item_id } = response.data;
-      this.logger.log(`Successfully exchanged token for item ID: ${item_id}`);
-
-      userAccessTokens.set(userId, { accessToken: access_token, itemId: item_id });
-      this.logger.log(`Access token for user ${userId} stored successfully.`);
-    } catch (error) {
-      this.logger.error(
-        'Failed to exchange public token',
-        error.response?.data || error.message,
-      );
-      throw new HttpException(
-        'Could not exchange public token.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  async getAccounts(userId: string): Promise<AccountDto[]> {
-    const accessToken = this.getAccessTokenForUser(userId);
-    this.logger.log(`Fetching accounts for user: ${userId}`);
-
-    try {
-      const response = await this.plaidClient.accountsGet({
-        access_token: accessToken,
-      });
-
-      return response.data.accounts.map(
-        (acc) =>
-          ({
-            account_id: acc.account_id,
-            name: acc.name,
-            official_name: acc.official_name,
-            subtype: acc.subtype,
-            type: acc.type,
-            balance: {
-              available: acc.balances.available,
-              current: acc.balances.current,
-              iso_currency_code: acc.balances.iso_currency_code,
-            },
-          } as AccountDto),
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch accounts for user ${userId}`,
-        error.response?.data || error.message,
-      );
-      throw new HttpException('Could not fetch accounts.', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  async getTransactions(
-    userId: string,
-    accountId?: string,
-  ): Promise<TransactionDto[]> {
-    const accessToken = this.getAccessTokenForUser(userId);
-    this.logger.log(`Fetching transactions for user: ${userId}`);
-
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(endDate.getDate() - 90);
-
-    const formatDate = (date: Date) => date.toISOString().split('T')[0];
-
-    try {
-      const request: TransactionsGetRequest = {
-        access_token: accessToken,
-        start_date: formatDate(startDate),
-        end_date: formatDate(endDate),
-        options: {
-          count: 250,
-          offset: 0,
-          account_ids: accountId ? [accountId] : undefined,
-        },
-      };
-
-      const response = await this.plaidClient.transactionsGet(request);
-      this.logger.log(`Fetched ${response.data.transactions.length} transactions.`);
-
-      return response.data.transactions.map(
-        (tx) =>
-          ({
-            transaction_id: tx.transaction_id,
-            account_id: tx.account_id,
-            amount: tx.amount,
-            iso_currency_code: tx.iso_currency_code,
-            category: tx.category,
-            date: tx.date,
-            name: tx.name,
-            merchant_name: tx.merchant_name,
-            pending: tx.pending,
-          } as TransactionDto),
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch transactions for user ${userId}`,
-        error.response?.data || error.message,
-      );
-      throw new HttpException(
-        'Could not fetch transactions.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  async getFinancialSummary(userId: string): Promise<FinancialSummaryDto> {
-    const accessToken = this.getAccessTokenForUser(userId);
-    this.logger.log(`Generating financial summary for user: ${userId}`);
-
-    try {
-      const [accountsResponse, transactionsResponse] = await Promise.all([
-        this.plaidClient.accountsGet({ access_token: accessToken }),
-        this.plaidClient.transactionsGet({
-          access_token: accessToken,
-          start_date: new Date(new Date().setDate(new Date().getDate() - 30))
-            .toISOString()
-            .split('T')[0],
-          end_date: new Date().toISOString().split('T')[0],
-        }),
-      ]);
-
-      const accounts = accountsResponse.data.accounts;
-      const transactions = transactionsResponse.data.transactions;
-
-      let totalBalance = 0;
-      let totalLiabilities = 0;
-      let incomeLast30Days = 0;
-      let expensesLast30Days = 0;
-
-      accounts.forEach((acc) => {
-        if (['depository', 'investment', 'brokerage'].includes(acc.type)) {
-          totalBalance += acc.balances.current || 0;
-        } else if (['credit', 'loan'].includes(acc.type)) {
-          totalLiabilities += acc.balances.current || 0;
+    const mutation = `
+      mutation CreateLinkToken($userId: ID!) {
+        createLinkToken(userId: $userId) {
+          link_token
+          expiration
         }
-      });
+      }
+    `;
+    const data = await this.querySubgraph<{ createLinkToken: { link_token: string; expiration: string } }>(mutation, { userId });
+    return data.createLinkToken;
+  }
 
-      transactions.forEach((tx) => {
-        if (tx.amount < 0) {
-          incomeLast30Days += Math.abs(tx.amount);
-        } else {
-          expensesLast30Days += tx.amount;
+  /**
+   * Exchanges a public token by calling the banking subgraph.
+   * @param publicToken The public token from Plaid Link.
+   * @param userId The ID of the user.
+   * @returns A boolean indicating success.
+   */
+  async exchangePublicToken(publicToken: string, userId: string): Promise<boolean> {
+    const mutation = `
+      mutation ExchangePublicToken($publicToken: String!, $userId: ID!) {
+        exchangePublicToken(publicToken: $publicToken, userId: $userId)
+      }
+    `;
+    const data = await this.querySubgraph<{ exchangePublicToken: boolean }>(mutation, { publicToken, userId });
+    return data.exchangePublicToken;
+  }
+
+  /**
+   * Gets all accounts for a user by querying the banking subgraph's federated User entity.
+   * @param userId The ID of the user.
+   * @returns An array of accounts.
+   */
+  async getAccounts(userId: string): Promise<Account[]> {
+    const query = `
+      query GetUserAccounts($representations: [_Any!]!) {
+        _entities(representations: $representations) {
+          ...on User {
+            accounts {
+              account_id
+              name
+              mask
+              type
+              subtype
+              balances {
+                current
+                available
+                iso_currency_code
+              }
+            }
+          }
         }
-      });
+      }
+    `;
+    const data = await this.querySubgraph<{ _entities: [{ accounts: Account[] }] }>(query, {
+      representations: [{ __typename: 'User', id: userId }],
+    });
+    return data._entities[0].accounts || [];
+  }
 
-      const summary: FinancialSummaryDto = {
-        totalBalance,
-        totalLiabilities,
-        netWorth: totalBalance - totalLiabilities,
-        incomeLast30Days,
-        expensesLast30Days,
-        lastUpdated: new Date().toISOString(),
-      };
+  /**
+   * Gets transactions for a user by querying the banking subgraph's federated User entity.
+   * @param userId The ID of the user.
+   * @param accountId Optional account ID to filter transactions.
+   * @returns An array of transactions.
+   */
+  async getTransactions(userId: string, accountId?: string): Promise<Transaction[]> {
+    const query = `
+      query GetUserTransactions($representations: [_Any!]!, $accountId: ID) {
+        _entities(representations: $representations) {
+          ...on User {
+            transactions(accountId: $accountId) {
+              transaction_id
+              account_id
+              amount
+              iso_currency_code
+              date
+              name
+              category
+              pending
+            }
+          }
+        }
+      }
+    `;
+    const data = await this.querySubgraph<{ _entities: [{ transactions: Transaction[] }] }>(query, {
+      representations: [{ __typename: 'User', id: userId }],
+      accountId,
+    });
+    return data._entities[0].transactions || [];
+  }
 
-      this.logger.log(`Financial summary generated for user ${userId}`);
-      return summary;
-    } catch (error) {
-      this.logger.error(
-        `Failed to generate financial summary for user ${userId}`,
-        error.response?.data || error.message,
-      );
-      throw new HttpException(
-        'Could not generate financial summary.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+  /**
+   * Gets a financial summary for a user by querying the banking subgraph.
+   * @param userId The ID of the user.
+   * @returns A financial summary object.
+   */
+  async getFinancialSummary(userId: string): Promise<FinancialSummary> {
+    const query = `
+      query GetUserFinancialSummary($representations: [_Any!]!) {
+        _entities(representations: $representations) {
+          ...on User {
+            financialSummary {
+              totalBalance
+              balanceChartData { name value }
+              spendingByCategory { name value }
+            }
+          }
+        }
+      }
+    `;
+    const data = await this.querySubgraph<{ _entities: [{ financialSummary: FinancialSummary }] }>(query, {
+      representations: [{ __typename: 'User', id: userId }],
+    });
+    return data._entities[0].financialSummary;
   }
 }

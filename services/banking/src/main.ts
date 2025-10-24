@@ -10,17 +10,19 @@ import { diag, DiagConsoleLogger, DiagLogLevel, trace, context } from '@opentele
 // For troubleshooting OpenTelemetry, set the log level to DiagLogLevel.DEBUG
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
+const SERVICE_NAME = 'banking-service';
+
 const otelSDK = new NodeSDK({
   // The service name is a required attribute for all telemetry data.
   resource: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: 'banking-service',
+    [SemanticResourceAttributes.SERVICE_NAME]: SERVICE_NAME,
   }),
   // OTLPTraceExporter will send traces to an OTel Collector.
   // The endpoint is configurable via the OTEL_EXPORTER_OTLP_ENDPOINT env var.
   traceExporter: new OTLPTraceExporter(),
   // PrometheusExporter exposes a /metrics endpoint for Prometheus to scrape.
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.PROMETHEUS_PORT || '9465', 10), // Different port from BFF
+    port: parseInt(process.env.METRICS_PORT || '9464', 10),
   }),
   // Auto-instrument popular libraries (e.g., @nestjs/core, http, graphql)
   instrumentations: [getNodeAutoInstrumentations()],
@@ -30,7 +32,7 @@ const otelSDK = new NodeSDK({
 process.on('SIGTERM', () => {
   otelSDK
     .shutdown()
-    .then(() => console.log('OpenTelemetry SDK for banking-service shut down successfully.'))
+    .then(() => console.log(`OpenTelemetry SDK for ${SERVICE_NAME} shut down successfully.`))
     .catch((error) => console.log('Error shutting down OpenTelemetry SDK.', error))
     .finally(() => process.exit(0));
 });
@@ -52,7 +54,7 @@ import pino from 'pino';
  */
 class StructuredLogger implements LoggerService {
   private readonly pino: pino.Logger;
-  private readonly serviceName = 'banking-service';
+  private readonly serviceName = SERVICE_NAME;
 
   constructor() {
     this.pino = pino({
@@ -119,7 +121,7 @@ async function bootstrap() {
   app.enableCors();
   logger.log('CORS has been enabled.');
 
-  // Global pipes for validation and transformation of DTOs
+  // Global pipes for validation and transformation of DTOs/Args
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true, // Strip properties that do not have any decorators
@@ -132,15 +134,16 @@ async function bootstrap() {
   );
   logger.log('Global ValidationPipe configured.');
 
-  // Get port from environment variables, with a fallback
-  const port = configService.get<number>('PORT') || 4001;
+  // Get port from environment variables, with a fallback.
+  // Using 4002 to align with docker-compose.yml for banking-subgraph
+  const port = configService.get<number>('PORT') || 4002;
 
   await app.listen(port);
 
   logger.log(`Banking subgraph is running on: http://localhost:${port}`);
   logger.log(`GraphQL endpoint available at: http://localhost:${port}/graphql`);
   logger.log(
-    `Prometheus metrics available on port ${process.env.PROMETHEUS_PORT || '9465'}`,
+    `Prometheus metrics available on port ${process.env.METRICS_PORT || '9464'}`,
   );
 }
 

@@ -1,209 +1,196 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import {
-  GoogleGenerativeAI,
-  GenerativeModel,
-  Content,
-  Part,
-  InlineDataPart,
-} from '@google/generative-ai';
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
+import { Content, Part } from '@google/generative-ai';
 
-// --- Input/Output Types for Service Methods (Aligned with GraphQL Schema) ---
-
-/**
- * Corresponds to the 'askAIAdvisor' mutation input.
- */
-export interface AskAIAdvisorInput {
-  history: Content[];
-  message: string;
-}
-
-/**
- * Represents a single message in a conversation, aligning with the GraphQL 'AIAdvisorMessage' type.
- */
-export interface AIAdvisorMessage {
-  id: string;
-  role: 'user' | 'model';
-  parts: { text: string }[];
-  timestamp: Date;
-}
-
-/**
- * Corresponds to the 'generateAdVideo' mutation input.
- */
-export interface GenerateAdVideoInput {
+// Input/Output interfaces matching the resolver's expectations.
+// The BFF service acts as a pass-through and uses these to type its methods.
+export interface GenerateTextInput {
   prompt: string;
-  style?: string;
-  length?: number;
-  voice?: string;
 }
 
-/**
- * Corresponds to the 'VideoGenerationResult' type in GraphQL.
- */
-export interface VideoGenerationResult {
-  operationId: string;
-  status: 'generating' | 'done' | 'error';
-  videoUrl?: string;
+export interface ContinueChatInput {
+  history: Content[];
+  newMessage: string;
 }
 
-/**
- * Input for the 'generateCardImage' service method, derived from the GraphQL mutation.
- */
-export interface GenerateCardImageInput {
+export interface GenerateVideoInput {
+  prompt: string;
+  settings: Record<string, any>;
+}
+
+export interface EditImageInput {
   prompt: string;
   imageBase64: string;
   mimeType: string;
 }
 
 /**
- * Service responsible for all interactions with Google's Generative AI APIs.
- * This service is designed to be consumed by GraphQL resolvers.
+ * Service to act as a client for the downstream GenAI microservice.
+ * In the new architecture, this service is part of the API Gateway (BFF).
+ * It is responsible for forwarding GenAI-related GraphQL requests to the appropriate subgraph,
+ * abstracting away the direct calls to the Google AI SDK which now reside in the dedicated GenAI service.
  */
 @Injectable()
 export class GenaiService implements OnModuleInit {
   private readonly logger = new Logger(GenaiService.name);
-  private genAI: GoogleGenerativeAI;
-  private textModel: GenerativeModel;
-  private visionModel: GenerativeModel;
+  private genaiServiceUrl: string;
 
-  constructor(private configService: ConfigService) {}
+  constructor(
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
+  ) {}
 
   onModuleInit() {
-    const apiKey = this.configService.get<string>('google.geminiApiKey') || this.configService.get<string>('GEMINI_API_KEY');
-    if (!apiKey) {
-      this.logger.error('Google Gemini API Key is not configured. AI features will fail.');
-      throw new Error('GOOGLE_GEMINI_API_KEY or GEMINI_API_KEY must be configured in the environment.');
+    // Retrieve the GenAI subgraph URL from the gateway configuration.
+    const subgraphs = this.configService.get<any[]>('gateway.subgraphs', []);
+    const genaiSubgraph = subgraphs.find((s) => s.name === 'genai');
+
+    if (!genaiSubgraph?.url) {
+      this.logger.error(
+        'GenAI microservice URL is not configured in gateway.subgraphs.',
+      );
+      throw new Error('GenAI microservice URL is not configured.');
     }
-    this.genAI = new GoogleGenerativeAI(apiKey);
-    this.textModel = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    this.visionModel = this.genAI.getGenerativeModel({ model: 'gemini-pro-vision' });
-    this.logger.log('GenAI Service Initialized Successfully');
+    this.genaiServiceUrl = genaiSubgraph.url;
+    this.logger.log(`GenAI Service client pointing to: ${this.genaiServiceUrl}`);
   }
 
   /**
-   * Generates a short story or descriptive text based on a prompt.
-   * Used by the 'generateCardStory' GraphQL mutation.
-   * @param prompt The text prompt for generation.
-   * @returns A promise that resolves to the generated text string.
+   * A generic helper to execute a GraphQL mutation against the GenAI subgraph.
+   * @param query The GraphQL mutation string.
+   * @param variables The variables for the mutation.
+   * @returns The data from the GraphQL response.
    */
-  async generateCardStory(prompt: string): Promise<string> {
+  private async mutate<T>(
+    query: string,
+    variables: Record<string, any>,
+  ): Promise<T> {
     try {
-      this.logger.log(`Generating card story for prompt: "${prompt.substring(0, 50)}..."`);
-      const result = await this.textModel.generateContent(prompt);
-      return result.response.text();
-    } catch (error) {
-      this.logger.error(`Error in generateCardStory`, error.stack);
-      throw new Error('Failed to generate story from AI service.');
-    }
-  }
+      const response = await firstValueFrom(
+        this.httpService.post(this.genaiServiceUrl, { query, variables }),
+      );
 
-  /**
-   * Continues a conversation with the AI model, handling chat history.
-   * Used by the 'askAIAdvisor' GraphQL mutation.
-   * @param input The conversation history and the new user message.
-   * @returns A promise that resolves to the AI's new message(s).
-   */
-  async askAIAdvisor(input: AskAIAdvisorInput): Promise<AIAdvisorMessage[]> {
-    const { history, message } = input;
-    try {
-      this.logger.log(`Continuing AI Advisor chat. History length: ${history.length}`);
-      const chat = this.textModel.startChat({ history });
-      const result = await chat.sendMessage(message);
-
-      const responseParts = result.response.parts;
-      if (!responseParts) {
-        return [];
+      if (response.data.errors) {
+        this.logger.error(
+          'GraphQL error from GenAI service:',
+          response.data.errors,
+        );
+        throw new HttpException(
+          response.data.errors[0].message,
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
       }
+      return response.data.data;
+    } catch (error) {
+      this.logger.error(
+        `Failed to call GenAI service at ${this.genaiServiceUrl}: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        'Could not communicate with the GenAI service.',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+  }
 
-      // Construct a new message object from the AI's response.
-      const textParts = responseParts
-        .filter((part) => 'text' in part)
-        .map((part) => ({ text: (part as { text: string }).text }));
-
-      const newMessages: AIAdvisorMessage[] = [];
-
-      if (textParts.length > 0) {
-        newMessages.push({
-          id: `ai_${Date.now()}`,
-          role: 'model',
-          parts: textParts,
-          timestamp: new Date(),
-        });
+  /**
+   * Forwards the generateText request to the GenAI subgraph.
+   * Called by the `generateCardStory` mutation in the resolver.
+   */
+  async generateText(input: GenerateTextInput): Promise<string> {
+    const mutation = `
+      mutation GenerateText($prompt: String!) {
+        generateText(prompt: $prompt) {
+          text
+        }
       }
-
-      // In a real app, you would also handle function calls here.
-      // For example, creating a separate message for a tool call visualization.
-
-      return newMessages;
-    } catch (error) {
-      this.logger.error('Error in AI advisor conversation', error.stack);
-      throw new Error('Failed to get chat response from AI service.');
-    }
+    `;
+    const data = await this.mutate<{ generateText: { text: string } }>(mutation, {
+      prompt: input.prompt,
+    });
+    return data.generateText.text;
   }
 
   /**
-   * Generates a custom image for a bank card by editing a base image with a prompt.
-   * Used by the 'generateCardImage' GraphQL mutation.
-   * @param input The prompt and the base image data.
-   * @returns A promise that resolves to the URL of the newly generated image.
+   * Forwards the continueChat request to the GenAI subgraph.
+   * Called by the `askAIAdvisor` mutation in the resolver.
    */
-  async generateCardImage(input: GenerateCardImageInput): Promise<string> {
-    const { prompt, imageBase64, mimeType } = input;
-    const imagePart: InlineDataPart = { inlineData: { data: imageBase64, mimeType } };
-    this.logger.log('Simulating AI card image generation.');
-    try {
-      // In a real implementation, a dedicated image generation/editing model would be used.
-      // This simulates the interaction for architectural demonstration.
-      await this.visionModel.generateContent([prompt, imagePart]);
+  async continueChat(input: ContinueChatInput): Promise<Part[]> {
+    const mutation = `
+      mutation ContinueChat($history: [ContentInput!]!, $newMessage: String!) {
+        continueChat(history: $history, newMessage: $newMessage) {
+          parts {
+            text
+          }
+        }
+      }
+    `;
+    // The service layer maps the `Content[]` type from the SDK (used by the resolver)
+    // to a JSON-serializable `ContentInput[]` that the downstream GraphQL schema expects.
+    const historyForGql = input.history.map((content) => ({
+      role: content.role,
+      parts: content.parts.map((part) => ({ text: (part as any).text })),
+    }));
 
-      // Simulate uploading the result to cloud storage and returning a public URL.
-      const mockImageUrl = `https://storage.googleapis.com/demobank-assets/card-designs/custom-${Date.now()}.png`;
-      this.logger.log(`Simulated image generated and uploaded to ${mockImageUrl}`);
-
-      return mockImageUrl;
-    } catch (error) {
-      this.logger.error('Error generating card image.', error.stack);
-      throw new Error('Failed to generate card image with AI service.');
-    }
+    const data = await this.mutate<{ continueChat: { parts: Part[] } }>(mutation, {
+      history: historyForGql,
+      newMessage: input.newMessage,
+    });
+    return data.continueChat.parts;
   }
 
   /**
-   * Initiates and simulates a video generation task.
-   * Used by the 'generateAdVideo' GraphQL mutation. This simulates a long-running request pattern.
-   * @param input The parameters for the video generation.
-   * @returns A promise that resolves to the final video generation result.
+   * Forwards the generateVideo request to the GenAI subgraph.
+   * Called by the `generateAdVideo` mutation in the resolver.
    */
-  async generateAdVideo(input: GenerateAdVideoInput): Promise<VideoGenerationResult> {
-    const { prompt } = input;
-    const operationId = `video-gen-${Date.now()}`;
-    this.logger.log(`Starting video generation for prompt: "${prompt}". Operation ID: ${operationId}`);
+  async generateVideo(input: GenerateVideoInput): Promise<{ videoUri: string }> {
+    const mutation = `
+      mutation GenerateVideo($prompt: String!) {
+        generateVideo(prompt: $prompt) {
+          videoUri
+        }
+      }
+    `;
+    // The downstream schema currently only accepts a prompt, so we ignore other settings.
+    const data = await this.mutate<{ generateVideo: { videoUri: string } }>(
+      mutation,
+      {
+        prompt: input.prompt,
+      },
+    );
+    return data.generateVideo;
+  }
 
-    // This simulates an async/polling flow within a single long-running request.
-    try {
-      // 1. Simulate initial API call to start the job
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      this.logger.log(`Polling status for operation: ${operationId}`);
-
-      // 2. Simulate polling wait time
-      await new Promise((resolve) => setTimeout(resolve, 8000));
-
-      // 3. Simulate successful completion
-      this.logger.log(`Operation ${operationId} has completed.`);
-      const videoUrl = 'https://storage.googleapis.com/demobank-assets/ai-ads/mock-video.mp4';
-
-      return {
-        operationId,
-        status: 'done',
-        videoUrl,
-      };
-    } catch (error) {
-      this.logger.error(`Error during video generation process for prompt: "${prompt}"`, error.stack);
-      // Return an error state that aligns with the GraphQL schema
-      return {
-        operationId,
-        status: 'error',
-      };
-    }
+  /**
+   * Forwards the editImage request to the GenAI subgraph.
+   * Called by the `generateCardImage` mutation in the resolver.
+   */
+  async editImage(
+    input: EditImageInput,
+  ): Promise<{ imageBase64: string; mimeType: string }> {
+    const mutation = `
+      mutation EditImage($prompt: String!, $imageBase64: String!, $mimeType: String!) {
+        editImage(prompt: $prompt, imageBase64: $imageBase64, mimeType: $mimeType) {
+          imageBase64
+          mimeType
+        }
+      }
+    `;
+    const data = await this.mutate<{
+      editImage: { imageBase64: string; mimeType: string };
+    }>(mutation, {
+      prompt: input.prompt,
+      imageBase64: input.imageBase64,
+      mimeType: input.mimeType,
+    });
+    return data.editImage;
   }
 }

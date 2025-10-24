@@ -1,0 +1,163 @@
+syntax = "proto3";
+
+package plaid;
+
+// Best practice options for code generation in other languages.
+option go_package = "github.com/demobank/plaid-integration-service/plaid";
+option java_multiple_files = true;
+option java_package = "com.demobank.plaidintegrationservice.plaid";
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+// The PlaidIntegrationService provides a gRPC interface to interact with the Plaid API.
+// It encapsulates all direct communication with Plaid, exposing a simplified,
+// domain-specific API for other microservices.
+service PlaidIntegrationService {
+  // Creates a Plaid Link token for a given user to initialize the frontend Link flow.
+  rpc CreateLinkToken(CreateLinkTokenRequest) returns (CreateLinkTokenResponse);
+
+  // Exchanges a temporary public token from Plaid Link for a permanent access token and item ID.
+  // The service is responsible for securely storing the access token.
+  rpc ExchangePublicToken(ExchangePublicTokenRequest) returns (ExchangePublicTokenResponse);
+
+  // Fetches account information for a given user.
+  rpc GetAccounts(GetAccountsRequest) returns (GetAccountsResponse);
+
+  // Fetches transactions for a given user over a specified date range.
+  rpc GetTransactions(GetTransactionsRequest) returns (GetTransactionsResponse);
+
+  // Fetches information about a Plaid Item (a user's connection to an institution).
+  rpc GetItem(GetItemRequest) returns (GetItemResponse);
+
+  // Removes a Plaid Item, effectively unlinking the user's account.
+  rpc RemoveItem(RemoveItemRequest) returns (RemoveItemResponse);
+}
+
+// =============================================================================
+// Message Definitions
+// =============================================================================
+
+// --- Core Data Structures ---
+
+message Balance {
+  // The amount of funds available for use.
+  optional double available = 1;
+  // The total amount of funds in the account.
+  double current = 2;
+  // The ISO-4217 currency code of the balance.
+  string iso_currency_code = 3;
+}
+
+message Account {
+  // Plaid's unique ID for the account.
+  string account_id = 1;
+  // The balance of the account.
+  Balance balances = 2;
+  // The last 2-4 alphanumeric characters of an account number.
+  string mask = 3;
+  // The name of the account, either assigned by the user or by the financial institution.
+  string name = 4;
+  // The official name of the account as provided by the financial institution.
+  optional string official_name = 5;
+  // The specific subtype of the account (e.g., "checking").
+  string subtype = 6;
+  // The high-level type of the account (e.g., "depository").
+  string type = 7;
+}
+
+message Transaction {
+  // Plaid's unique ID for the transaction.
+  string transaction_id = 1;
+  // The ID of the account in which this transaction occurred.
+  string account_id = 2;
+  // The settled amount of the transaction. Positive for credits, negative for debits.
+  double amount = 3;
+  // The ISO-4217 currency code of the transaction.
+  string iso_currency_code = 4;
+  // A hierarchical list of categories reflecting the transaction.
+  repeated string category = 5;
+  // The date the transaction posted, in ISO 8601 format (YYYY-MM-DD).
+  string date = 6;
+  // The merchant name or transaction description.
+  string name = 7;
+  // The merchant name, if available.
+  optional string merchant_name = 8;
+  // When true, identifies the transaction as pending or unsettled.
+  bool pending = 9;
+}
+
+message Item {
+  // The Plaid Item ID.
+  string item_id = 1;
+  // The Plaid Institution ID.
+  string institution_id = 2;
+  // A list of products available for the Item.
+  repeated string available_products = 3;
+  // A list of products that have been billed for the Item.
+  repeated string billed_products = 4;
+}
+
+
+// --- RPC Request/Response Messages ---
+
+// CreateLinkToken
+message CreateLinkTokenRequest {
+  string user_id = 1;
+}
+message CreateLinkTokenResponse {
+  string link_token = 1;
+  string expiration = 2;
+  string request_id = 3;
+}
+
+// ExchangePublicToken
+message ExchangePublicTokenRequest {
+  string user_id = 1;
+  string public_token = 2;
+}
+message ExchangePublicTokenResponse {
+  string item_id = 1;
+  string request_id = 2;
+  bool success = 3;
+}
+
+// GetAccounts
+message GetAccountsRequest {
+  string user_id = 1;
+}
+message GetAccountsResponse {
+  repeated Account accounts = 1;
+}
+
+// GetTransactions
+message GetTransactionsRequest {
+  string user_id = 1;
+  // Start date in YYYY-MM-DD format.
+  string start_date = 2;
+  // End date in YYYY-MM-DD format.
+  string end_date = 3;
+  // Optional: Filter transactions by account ID.
+  optional string account_id = 4;
+}
+message GetTransactionsResponse {
+  repeated Transaction transactions = 1;
+}
+
+// GetItem
+message GetItemRequest {
+  string user_id = 1;
+}
+message GetItemResponse {
+  Item item = 1;
+}
+
+// RemoveItem
+message RemoveItemRequest {
+  string user_id = 1;
+}
+message RemoveItemResponse {
+  bool success = 1;
+  string request_id = 2;
+}

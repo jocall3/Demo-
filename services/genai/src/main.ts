@@ -20,7 +20,7 @@ const otelSDK = new NodeSDK({
   traceExporter: new OTLPTraceExporter(),
   // PrometheusExporter exposes a /metrics endpoint for Prometheus to scrape.
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.PROMETHEUS_PORT || '9465', 10), // Different default port to avoid conflict
+    port: parseInt(process.env.PROMETHEUS_PORT || '9464', 10), // Aligned with prometheus.yml scrape config
   }),
   // Auto-instrument popular libraries (Express, HTTP, Axios, gRPC, etc.)
   instrumentations: [getNodeAutoInstrumentations()],
@@ -134,14 +134,14 @@ async function bootstrap() {
   logger.log('Global ValidationPipe configured for GraphQL inputs.');
 
   // Get port from environment variables, with a fallback
-  const port = configService.get<number>('PORT') || 3002;
+  const port = configService.get<number>('PORT') || 4003;
 
   await app.listen(port);
 
   const appUrl = await app.getUrl();
   logger.log(`GenAI Subgraph is running on: ${appUrl}/graphql`);
   logger.log(
-    `Prometheus metrics available on port ${process.env.PROMETHEUS_PORT || '9465'}`,
+    `Prometheus metrics available on port ${process.env.PROMETHEUS_PORT || '9464'}`,
   );
 }
 

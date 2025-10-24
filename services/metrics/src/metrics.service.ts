@@ -24,14 +24,13 @@ interface PrometheusResponse {
  * for each specific downstream service that is part of the supergraph.
  */
 const providerToJobMapping: Record<string, string> = {
-  // Assuming job names are aligned with service names for simplicity
-  [APIProvider.Plaid]: 'banking',
-  [APIProvider.Stripe]: 'payments',
-  [APIProvider.GoogleGemini]: 'genai',
-  // The following are from the GraphQL schema but might not have running services yet.
-  // We will map them to placeholder job names.
-  [APIProvider.Marqeta]: 'cards',
-  [APIProvider.ModernTreasury]: 'treasury',
+  // These job names should match the `job_name` in prometheus.yml
+  [APIProvider.Plaid]: 'subgraph-banking',
+  [APIProvider.GoogleGemini]: 'subgraph-ai',
+  // The following are placeholders for services not yet instrumented or scraped
+  [APIProvider.Stripe]: 'subgraph-payments',
+  [APIProvider.Marqeta]: 'subgraph-cards',
+  [APIProvider.ModernTreasury]: 'subgraph-treasury',
 };
 
 @Injectable()
@@ -93,7 +92,7 @@ export class MetricsService {
   }
 
   /**
-   * Fetches and calculates the status for a single API provider.
+   * Fetches and calculates the status for a single API provider by querying Prometheus.
    * @param provider The APIProvider enum member.
    * @returns A promise resolving to the APIStatus for the given provider.
    */
@@ -110,7 +109,7 @@ export class MetricsService {
       const [upResult, p95LatencyResult, errorRateResult] = await Promise.all([
         this.runPrometheusQuery(`up{job="${job}"}`),
         this.runPrometheusQuery(`histogram_quantile(0.95, sum(rate(http_server_duration_seconds_bucket{job="${job}"}[5m])) by (le)) `),
-        this.runPrometheusQuery(`(sum(rate(http_server_duration_seconds_count{job="${job}",http_status_code=~"5.."}[5m])) / sum(rate(http_server_duration_seconds_count{job="${job}"}[5m]))) * 100`),
+        this.runPrometheusQuery(`(sum(rate(http_server_duration_seconds_count{job="${job}", otel_status_code="ERROR"}[5m])) / sum(rate(http_server_duration_seconds_count{job="${job}"}[5m]))) * 100`),
       ]);
 
       const isUp = upResult.length > 0 && upResult[0] === 1;
@@ -142,10 +141,10 @@ export class MetricsService {
    * @returns The calculated APIStatusType.
    */
   private determineStatus(errorRate: number, latencyMs: number): APIStatusType {
-    if (errorRate > 5) {
+    if (errorRate > 10) {
       return APIStatusType.PartialOutage;
     }
-    if (errorRate > 1 || latencyMs > 1000) {
+    if (errorRate > 2 || latencyMs > 1000) {
       return APIStatusType.DegradedPerformance;
     }
     return APIStatusType.Operational;
@@ -174,7 +173,9 @@ export class MetricsService {
         return [];
       }
 
-      return response.data.data.result.map(res => parseFloat(res.value[1]));
+      // PromQL can return NaN if division by zero occurs, which is parsed as null.
+      // Filter out nulls and convert valid string numbers to floats.
+      return response.data.data.result.map(res => parseFloat(res.value[1])).filter(v => !isNaN(v));
     } catch (error) {
       this.logger.error(`Error executing Prometheus query: ${query}`, error.message);
       throw error; // Re-throw to be caught by the calling function
