@@ -1,18 +1,18 @@
 # Dockerfile for the AI Agent GraphQL Subgraph Service
 
-# STAGE 1: Development - Install all dependencies
-# This stage is used to install both production and development dependencies
-# to leverage Docker's layer caching during development and for the build stage.
+# --- Stage 1: Development ---
+# This stage installs all dependencies (including devDependencies) and copies the source code.
+# It's used as a base for the build stage to leverage Docker's layer caching.
 FROM node:20-alpine AS development
 
 # Set the working directory inside the container
 WORKDIR /usr/src/app
 
-# Copy package.json and package-lock.json (or yarn.lock)
+# Copy package.json and package-lock.json to leverage Docker's layer caching.
 # Using package*.json to copy both files if they exist.
 COPY package*.json ./
 
-# Install all dependencies. This includes devDependencies needed for building.
+# Install all dependencies required for building the application.
 RUN npm install
 
 # Copy the rest of the application's source code into the container.
@@ -20,34 +20,32 @@ COPY . .
 
 # ---
 
-# STAGE 2: Build - Compile the TypeScript source code
-# This stage takes the source code and dependencies from the 'development' stage
-# and compiles the TypeScript project into JavaScript.
+# --- Stage 2: Build ---
+# This stage takes the source code from the 'development' stage and builds the
+# production-ready JavaScript files from the TypeScript source.
 FROM node:20-alpine AS build
 
 WORKDIR /usr/src/app
 
-# Copy the full source code and installed node_modules from the previous stage.
+# Copy the full source code and installed dependencies from the previous stage.
 COPY --from=development /usr/src/app .
 
 # Run the build script defined in package.json (e.g., `nest build`).
-# This creates the 'dist' folder with the compiled JavaScript.
 RUN npm run build
 
 # ---
 
-# STAGE 3: Production - Create the final, optimized image
-# This is the final, lean image that will be deployed. It only contains the
-# compiled application and its production dependencies, resulting in a smaller
-# and more secure image.
+# --- Stage 3: Production ---
+# This is the final, lean production image. It only contains the built application
+# and its production dependencies, resulting in a smaller and more secure image.
 FROM node:20-alpine AS production
 
-# Set the Node environment to 'production' for performance optimizations.
+# Set the Node environment to 'production' for performance and security optimizations.
 ENV NODE_ENV=production
 
 WORKDIR /usr/src/app
 
-# Copy the package.json and lockfile to the production stage.
+# Copy the package files to install only production dependencies.
 COPY package*.json ./
 
 # Install ONLY production dependencies using `npm ci` for faster, deterministic installs.
@@ -57,10 +55,10 @@ RUN npm ci --omit=dev
 # Copy the compiled application code from the 'build' stage into the 'dist' directory.
 COPY --from=build /usr/src/app/dist ./dist
 
-# Expose the port the AI Agent service will run on. This should match the PORT
-# environment variable the application is configured to use.
+# Expose the port the application will run on. The AI Agent service will run on port 4004.
 EXPOSE 4004
 
 # The command to start the application when the container launches.
-# We execute the compiled main.js file located in the 'dist' folder using Node.
+# This runs the compiled main.js file, which in turn starts both the NestJS server
+# and the Temporal worker for this service.
 CMD ["node", "dist/main"]

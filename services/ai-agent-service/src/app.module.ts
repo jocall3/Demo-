@@ -1,5 +1,5 @@
 import { join } from 'path';
-import { Module, Injectable, UnauthorizedException, ExecutionContext } from '@nestjs/common';
+import { Module, Injectable, UnauthorizedException, ExecutionContext, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GraphQLModule, GqlExecutionContext } from '@nestjs/graphql';
 import {
@@ -21,69 +21,74 @@ import { TemporalModule } from './temporal/temporal.module';
 // =============================================================================
 // INLINE AUTHENTICATION COMPONENTS
 // =============================================================================
-// In a typical NestJS application, these classes would be in their own files
-// (e.g., src/auth/jwt.strategy.ts, src/auth/jwt-auth.guard.ts).
-// They are defined here to satisfy the single-file modification constraint.
-//
-// This setup implements JWT validation based on an OIDC-compliant Identity Provider
+// These components implement JWT validation based on an OIDC-compliant Identity Provider
 // using a JWKS (JSON Web Key Set) endpoint to fetch public keys for signature verification.
 
+/**
+ * @class JwtStrategy
+ * @description A Passport strategy for validating JWTs. It uses the `jwks-rsa` library
+ * to dynamically fetch the public key from the OIDC provider's JWKS endpoint.
+ * It validates the token's signature, expiration, issuer, and audience.
+ */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(configService: ConfigService) {
-    const authConfig = {
-      issuerUrl: configService.get<string>('IDENTITY_PROVIDER_URL'),
-      audience: configService.get<string>('IDENTITY_PROVIDER_AUDIENCE'),
-    };
+  private readonly logger = new Logger(JwtStrategy.name);
 
-    if (!authConfig.issuerUrl || !authConfig.audience) {
-      throw new Error(
-        'Auth configuration (IDENTITY_PROVIDER_URL, IDENTITY_PROVIDER_AUDIENCE) is missing from environment variables.',
-      );
+  constructor(configService: ConfigService) {
+    const issuerUrl = configService.get<string>('IDENTITY_PROVIDER_URL');
+    const audience = configService.get<string>('IDENTITY_PROVIDER_AUDIENCE');
+
+    if (!issuerUrl || !audience) {
+      const errorMsg =
+        'Auth configuration (IDENTITY_PROVIDER_URL, IDENTITY_PROVIDER_AUDIENCE) is missing from environment variables.';
+      this.logger.error(errorMsg);
+      throw new Error(errorMsg);
     }
 
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      // The secretOrKeyProvider is the recommended method for using jwks-rsa with passport-jwt.
-      // It dynamically fetches the correct public key from the JWKS endpoint based on the
-      // key ID ('kid') in the incoming JWT's header.
       secretOrKeyProvider: jwksRsa.passportJwtSecret({
         cache: true,
         rateLimit: true,
         jwksRequestsPerMinute: 5,
-        jwksUri: `${authConfig.issuerUrl}/.well-known/jwks.json`,
+        jwksUri: `${issuerUrl}/.well-known/jwks.json`,
       }),
-      // These options ensure that the token was intended for this service (audience)
-      // and was issued by the trusted identity provider (issuer).
-      audience: authConfig.audience,
-      issuer: authConfig.issuerUrl,
-      algorithms: ['RS256'], // Algorithm used by most OIDC providers like Keycloak, Auth0.
+      audience: audience,
+      issuer: issuerUrl,
+      algorithms: ['RS256'], // Standard algorithm for OIDC providers
     });
+    this.logger.log(
+      `JWT Strategy initialized with Issuer: ${issuerUrl}, Audience: ${audience}`,
+    );
   }
 
   /**
-   * This method is called by passport after a token has been successfully validated.
-   * Its return value is attached to the request object as `req.user`.
+   * Validates the decoded JWT payload after its signature and claims are verified by passport-jwt.
    * @param payload The decoded JWT payload.
+   * @returns An object containing the user's ID and claims, which will be attached to `req.user`.
    */
   async validate(payload: any) {
-    // The payload is already validated at this point (signature, expiration, audience, issuer).
     if (!payload.sub) {
       throw new UnauthorizedException(
         'Invalid token: Subject (sub) claim is missing.',
       );
     }
-    // We return an object that will be available in the GraphQL context.
     return { userId: payload.sub, claims: payload };
   }
 }
 
+/**
+ * @class JwtAuthGuard
+ * @description A guard that uses the `JwtStrategy` to protect GraphQL resolvers.
+ * It's applied globally to ensure all endpoints are secure by default.
+ */
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
   /**
-   * This override is required to make the Passport AuthGuard work with GraphQL.
-   * It extracts the request object from the GraphQL execution context.
+   * Overrides the default getRequest method to correctly extract the request
+   * object from a GraphQL execution context.
+   * @param context The NestJS ExecutionContext.
    */
   getRequest(context: ExecutionContext) {
     const ctx = GqlExecutionContext.create(context);
@@ -95,22 +100,31 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 // ROOT APPLICATION MODULE
 // =============================================================================
 
+/**
+ * The root module for the AI Agent microservice.
+ *
+ * This module integrates all core architectural components for this service:
+ * 1.  **Global Configuration**: Manages environment variables via `ConfigModule`.
+ * 2.  **GraphQL Federation**: Exposes the service as a federated subgraph.
+ * 3.  **Authentication**: Enforces JWT validation on all GraphQL requests using a global `JwtAuthGuard`.
+ * 4.  **Event Bus**: Connects to Kafka for asynchronous inter-service communication.
+ * 5.  **Workflow Orchestration**: Integrates with Temporal via the `TemporalModule` to manage
+ *     durable, long-running business processes (Sagas), as per the architectural directive.
+ * 6.  **Feature Logic**: Imports the core `AgentModule` which contains the business logic.
+ */
 @Module({
   imports: [
-    // Global configuration module to handle environment variables.
+    // --- Core Infrastructure ---
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
     }),
 
-    // Passport module for authentication strategy handling.
+    // --- Authentication ---
     PassportModule.register({ defaultStrategy: 'jwt' }),
-
-    // JwtModule is imported for dependency injection, but our custom JwtStrategy
-    // handles all validation logic, including key retrieval.
     JwtModule.register({}),
 
-    // GraphQL module configured for Apollo Federation.
+    // --- GraphQL Federation ---
     GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
       useFactory: (configService: ConfigService) => ({
@@ -118,27 +132,21 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
           federation: 2,
           path: join(process.cwd(), 'src/schema.gql'),
         },
-        // Enable playground in non-production environments for easier debugging.
+        // Enable playground in non-production environments.
         playground: configService.get<string>('NODE_ENV') !== 'production',
       }),
       inject: [ConfigService],
     }),
 
-    // The primary feature module for this service.
+    // --- Feature & Domain Modules ---
     AgentModule,
-
-    // Module for connecting to the event bus (e.g., Kafka).
     EventBusModule,
-
-    // Module for workflow orchestration (e.g., Temporal).
-    // This is the core of the new architectural change for handling long-running Sagas.
     TemporalModule,
   ],
   providers: [
-    // The JWT strategy for validating incoming tokens.
+    // Register the JWT strategy for token validation.
     JwtStrategy,
-    // Provide the JwtAuthGuard globally to protect all GraphQL resolvers by default.
-    // This enforces the security-first principle of the new architecture.
+    // Apply the JWT authentication guard globally to protect all GraphQL resolvers.
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,

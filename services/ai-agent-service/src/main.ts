@@ -1,3 +1,16 @@
+/**
+ * main.ts
+ * Entry point for the AI Agent microservice.
+ *
+ * ARCHITECTURAL REFACTOR:
+ * This file has been significantly updated to align with the new architectural directives:
+ * 1.  OpenTelemetry SDK Initialization: Tracing and metrics are initialized at the very start of the process.
+ * 2.  HashiCorp Vault Integration: Secrets are fetched from Vault before the application bootstraps, populating environment variables.
+ * 3.  Structured Logging: A custom Pino-based logger is used, which automatically injects OpenTelemetry trace and span IDs.
+ * 4.  Temporal Worker Bootstrap: In addition to starting the NestJS web server for the GraphQL API, this file now also bootstraps and runs the Temporal Worker in the same process. The worker is responsible for executing the long-running workflows and activities that define the service's core business logic.
+ * 5.  Graceful Shutdown: Handlers are in place for both the OTel SDK and the NestJS application.
+ */
+
 // --- 1. Observability Setup (MUST be imported and executed before ANY other module) ---
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
@@ -10,7 +23,8 @@ import { diag, DiagConsoleLogger, DiagLogLevel, trace, context } from '@opentele
 // For troubleshooting OpenTelemetry, set the log level to DiagLogLevel.DEBUG
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
-const SERVICE_NAME = 'ai-agent-service';
+const SERVICE_NAME = process.env.OTEL_SERVICE_NAME || 'ai-agent-service';
+const PROMETHEUS_PORT = parseInt(process.env.PROMETHEUS_PORT || '9467', 10);
 
 const otelSDK = new NodeSDK({
   resource: new Resource({
@@ -18,7 +32,7 @@ const otelSDK = new NodeSDK({
   }),
   traceExporter: new OTLPTraceExporter(),
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.PROMETHEUS_PORT || '9467', 10),
+    port: PROMETHEUS_PORT,
   }),
   instrumentations: [getNodeAutoInstrumentations()],
 });
@@ -40,10 +54,59 @@ import { ValidationPipe, LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Transport } from '@nestjs/microservices';
 import pino from 'pino';
+import vault from 'node-vault';
 import { NativeConnection, Worker } from '@temporalio/worker';
-import * as activities from './temporal/activities';
+import { createActivities } from './temporal/activities';
+import { AgentService } from './agent/agent.service';
+import { ClientKafka } from '@nestjs/microservices';
+import { KAFKA_CLIENT } from './event-bus/event-bus.module';
 
-// --- 3. Structured Logging with OpenTelemetry Context ---
+// --- 3. Vault Secret Fetching ---
+const preBootstrapLogger = pino({ level: process.env.LOG_LEVEL || 'info' });
+
+async function fetchSecretsFromVault() {
+  try {
+    const vaultAddr = process.env.VAULT_ADDR;
+    const roleId = process.env.VAULT_ROLE_ID;
+    const secretId = process.env.VAULT_SECRET_ID;
+
+    if (!vaultAddr || !roleId || !secretId) {
+      preBootstrapLogger.warn(
+        'Vault AppRole environment variables not set. Skipping secret fetching from Vault. This is not suitable for production.',
+      );
+      return;
+    }
+
+    const vaultClient = vault({ apiVersion: 'v1', endpoint: vaultAddr });
+
+    preBootstrapLogger.info('Authenticating to Vault with AppRole...');
+    const result = await vaultClient.approleLogin({ role_id: roleId, secret_id: secretId });
+    vaultClient.token = result.auth.client_token;
+    preBootstrapLogger.info('Successfully authenticated to Vault.');
+
+    const secretPath = process.env.VAULT_KV_PATH;
+    if (!secretPath) {
+        throw new Error('VAULT_KV_PATH environment variable not set.');
+    }
+
+    preBootstrapLogger.info(`Fetching secrets from Vault at path: ${secretPath}`);
+    const secrets = await vaultClient.read(secretPath);
+
+    if (!secrets?.data?.data) {
+      throw new Error(`Secrets not found in Vault at path '${secretPath}' or data is empty.`);
+    }
+
+    // Set secrets as environment variables for ConfigService to pick up
+    process.env.GOOGLE_GEMINI_API_KEY = secrets.data.data.GOOGLE_GEMINI_API_KEY;
+
+    preBootstrapLogger.info('Successfully fetched and configured secrets from Vault.');
+  } catch (error) {
+    preBootstrapLogger.error({ err: error }, 'Failed to fetch secrets from Vault. Application will exit.');
+    process.exit(1);
+  }
+}
+
+// --- 4. Structured Logging with OpenTelemetry Context ---
 class StructuredLogger implements LoggerService {
   private readonly pino: pino.Logger;
 
@@ -53,10 +116,7 @@ class StructuredLogger implements LoggerService {
       formatters: {
         log: (object) => {
           const span = trace.getSpan(context.active());
-          const logObject: { [key: string]: any } = {
-            ...object,
-            service: SERVICE_NAME,
-          };
+          const logObject: { [key: string]: any } = { ...object, service: SERVICE_NAME };
           if (span) {
             const spanContext = span.spanContext();
             logObject.trace_id = spanContext.traceId;
@@ -69,11 +129,7 @@ class StructuredLogger implements LoggerService {
         process.env.NODE_ENV !== 'production'
           ? {
               target: 'pino-pretty',
-              options: {
-                colorize: true,
-                singleLine: true,
-                messageFormat: '{service} - {msg}',
-              },
+              options: { colorize: true, singleLine: true, messageFormat: '{service} - {msg}' },
             }
           : undefined,
     });
@@ -86,54 +142,50 @@ class StructuredLogger implements LoggerService {
   verbose?(message: any, context?: string) { this.pino.trace({ context }, message); }
 }
 
-// --- 4. Temporal Worker Bootstrap ---
-/**
- * Initializes and runs the Temporal Worker.
- * The Worker connects to the Temporal cluster and executes Workflows and Activities
- * defined in this service, such as the 'Quantum Weaver' business plan analysis.
- */
-async function runTemporalWorker(logger: StructuredLogger) {
-  const temporalAddress = process.env.TEMPORAL_ADDRESS || 'localhost:7233';
-  const taskQueue = 'ai-agent-workflows';
-
-  logger.log(`Connecting Temporal Worker to ${temporalAddress}...`);
-
-  const connection = await NativeConnection.create({
-    address: temporalAddress,
-  });
-
-  const worker = await Worker.create({
-    connection,
-    namespace: 'default',
-    taskQueue,
-    // Workflows are registered via file path to enable hot-reloading in development
-    workflowsPath: require.resolve('./temporal/workflows'),
-    // Activities are imported and registered directly
-    activities,
-  });
-
-  logger.log(`Temporal Worker started. Listening on task queue: "${taskQueue}".`);
-  await worker.run();
-  logger.log('Temporal Worker has shut down.');
-}
-
 // --- 5. Application Bootstrap ---
 async function bootstrap() {
-  const logger = new StructuredLogger();
+  await fetchSecretsFromVault();
 
-  // Start the Temporal Worker in the background. It will begin polling for tasks.
-  runTemporalWorker(logger).catch((err) => {
-    logger.error('Temporal Worker crashed', err.stack);
+  const app = await NestFactory.create(AppModule, {
+    logger: new StructuredLogger(),
+  });
+
+  const logger = app.get(StructuredLogger);
+  const configService = app.get(ConfigService);
+
+  const runTemporalWorker = async () => {
+    logger.log('Initializing Temporal Worker...');
+
+    // Create a separate, lightweight NestJS context to resolve dependencies for activities.
+    const workerAppContext = await NestFactory.createApplicationContext(AppModule, { logger: false });
+    const agentService = workerAppContext.get(AgentService);
+    const kafkaClient = workerAppContext.get<ClientKafka>(KAFKA_CLIENT);
+
+    const connection = await NativeConnection.create({
+      address: configService.get<string>('TEMPORAL_ADDRESS'),
+    });
+
+    const worker = await Worker.create({
+      connection,
+      namespace: configService.get<string>('TEMPORAL_NAMESPACE', 'default'),
+      taskQueue: configService.get<string>('TEMPORAL_TASK_QUEUE', 'ai-agent-tasks'),
+      workflowsPath: require.resolve('./temporal/workflows'),
+      activities: createActivities(agentService, kafkaClient),
+    });
+
+    logger.log(`Temporal Worker started. Listening on task queue: "${configService.get<string>('TEMPORAL_TASK_QUEUE', 'ai-agent-tasks')}".`);
+    await worker.run();
+    logger.log('Temporal Worker has shut down.');
+    await workerAppContext.close();
+  };
+
+  // Run the worker in the background; do not `await` its completion.
+  runTemporalWorker().catch((err) => {
+    logger.error('Temporal Worker crashed', err.stack, 'Bootstrap');
     process.exit(1);
   });
 
-  // Create and configure the NestJS application.
-  // This serves the GraphQL API for synchronous operations (e.g., starting a workflow)
-  // and may still handle simpler, non-workflow-based events from Kafka.
-  const app = await NestFactory.create(AppModule, { logger });
-  const configService = app.get(ConfigService);
-
-  // Connect to Kafka for any remaining event-driven choreography patterns.
+  // Connect Kafka for event consumers in the main application (e.g., in AgentController)
   app.connectMicroservice({
     transport: Transport.KAFKA,
     options: {
@@ -153,16 +205,17 @@ async function bootstrap() {
   app.enableCors();
   logger.log('CORS has been enabled.');
 
-  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   logger.log('Global ValidationPipe configured.');
 
   const port = configService.get<number>('PORT') || 4004;
-  const prometheusPort = process.env.PROMETHEUS_PORT || '9467';
-
   await app.listen(port);
 
   logger.log(`🚀 AI Agent Service (GraphQL API) is running on: http://localhost:${port}/graphql`);
-  logger.log(`Prometheus metrics available on port ${prometheusPort}`);
+  logger.log(`Prometheus metrics available on port ${PROMETHEUS_PORT}`);
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  preBootstrapLogger.error('Application bootstrap failed', err.stack);
+  process.exit(1);
+});
