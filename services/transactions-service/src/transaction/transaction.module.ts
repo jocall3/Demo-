@@ -1,32 +1,50 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { MongooseModule } from '@nestjs/mongoose';
 import { TransactionService } from './transaction.service';
-import { UserTransactionsResolver, TransactionResolver } from './transaction.resolver';
-import { Transaction } from './entities/transaction.entity';
+import {
+  UserTransactionsResolver,
+  TransactionResolver,
+} from './transaction.resolver';
+import { TransactionController } from './transaction.controller';
+import {
+  Transaction,
+  TransactionSchema,
+} from './schemas/transaction.schema';
 
 /**
- * The TransactionModule encapsulates all logic for handling financial transactions.
- * As part of the Transactions microservice, this module is responsible for:
- * - Managing the read model projection of transactions using TypeORM.
- * - Providing the business logic via TransactionService.
- * - Exposing GraphQL queries and mutations via TransactionResolver and UserTransactionsResolver.
- * - Integrating with the workflow orchestration layer (implicitly via TransactionService).
+ * @module TransactionModule
+ * @description Encapsulates all logic for the Transaction bounded context, adhering to CQRS principles.
+ * This module is responsible for both command handling (initiating payment workflows) and query handling
+ * (serving transaction data from a denormalized read model).
+ *
+ * ARCHITECTURAL REFACTOR:
+ * - Read Model: This module now uses Mongoose to manage the transaction read model in MongoDB,
+ *   aligning with the CQRS directive for optimized, denormalized query stores.
+ *   The `TransactionController` acts as a projection, consuming Kafka events to keep this model updated.
+ * - Command Handling: The `TransactionService` (injected by this module's providers) handles commands,
+ *   primarily by starting durable Sagas using the Temporal workflow engine for operations like payments.
+ * - API Layer: GraphQL resolvers (`TransactionResolver`, `UserTransactionsResolver`) act as the primary
+ *   API adapter for external queries and mutations, interacting with the underlying services.
  */
 @Module({
   imports: [
-    // Registers the Transaction entity (read model) with TypeOrm, making the
-    // TransactionRepository available for injection into the TransactionService.
-    TypeOrmModule.forFeature([Transaction]),
+    // Registers the Transaction schema with Mongoose. This schema defines the structure
+    // of the transaction documents in the MongoDB read model database.
+    MongooseModule.forFeature([
+      { name: Transaction.name, schema: TransactionSchema },
+    ]),
   ],
-  // The resolvers handle incoming GraphQL queries/mutations, and the service
-  // contains the core business logic.
+  // The controller is an inbound adapter that listens for Kafka events to update the read model.
+  controllers: [TransactionController],
+  // The providers include the core application service and the GraphQL resolvers (API adapters).
   providers: [
     TransactionService,
-    UserTransactionsResolver, // For resolving transactions attached to a User
-    TransactionResolver,      // For direct queries and resolving Transaction references
+    UserTransactionsResolver,
+    TransactionResolver,
   ],
-  // Exporting the service allows it to be used by other potential modules within
-  // this microservice (e.g., by Temporal activities).
+  // Exporting TransactionService makes it available for injection into other modules.
+  // This is crucial for the TemporalModule, which needs to inject it into the activities
+  // that are executed by the Temporal Worker.
   exports: [TransactionService],
 })
 export class TransactionModule {}
