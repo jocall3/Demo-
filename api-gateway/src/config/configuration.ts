@@ -12,44 +12,94 @@ import { registerAs } from '@nestjs/config';
  */
 export default registerAs('config', () => {
   return {
-    // Application environment ('development', 'production', 'test', etc.)
+    /**
+     * The application environment ('development', 'production', 'test', etc.)
+     * @type {string}
+     */
     env: process.env.NODE_ENV || 'development',
+    /**
+     * A boolean flag indicating if the application is in production mode.
+     * @type {boolean}
+     */
     isProd: process.env.NODE_ENV === 'production',
 
-    // Port the API Gateway will listen on.
+    /**
+     * The port on which the API Gateway will listen for incoming requests.
+     * @type {number}
+     */
     port: parseInt(process.env.PORT, 10) || 4000,
 
-    // CORS configuration for the frontend application.
+    /**
+     * CORS configuration for the frontend application.
+     * @type {{origin: string}}
+     */
     cors: {
       origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     },
 
-    // --- New Security & Identity Configuration ---
+    // --- Security & Identity Configuration (OIDC / OAuth 2.0) ---
 
-    // OIDC configuration for validating client-facing JWTs.
+    /**
+     * OIDC configuration for validating client-facing JWTs from the Identity Provider.
+     */
     auth: {
-      // The URL of the OpenID Connect compliant Identity Provider (e.g., https://<keycloak-domain>/realms/<realm>).
-      // The gateway will use this to fetch the JWKS for token signature validation.
-      issuer: process.env.AUTH_ISSUER_URL,
-      // The expected 'aud' (audience) claim in the JWT. This should identify the API Gateway.
-      audience: process.env.AUTH_AUDIENCE,
+      /**
+       * The URL of the OpenID Connect compliant Identity Provider (e.g., https://<keycloak-domain>/realms/<realm>).
+       * The gateway uses this to fetch the JWKS for token signature validation.
+       * @type {string}
+       */
+      issuer: process.env.OIDC_ISSUER_URL,
+      /**
+       * The expected 'aud' (audience) claim in the JWT. This should uniquely identify the API Gateway.
+       * @type {string}
+       */
+      audience: process.env.OIDC_AUDIENCE,
     },
 
-    // Configuration for the API Gateway's own identity for service-to-service communication.
+    /**
+     * Configuration for the API Gateway's own identity, used for service-to-service communication (e.g., Token Exchange).
+     */
     identity: {
-      clientId: process.env.GATEWAY_CLIENT_ID,
-      // The path in Vault where the client secret is stored, not the secret itself.
-      clientSecretPath: process.env.VAULT_CLIENT_SECRET_PATH || 'secret/data/api-gateway/clientSecret',
+      /**
+       * The OIDC Client ID for the API Gateway itself.
+       * @type {string}
+       */
+      clientId: process.env.OIDC_CLIENT_ID,
+      /**
+       * The path in Vault where the OIDC client secret is stored, not the secret itself.
+       * @type {string}
+       */
+      clientSecretPath:
+        process.env.VAULT_OIDC_CLIENT_SECRET_PATH || 'secret/data/api-gateway/oidcClientSecret',
     },
 
-    // --- Secrets Management Configuration ---
+    // --- Secrets Management Configuration (HashiCorp Vault) ---
     vault: {
-      // URL of the HashiCorp Vault instance.
+      /**
+       * The URL of the HashiCorp Vault instance.
+       * @type {string}
+       */
       url: process.env.VAULT_ADDR,
-      // For development, a root token can be used. In production, use an authentication role (e.g., AppRole).
+      /**
+       * The Vault token for authentication, typically used for local development.
+       * @type {string}
+       */
       token: process.env.VAULT_TOKEN,
-      // The base path where this service's secrets are stored.
-      secretsPath: process.env.VAULT_SECRETS_PATH || 'secret/data/api-gateway',
+      /**
+       * The Role ID for Vault's AppRole authentication, used in production.
+       * @type {string}
+       */
+      roleId: process.env.VAULT_ROLE_ID,
+      /**
+       * The Secret ID for Vault's AppRole authentication, used in production.
+       * @type {string}
+       */
+      secretId: process.env.VAULT_SECRET_ID,
+      /**
+       * The base path in Vault where this service's secrets are stored.
+       * @type {string}
+       */
+      secretsPath: process.env.VAULT_SECRET_PATH || 'secret/data/api-gateway',
     },
 
     // --- Observability Configuration ---
@@ -62,33 +112,41 @@ export default registerAs('config', () => {
 
     // --- Apollo Gateway & Subgraph Configuration ---
     gateway: {
-      // A list of all microservice subgraphs to be composed into the supergraph.
+      /**
+       * A list of all microservice subgraphs to be composed into the supergraph.
+       * Fallback URLs are provided for local development convenience.
+       */
       subgraphs: [
         {
           name: 'users',
-          url: process.env.USERS_SERVICE_URL || 'http://user-service:3000/graphql',
+          url: process.env.USERS_SERVICE_URL || 'http://localhost:4001/graphql',
         },
         {
           name: 'accounts',
-          url: process.env.ACCOUNTS_SERVICE_URL || 'http://accounts-service:3000/graphql',
+          url: process.env.ACCOUNTS_SERVICE_URL || 'http://localhost:4002/graphql',
         },
         {
           name: 'transactions',
-          url: process.env.TRANSACTIONS_SERVICE_URL || 'http://transactions-service:3000/graphql',
+          url: process.env.TRANSACTIONS_SERVICE_URL || 'http://localhost:4003/graphql',
         },
         {
           name: 'aiAgent',
-          url: process.env.AI_AGENT_SERVICE_URL || 'http://ai-agent-service:3000/graphql',
+          url: process.env.AI_AGENT_SERVICE_URL || 'http://localhost:4004/graphql',
         },
         {
           name: 'plaidIntegration',
           url:
             process.env.PLAID_INTEGRATION_SERVICE_URL ||
-            'http://plaid-integration-service:3000/graphql',
+            'http://localhost:4005/graphql',
         },
       ],
-      // Path in Vault to fetch the shared secret for authenticating requests from the gateway to subgraphs.
-      subgraphApiKeyPath: process.env.VAULT_SUBGRAPH_API_KEY_PATH || 'secret/data/shared/subgraphApiKey',
+      /**
+       * Path in Vault to fetch the shared secret for authenticating requests from the gateway to subgraphs.
+       * This complements mTLS at the network layer.
+       * @type {string}
+       */
+      subgraphApiKeyPath:
+        process.env.VAULT_SUBGRAPH_API_KEY_PATH || 'secret/data/shared/subgraphApiKey',
     },
   };
 });
