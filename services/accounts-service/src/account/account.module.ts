@@ -3,75 +3,73 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClientsModule } from '@nestjs/microservices';
 
-// Presentation Layer
+// Presentation Layer (Input Adapters)
 import { AccountResolver } from './account.resolver';
-
-// Application Layer - Command Side
-import { AccountCommandService } from './commands/account-command.service';
 import { AccountController } from './account.controller';
 
-// Domain & Infrastructure Layer - Event Sourcing (Write Model)
-import { AccountEventRepository } from './eventsourcing/account-event.repository';
-// Note: AccountAggregate is a pure domain model, not a NestJS provider.
+// Application Layer - Command Side
+import { AccountCommandService } from './application/commands/account-command.service';
+
+// Infrastructure Layer - Event Sourcing (Write Model Adapter)
+import { AccountEventRepository } from './infrastructure/repositories/account-event.repository';
 
 // Application Layer - Query Side
-import { AccountQueryService } from './queries/account-query.service';
+import { AccountQueryService } from './application/queries/account-query.service';
 
-// Infrastructure Layer - Read Model (Projections)
-import { AccountProjection } from './read-model/account.projection'; // TypeORM Entity for the read model
-import { AccountProjectionService } from './read-model/account-projection.service'; // Event handler to update the read model
+// Infrastructure Layer - Read Model (Projection & Projector Adapter)
+import { AccountProjection } from './infrastructure/projections/account.projection'; // TypeORM Entity for the read model
+import { AccountProjectionUpdater } from './infrastructure/projections/account-projection-updater.service'; // Event handler to update the read model
 
-// Import constants for Kafka client from shared EventBusModule
+// Shared Infrastructure
 import { EVENT_BUS_CLIENT } from '../event-bus/event-bus.module';
 
 /**
  * @module AccountModule
  * @description Encapsulates all logic for the Account bounded context, adhering strictly to
- * CQRS and Event Sourcing principles. This module orchestrates the flow from commands
- * to event storage, and from events to read model projections.
+ * CQRS, Event Sourcing, and Hexagonal Architecture principles. This module orchestrates the flow from
+ * external inputs (GraphQL, Kafka events) to commands, then to event storage, and finally
+ * from events to read model projections.
  *
  * It is responsible for:
  * - Exposing GraphQL queries and mutations (`AccountResolver`).
- * - Handling inbound asynchronous events (`AccountController`).
+ * - Handling inbound asynchronous events from other domains (`AccountController`).
  * - Processing commands and interacting with the Event Store (`AccountCommandService`, `AccountEventRepository`).
- * - Managing and providing access to the read model (projections) (`AccountQueryService`).
- * - Maintaining the read model by reacting to domain events (`AccountProjectionService`).
+ * - Managing and providing access to the read model (`AccountQueryService`).
+ * - Maintaining the read model by reacting to this domain's own events (`AccountProjectionUpdater`).
  */
 @Module({
   imports: [
     ConfigModule, // Provides access to environment variables for configuration.
-    
-    // Configure TypeORM specifically for the read model (projections).
-    // The write model (AccountAggregates) is managed by the Event Store.
+
+    // Configure TypeOrm specifically for the read model (projections).
+    // The write model (AccountAggregates) is managed by the Event Store and is not a TypeORM entity.
     TypeOrmModule.forFeature([AccountProjection]),
-    
-    // Import the Kafka client configured in EventBusModule. This enables
-    // AccountEventRepository to publish events and AccountProjectionService
+
+    // Import the Kafka client configured in the global EventBusModule. This enables
+    // AccountEventRepository to publish events and AccountProjectionUpdater
     // to subscribe to them.
     ClientsModule.forFeature([{ name: EVENT_BUS_CLIENT }]),
   ],
   providers: [
-    // Presentation layer: GraphQL API entry point
-    AccountResolver,
-    
-    // Application layer: Command handling and event listening
-    AccountCommandService,
+    // --- Presentation Layer (Adapters) ---
+    AccountResolver, // Handles GraphQL API requests.
+
+    // --- Application Layer (Use Cases / Ports) ---
+    AccountCommandService, // Orchestrates command execution for the write model.
+    AccountQueryService,   // Provides methods to query the read model.
+
+    // --- Infrastructure Layer (Adapters) ---
+    AccountEventRepository,     // Adapter for persisting and retrieving events from the event store (Kafka).
+    AccountProjectionUpdater, // Adapter that listens to domain events to update the read model.
+  ],
+  controllers: [
+    // The controller now only handles inbound events from other services, acting as a command dispatcher.
     AccountController,
-    
-    // Domain/Infrastructure layer: Event Sourcing components
-    AccountEventRepository,
-    
-    // Application layer: Query handling
-    AccountQueryService,
-    
-    // Infrastructure layer: Read model projection handling
-    AccountProjectionService,
   ],
   exports: [
-    // Export core services that might be used by the root AppModule or other modules.
+    // Export application services to be used by other parts of the service (e.g., for testing or cross-module logic).
     AccountCommandService,
     AccountQueryService,
-    AccountProjectionService,
   ],
 })
 export class AccountModule {}
