@@ -54,9 +54,8 @@ RUN npm ci --omit=dev
 # Copy the compiled application code from the 'build' stage into the 'dist' directory.
 COPY --from=build /usr/src/app/dist ./dist
 
-# Expose the port the application will run on. This should match the port
-# configured in the service's main.ts or .env file.
-EXPOSE 3000
+# Expose the port the application will run on. The Accounts service will run on 4002.
+EXPOSE 4002
 
 # The command to start the application when the container launches
 # We execute the compiled main.js file located in the 'dist' folder using Node.
