@@ -7,28 +7,37 @@ import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { diag, DiagConsoleLogger, DiagLogLevel, trace, context } from '@opentelemetry/api';
 
-// For troubleshooting OpenTelemetry, set the log level to DiagLogLevel.DEBUG
+// --- 2. Application Imports (after OTel setup) ---
+import { INestApplicationContext } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ValidationPipe, LoggerService } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Transport } from '@nestjs/microservices';
+import pino from 'pino';
+import { NativeConnection, Worker } from '@temporalio/worker';
+
+// These imports are assumed to exist after full refactoring according to new architecture.
+// import { BankingService } from './banking.service';
+// import * as activities from './temporal/activities';
+
+// --- 3. OpenTelemetry and Logging Configuration ---
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
 const SERVICE_NAME = 'banking-service';
+const PROMETHEUS_PORT = parseInt(process.env.PROMETHEUS_PORT || '9470', 10);
 
 const otelSDK = new NodeSDK({
-  // The service name is a required attribute for all telemetry data.
   resource: new Resource({
     [SemanticResourceAttributes.SERVICE_NAME]: SERVICE_NAME,
   }),
-  // OTLPTraceExporter will send traces to an OTel Collector.
-  // The endpoint is configurable via the OTEL_EXPORTER_OTLP_ENDPOINT env var.
   traceExporter: new OTLPTraceExporter(),
-  // PrometheusExporter exposes a /metrics endpoint for Prometheus to scrape.
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.METRICS_PORT || '9465', 10),
+    port: PROMETHEUS_PORT,
   }),
-  // Auto-instrument popular libraries (e.g., @nestjs/core, http, graphql)
   instrumentations: [getNodeAutoInstrumentations()],
 });
 
-// Gracefully shut down the SDK on process exit to flush telemetry
 process.on('SIGTERM', () => {
   otelSDK
     .shutdown()
@@ -37,36 +46,18 @@ process.on('SIGTERM', () => {
     .finally(() => process.exit(0));
 });
 
-// Start the OpenTelemetry SDK
 otelSDK.start();
 
-// --- 2. NestJS Application Imports (after OTel setup) ---
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { ValidationPipe, LoggerService } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import pino from 'pino';
-
-// --- 3. Structured Logging with OpenTelemetry Context ---
-/**
- * A custom logger implementation that uses Pino for structured JSON logging
- * and automatically injects OpenTelemetry trace and span IDs into log records.
- */
 class StructuredLogger implements LoggerService {
   private readonly pino: pino.Logger;
-  private readonly serviceName = SERVICE_NAME;
 
   constructor() {
     this.pino = pino({
       level: process.env.LOG_LEVEL || 'info',
-      // Format logs as JSON and enrich with OTel context and service name.
       formatters: {
         log: (object) => {
           const span = trace.getSpan(context.active());
-          const logObject: { [key: string]: any } = {
-            ...object,
-            service: this.serviceName,
-          };
+          const logObject: { [key: string]: any } = { ...object, service: SERVICE_NAME };
           if (span) {
             const spanContext = span.spanContext();
             logObject.trace_id = spanContext.traceId;
@@ -75,41 +66,62 @@ class StructuredLogger implements LoggerService {
           return logObject;
         },
       },
-      // Use pino-pretty for more readable logs in development.
       transport:
         process.env.NODE_ENV !== 'production'
           ? {
               target: 'pino-pretty',
-              options: {
-                colorize: true,
-                singleLine: true,
-                messageFormat: '{service} - {msg}',
-              },
+              options: { colorize: true, singleLine: true, messageFormat: '{service} - {msg}' },
             }
           : undefined,
     });
   }
 
-  log(message: any, context?: string) {
-    this.pino.info({ context }, message);
-  }
-  error(message: any, trace?: string, context?: string) {
-    this.pino.error({ context, stack: trace }, message);
-  }
-  warn(message: any, context?: string) {
-    this.pino.warn({ context }, message);
-  }
-  debug?(message: any, context?: string) {
-    this.pino.debug({ context }, message);
-  }
-  verbose?(message: any, context?: string) {
-    this.pino.trace({ context }, message);
-  }
+  log(message: any, context?: string) { this.pino.info({ context }, message); }
+  error(message: any, trace?: string, context?: string) { this.pino.error({ context, stack: trace }, message); }
+  warn(message: any, context?: string) { this.pino.warn({ context }, message); }
+  debug?(message: any, context?: string) { this.pino.debug({ context }, message); }
+  verbose?(message: any, context?: string) { this.pino.trace({ context }, message); }
 }
 
-// --- 4. Application Bootstrap ---
+// --- 4. Temporal Worker Bootstrap ---
+/**
+ * Initializes and runs the Temporal Worker in the background.
+ * The worker connects to the Temporal cluster and executes workflows and activities
+ * defined in this service, such as the 'sendMoney' saga.
+ * @param app - The NestJS application context to resolve DI for activities.
+ * @param logger - The structured logger for worker-specific logs.
+ */
+async function runTemporalWorker(
+  app: INestApplicationContext,
+  logger: StructuredLogger,
+) {
+  logger.log('Initializing Temporal Worker for banking service...');
+
+  const configService = app.get(ConfigService);
+  // The service containing business logic for activities.
+  // const bankingService = app.get(BankingService);
+
+  const temporalAddress = configService.get<string>('TEMPORAL_ADDRESS');
+  const taskQueue = configService.get<string>('TEMPORAL_BANKING_TASK_QUEUE', 'banking-workflows');
+
+  const connection = await NativeConnection.create({ address: temporalAddress });
+
+  const worker = await Worker.create({
+    connection,
+    namespace: configService.get<string>('TEMPORAL_NAMESPACE', 'default'),
+    taskQueue,
+    // These paths are placeholders and assume the new file structure will be created.
+    // workflowsPath: require.resolve('./temporal/workflows'),
+    // activities: activities.createActivities(bankingService),
+  });
+
+  logger.log(`Temporal Worker started. Listening on task queue: "${taskQueue}".`);
+  await worker.run();
+  logger.log('Temporal Worker has shut down.');
+}
+
+// --- 5. Application Bootstrap ---
 async function bootstrap() {
-  // Use the custom structured logger for the entire application.
   const app = await NestFactory.create(AppModule, {
     logger: new StructuredLogger(),
   });
@@ -117,34 +129,47 @@ async function bootstrap() {
   const logger = app.get(StructuredLogger);
   const configService = app.get(ConfigService);
 
-  // Enable CORS - useful for allowing Apollo Studio to introspect the subgraph in development
+  // Run the Temporal Worker in the background; do not `await` its completion.
+  // Note: This part is commented out as the required files (workflows, activities) are not yet in the repository.
+  /*
+  runTemporalWorker(app, logger).catch((err) => {
+    logger.error('Temporal Worker crashed', err.stack, 'Bootstrap');
+    process.exit(1);
+  });
+  */
+
+  // Connect Kafka Microservice for event consumption/production
+  app.connectMicroservice({
+    transport: Transport.KAFKA,
+    options: {
+      client: {
+        brokers: configService.getOrThrow<string>('KAFKA_BROKERS').split(','),
+        clientId: SERVICE_NAME,
+      },
+      consumer: {
+        groupId: configService.getOrThrow<string>('KAFKA_GROUP_ID', 'banking-service-group'),
+      },
+    },
+  });
+
+  await app.startAllMicroservices();
+  logger.log('Kafka microservice connected.');
+
   app.enableCors();
   logger.log('CORS has been enabled.');
 
-  // Global pipes for validation and transformation of DTOs/Args
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true, // Strip properties that do not have any decorators
-      forbidNonWhitelisted: true, // Throw an error if non-whitelisted values are provided
-      transform: true, // Automatically transform payloads to be objects typed according to their DTO classes
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-    }),
-  );
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   logger.log('Global ValidationPipe configured.');
 
-  // Get port from environment variables, with a fallback.
-  // Using 4001 which was the original port for this service.
   const port = configService.get<number>('PORT') || 4001;
-
   await app.listen(port);
 
-  logger.log(`Banking subgraph is running on: http://localhost:${port}`);
-  logger.log(`GraphQL endpoint available at: http://localhost:${port}/graphql`);
-  logger.log(
-    `Prometheus metrics available on port ${process.env.METRICS_PORT || '9465'}`,
-  );
+  logger.log(`🚀 Banking Subgraph is running on: http://localhost:${port}/graphql`);
+  logger.log(`Prometheus metrics available on port ${PROMETHEUS_PORT}`);
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  const logger = new StructuredLogger();
+  logger.error('Application bootstrap failed', err.stack);
+  process.exit(1);
+});
