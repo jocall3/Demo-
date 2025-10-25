@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from '../users/entities/user.entity';
 
 /**
  * The DatabaseModule is responsible for configuring and providing the database connection
@@ -10,6 +9,10 @@ import { User } from '../users/entities/user.entity';
  * This module follows best practices by using `TypeOrmModule.forRootAsync` to
  * asynchronously configure the database connection using environment variables
  * provided by NestJS's `ConfigService`.
+ *
+ * The configuration now uses a single `DATABASE_URL` environment variable for
+ * streamlined cloud-native deployments and adheres to hexagonal architecture by
+ * automatically discovering entities, decoupling them from the infrastructure layer.
  */
 @Module({
   imports: [
@@ -20,24 +23,18 @@ import { User } from '../users/entities/user.entity';
       // `useFactory` is a function that returns the configuration object.
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
-        host: configService.get<string>('DB_HOST'),
-        port: configService.get<number>('DB_PORT'),
-        username: configService.get<string>('DB_USERNAME'),
-        password: configService.get<string>('DB_PASSWORD'),
-        database: configService.get<string>('DB_DATABASE'),
+        // Use a single DATABASE_URL environment variable for streamlined configuration.
+        url: configService.get<string>('DATABASE_URL'),
 
-        // This array lists all the entities that TypeORM should be aware of.
-        // For now, this service owns the User entity.
-        entities: [User],
-
-        // `autoLoadEntities: true` is a NestJS-specific option that allows
-        // TypeORM to automatically discover entities defined in modules that are registered
-        // with `forFeature`.
+        // `autoLoadEntities: true` automatically discovers any entities registered
+        // with `TypeOrmModule.forFeature()` in other modules. This adheres to
+        // hexagonal architecture by keeping domain entities decoupled from the
+        // infrastructure database module.
         autoLoadEntities: true,
 
         // `synchronize: true` should ONLY be used in development. It automatically
         // creates the database schema on every application launch. For production,
-        // this should be `false`, and migrations should be used instead.
+        // this should be `false`, and migrations should be used instead for safe schema evolution.
         synchronize: configService.get<string>('NODE_ENV') !== 'production',
 
         // It's good practice to enable logging in development to see the generated SQL.
