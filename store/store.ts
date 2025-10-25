@@ -1,7 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit';
-import authReducer from './features/auth/authSlice';
-import userReducer from './features/user/userSlice';
-import themeReducer from './features/theme/themeSlice';
+import authReducer from './slices/authSlice';
+import userReducer from './slices/userSlice';
+import themeReducer from './slices/themeSlice';
 
 /**
  * Configures the main Redux store for the application.
