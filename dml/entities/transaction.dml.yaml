@@ -1,0 +1,155 @@
+domain: Transactions
+name: Transaction
+type: AggregateRoot
+version: "1.0.0"
+description: |
+  Represents a single financial transaction, which is a movement of funds
+  between accounts. It is the central aggregate in the Transactions domain,
+  capturing the complete lifecycle of a payment or transfer from initiation
+  to completion or failure.
+
+properties:
+  - name: id
+    type: UUID
+    isKey: true
+    description: The unique identifier for the transaction aggregate.
+
+  - name: userId
+    type: UUID
+    isForeignKey: true
+    references: User
+    description: The ID of the user who owns or initiated the transaction.
+
+  - name: sourceAccountId
+    type: UUID
+    isForeignKey: true
+    references: Account
+    description: The ID of the account from which funds are debited.
+
+  - name: destinationAccountId
+    type: UUID
+    isForeignKey: true
+    references: Account
+    description: The ID of the account to which funds are credited. For external expenses, this may be a conceptual 'external' account.
+
+  - name: amount
+    type: Money # Reference to a value object defined below
+    description: The monetary value of the transaction.
+
+  - name: description
+    type: String
+    maxLength: 255
+    description: A human-readable description of the transaction (e.g., merchant name, memo).
+
+  - name: category
+    type: String
+    maxLength: 100
+    nullable: true
+    description: The spending category assigned to the transaction (e.g., 'Dining', 'Groceries').
+
+  - name: type
+    type: Enum
+    values: [DEBIT, CREDIT, TRANSFER]
+    description: The fundamental type of the transaction.
+
+  - name: status
+    type: Enum
+    values: [PENDING, PROCESSING_DEBIT, PROCESSING_CREDIT, COMPLETED, FAILED, CANCELED, REFUNDED]
+    description: The current state of the transaction in its lifecycle.
+
+  - name: initiatedAt
+    type: DateTime
+    description: The timestamp when the transaction was initiated.
+    
+  - name: completedAt
+    type: DateTime
+    nullable: true
+    description: The timestamp when the transaction was completed or failed.
+    
+  - name: failureReason
+    type: String
+    nullable: true
+    description: If the transaction failed, this field contains the reason.
+
+valueObjects:
+  - name: Money
+    description: Represents a monetary value with a specific currency.
+    properties:
+      - name: amount
+        type: Decimal
+        precision: [19, 4]
+        description: The numerical amount of money.
+      - name: currency
+        type: String
+        maxLength: 3
+        description: The ISO 4217 currency code (e.g., USD, EUR).
+
+commands:
+  - name: InitiateTransaction
+    description: Starts a new transaction process.
+    properties:
+      - name: userId
+        type: UUID
+      - name: sourceAccountId
+        type: UUID
+      - name: destinationAccountId
+        type: UUID
+      - name: amount
+        type: Decimal
+      - name: currency
+        type: String
+      - name: description
+        type: String
+
+  - name: CompleteTransaction
+    description: Marks the transaction as successfully completed.
+    properties:
+      - name: transactionId
+        type: UUID
+
+  - name: FailTransaction
+    description: Marks the transaction as failed and provides a reason.
+    properties:
+      - name: transactionId
+        type: UUID
+      - name: reason
+        type: String
+
+events:
+  - name: TransactionInitiated
+    description: Published when a new transaction is started. This is the first event in the aggregate's lifecycle.
+    properties:
+      - name: transactionId
+        type: UUID
+      - name: userId
+        type: UUID
+      - name: sourceAccountId
+        type: UUID
+      - name: destinationAccountId
+        type: UUID
+      - name: amount
+        type: Decimal
+      - name: currency
+        type: String
+      - name: description
+        type: String
+      - name: initiatedAt
+        type: DateTime
+
+  - name: TransactionCompleted
+    description: Published when all steps of the transaction (e.g., debit and credit) have successfully finished.
+    properties:
+      - name: transactionId
+        type: UUID
+      - name: completedAt
+        type: DateTime
+
+  - name: TransactionFailed
+    description: Published when any step in the transaction process fails irrecoverably.
+    properties:
+      - name: transactionId
+        type: UUID
+      - name: reason
+        type: String
+      - name: failedAt
+        type: DateTime
