@@ -48,17 +48,17 @@ process.on('SIGTERM', () => {
 otelSDK.start();
 
 // --- 2. Application Imports (after OTel setup) ---
+import { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Transport } from '@nestjs/microservices';
+import { Transport, ClientKafka } from '@nestjs/microservices';
 import pino from 'pino';
 import vault from 'node-vault';
 import { NativeConnection, Worker } from '@temporalio/worker';
-import { createActivities } from './temporal/activities';
-import { AgentService } from './agent/agent.service';
-import { ClientKafka } from '@nestjs/microservices';
+import { AgentService } from './application/services/agent.service';
+import * as activities from './temporal/activities';
 import { KAFKA_CLIENT } from './event-bus/event-bus.module';
 
 // --- 3. Vault Secret Fetching ---
@@ -156,7 +156,6 @@ async function bootstrap() {
   const runTemporalWorker = async () => {
     logger.log('Initializing Temporal Worker...');
 
-    // Create a separate, lightweight NestJS context to resolve dependencies for activities.
     const workerAppContext = await NestFactory.createApplicationContext(AppModule, { logger: false });
     const agentService = workerAppContext.get(AgentService);
     const kafkaClient = workerAppContext.get<ClientKafka>(KAFKA_CLIENT);
@@ -170,7 +169,7 @@ async function bootstrap() {
       namespace: configService.get<string>('TEMPORAL_NAMESPACE', 'default'),
       taskQueue: configService.get<string>('TEMPORAL_TASK_QUEUE', 'ai-agent-tasks'),
       workflowsPath: require.resolve('./temporal/workflows'),
-      activities: createActivities(agentService, kafkaClient),
+      activities: activities.createActivities(agentService, kafkaClient),
     });
 
     logger.log(`Temporal Worker started. Listening on task queue: "${configService.get<string>('TEMPORAL_TASK_QUEUE', 'ai-agent-tasks')}".`);
@@ -179,13 +178,11 @@ async function bootstrap() {
     await workerAppContext.close();
   };
 
-  // Run the worker in the background; do not `await` its completion.
   runTemporalWorker().catch((err) => {
     logger.error('Temporal Worker crashed', err.stack, 'Bootstrap');
     process.exit(1);
   });
 
-  // Connect Kafka for event consumers in the main application (e.g., in AgentController)
   app.connectMicroservice({
     transport: Transport.KAFKA,
     options: {
@@ -211,11 +208,12 @@ async function bootstrap() {
   const port = configService.get<number>('PORT') || 4004;
   await app.listen(port);
 
-  logger.log(`🚀 AI Agent Service (GraphQL API) is running on: http://localhost:${port}/graphql`);
+  logger.log(`ðŸš€ AI Agent Service (GraphQL API) is running on: http://localhost:${port}/graphql`);
   logger.log(`Prometheus metrics available on port ${PROMETHEUS_PORT}`);
 }
 
 bootstrap().catch((err) => {
   preBootstrapLogger.error('Application bootstrap failed', err.stack);
   process.exit(1);
+});
 });

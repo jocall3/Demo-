@@ -1,0 +1,39 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: banking-service
+  description: Banking subgraph for the Demo Bank federated supergraph, handling Plaid integration, payment processing orchestrated via Temporal workflows, and event-driven communication.
+  tags:
+    - nodejs
+    - nestjs
+    - microservice
+    - graphql
+    - subgraph
+    - banking
+  annotations:
+    # Links to source code, tech docs, and other resources.
+    backstage.io/source-location: url:https://github.com/your-org/your-repo/tree/main/services/banking
+    backstage.io/techdocs-ref: dir:.
+    # Kubernetes annotations for linking to cluster resources.
+    backstage.io/kubernetes-label-selector: 'app.kubernetes.io/name=banking-service'
+    # GraphQL-specific annotations for schema visualization.
+    'graphql.backstage.io/schema-location': 'schema.gql'
+spec:
+  type: service
+  lifecycle: production
+  owner: team-core-banking
+  system: demobank-core-platform
+  # API provided by this service (its GraphQL subgraph).
+  providesApis:
+    - banking-graphql-api
+  # APIs consumed by this service.
+  consumesApis:
+    - plaid-api # External Plaid API for bank account integration.
+    - stripe-api # External Stripe API for payment processing.
+    - temporal-api # Internal API for workflow orchestration.
+  # Other components and resources this service depends on.
+  dependsOn:
+    - resource:default/banking-db # The dedicated database for this service.
+    - component:default/api-gateway # It is a subgraph consumed by the gateway.
+    - resource:default/message-bus-kafka # For event-driven communication.
+    - resource:default/temporal-cluster # For durable sagas and workflows.
