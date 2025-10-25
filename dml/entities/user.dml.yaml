@@ -1,0 +1,231 @@
+apiVersion: dml.demobank.com/v1alpha1
+kind: Entity
+metadata:
+  name: User
+  domain: identity
+  description: "Represents a user within the Demo Bank ecosystem. This is the central aggregate root for user identity and profile information."
+  tags:
+    - user
+    - identity
+    - profile
+
+spec:
+  aggregateRoot: true
+  properties:
+    id:
+      type: uuid
+      description: "The unique identifier for the user entity, generated internally."
+      constraints:
+        required: true
+        immutable: true
+      primaryKey: true
+      graphql:
+        type: "ID!"
+        description: "The user's unique ID."
+      protobuf:
+        field_number: 1
+        type: "string"
+      database:
+        column_name: "id"
+        type: "uuid"
+        primary_key: true
+
+    authId:
+      type: string
+      description: "The unique identifier from the external authentication provider (e.g., Keycloak 'sub' claim). This is used to link the domain user to the authentication identity."
+      constraints:
+        required: true
+        unique: true
+        immutable: true
+      pii: true
+      graphql:
+        type: "String!"
+        description: "The external authentication provider ID."
+      protobuf:
+        field_number: 2
+        type: "string"
+      database:
+        column_name: "auth_id"
+        type: "varchar(255)"
+        index: true
+
+    email:
+      type: email
+      description: "The user's primary email address. Must be unique across the system."
+      constraints:
+        required: true
+        unique: true
+        maxLength: 254
+      pii: true
+      graphql:
+        type: "String!"
+        description: "The user's email address."
+      protobuf:
+        field_number: 3
+        type: "string"
+      database:
+        column_name: "email"
+        type: "varchar(254)"
+        index: { unique: true }
+
+    name:
+      type: string
+      description: "The user's full name or display name."
+      constraints:
+        required: true
+        minLength: 2
+        maxLength: 100
+      pii: true
+      graphql:
+        type: "String!"
+        description: "The user's full name."
+      protobuf:
+        field_number: 4
+        type: "string"
+      database:
+        column_name: "name"
+        type: "varchar(100)"
+
+    title:
+      type: string
+      description: "An optional professional title or role for the user, such as 'Founder' or 'Visionary'."
+      constraints:
+        maxLength: 100
+      pii: false
+      graphql:
+        type: "String"
+        description: "The user's professional title."
+      protobuf:
+        field_number: 5
+        type: "optional string"
+      database:
+        column_name: "title"
+        type: "varchar(100)"
+        nullable: true
+
+    avatarUrl:
+      type: url
+      description: "An optional URL for the user's avatar or profile picture."
+      constraints:
+        maxLength: 2048
+      pii: false
+      graphql:
+        type: "String"
+        description: "URL for the user's avatar image."
+      protobuf:
+        field_number: 6
+        type: "optional string"
+      database:
+        column_name: "avatar_url"
+        type: "varchar(2048)"
+        nullable: true
+
+    preferences:
+      type: UserPreferences # This references the ValueObject defined below
+      description: "A value object containing user-specific settings and preferences."
+      constraints:
+        required: true
+      graphql:
+        type: "UserPreferences!"
+        description: "User-specific settings."
+      protobuf:
+        field_number: 7
+        type: "UserPreferences"
+      database:
+        column_name: "preferences"
+        type: "jsonb"
+        default: "{}"
+
+    createdAt:
+      type: datetime
+      description: "The timestamp when the user profile was created."
+      constraints:
+        required: true
+        immutable: true
+      graphql:
+        type: "DateTime!"
+        description: "Creation timestamp."
+      protobuf:
+        field_number: 8
+        type: "google.protobuf.Timestamp"
+      database:
+        column_name: "created_at"
+        type: "timestamptz"
+        default: "now()"
+
+    updatedAt:
+      type: datetime
+      description: "The timestamp when the user profile was last updated."
+      constraints:
+        required: true
+      graphql:
+        type: "DateTime!"
+        description: "Last update timestamp."
+      protobuf:
+        field_number: 9
+        type: "google.protobuf.Timestamp"
+      database:
+        column_name: "updated_at"
+        type: "timestamptz"
+        default: "now()"
+        on_update: "now()"
+
+  # Embedded definitions for value objects and enums used by this entity
+  definitions:
+    - apiVersion: dml.demobank.com/v1alpha1
+      kind: ValueObject
+      metadata:
+        name: UserPreferences
+        description: "A value object containing user-specific settings for UI theme, language, and notification settings. Value objects are immutable."
+      spec:
+        properties:
+          theme:
+            type: ThemeMode # This references the Enum defined below
+            description: "The user's preferred visual theme."
+            constraints:
+              required: true
+              default: "DARK"
+            graphql:
+              type: "ThemeMode!"
+            protobuf:
+              field_number: 1
+              type: "ThemeMode"
+            database:
+              type: "varchar(50)"
+          language:
+            type: string
+            description: "The user's preferred language, in IETF language tag format (e.g., 'en-US')."
+            constraints:
+              required: true
+              default: "en-US"
+              pattern: "^[a-z]{2}(-[A-Z]{2})?$"
+            graphql:
+              type: "String!"
+            protobuf:
+              field_number: 2
+              type: "string"
+            database:
+              type: "varchar(10)"
+          receiveMarketingEmails:
+            type: boolean
+            description: "Indicates whether the user has opted-in to receive marketing communications."
+            constraints:
+              required: true
+              default: false
+            graphql:
+              type: "Boolean!"
+            protobuf:
+              field_number: 3
+              type: "bool"
+            database:
+              type: "boolean"
+
+    - apiVersion: dml.demobank.com/v1alpha1
+      kind: Enum
+      metadata:
+        name: ThemeMode
+        description: "Defines the possible UI themes."
+      spec:
+        values:
+          - DARK
+          - LIGHT
