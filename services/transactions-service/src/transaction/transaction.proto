@@ -3,6 +3,8 @@ syntax = "proto3";
 package transaction;
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
 
 // Best practice options for code generation in other languages.
 option go_package = "github.com/demobank/transactions-service/proto/transaction";

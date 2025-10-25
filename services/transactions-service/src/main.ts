@@ -33,16 +33,18 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Transport } from '@nestjs/microservices';
+import { Transport, ClientKafka } from '@nestjs/microservices';
 import pino from 'pino';
 import { NativeConnection, Worker } from '@temporalio/worker';
 import { TransactionService } from './transaction/transaction.service';
-import * as activities from './temporal/activities';
+import * as activities from './temporal/activities/payment.activities';
+import { KAFKA_PRODUCER_CLIENT } from './event-bus/event-bus.module';
 
 // --- 3. OpenTelemetry Initialization ---
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
 const SERVICE_NAME = 'transactions-service';
+const PROMETHEUS_PORT = parseInt(process.env.PROMETHEUS_PORT || '9468', 10);
 
 const otelSDK = new NodeSDK({
   resource: new Resource({
@@ -50,7 +52,7 @@ const otelSDK = new NodeSDK({
   }),
   traceExporter: new OTLPTraceExporter(),
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.PROMETHEUS_PORT || '9468', 10),
+    port: PROMETHEUS_PORT,
   }),
   instrumentations: [getNodeAutoInstrumentations()],
 });
@@ -126,7 +128,7 @@ async function runTemporalWorker(
   const transactionService = app.get(TransactionService);
 
   const temporalAddress = configService.get<string>('TEMPORAL_ADDRESS', 'localhost:7233');
-  const taskQueue = configService.get<string>('TEMPORAL_TRANSACTIONS_TASK_QUEUE', 'transactions-queue');
+  const taskQueue = configService.get<string>('TEMPORAL_TASK_QUEUE', 'transactions-queue');
 
   const connection = await NativeConnection.create({ address: temporalAddress });
 
@@ -134,7 +136,7 @@ async function runTemporalWorker(
     connection,
     namespace: configService.get<string>('TEMPORAL_NAMESPACE', 'default'),
     taskQueue,
-    workflowsPath: require.resolve('./temporal/workflows'),
+    workflowsPath: require.resolve('./temporal/workflows/payment.workflow'),
     activities: activities.createActivities(transactionService),
   });
 
@@ -152,7 +154,7 @@ async function bootstrap() {
   const logger = app.get(StructuredLogger);
   const configService = app.get(ConfigService);
 
-  // Run the Temporal Worker in the background; do not await its completion.
+  // Run the Temporal Worker in the background; do not `await` its completion.
   runTemporalWorker(app, logger).catch((err) => {
     logger.error('Temporal Worker crashed', err.stack, 'Bootstrap');
     process.exit(1);
@@ -190,12 +192,11 @@ async function bootstrap() {
   logger.log('Global ValidationPipe configured.');
 
   const port = configService.get<number>('PORT') || 4003;
-  const prometheusPort = process.env.PROMETHEUS_PORT || '9468';
 
   await app.listen(port);
 
   logger.log(`🚀 Transactions subgraph is running on: http://localhost:${port}/graphql`);
-  logger.log(`Prometheus metrics available on port ${prometheusPort}`);
+  logger.log(`Prometheus metrics available on port ${PROMETHEUS_PORT}`);
 }
 
 bootstrap().catch((err) => {
