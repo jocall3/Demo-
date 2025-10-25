@@ -1,19 +1,125 @@
-import React, { useContext, useState, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Card from './Card';
-import { DataContext } from '../context/DataContext';
-import type { BudgetCategory, Transaction } from '../types';
-import { GoogleGenAI, Chat } from "@google/genai";
+import type { BudgetCategory as Budget, Transaction } from '../types';
+import { gql } from 'graphql-request'; // Using this for query string definition clarity
+
+// ================================================================================================
+// GRAPHQL & SERVICE LAYER (Conceptual, as per new architecture)
+// ================================================================================================
+
+// A lightweight GraphQL client function (could be in a shared lib)
+async function graphqlRequest<T>(query: string, variables?: Record<string, any>): Promise<T> {
+    const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables }),
+    });
+    if (!response.ok) throw new Error('Network response was not ok');
+    const { data, errors } = await response.json();
+    if (errors) throw new Error(errors[0].message);
+    return data;
+}
+
+const GET_BUDGETS_QUERY = gql`
+    query GetUserBudgets {
+        userData {
+            budgets {
+                id
+                name
+                limit
+                spent
+                color
+            }
+        }
+    }
+`;
+
+const GET_TRANSACTIONS_BY_CATEGORY_QUERY = gql`
+    query GetTransactionsByCategory($category: String!) {
+        transactionsByCategory(category: $category) {
+            id
+            description
+            amount
+            date
+        }
+    }
+`;
+
+const ADD_BUDGET_MUTATION = gql`
+    mutation AddBudget($name: String!, $limit: Float!) {
+        addBudget(input: { name: $name, limit: $limit }) {
+            id
+            name
+            limit
+            spent
+            color
+        }
+    }
+`;
+
+const GET_BUDGET_INSIGHT_MUTATION = gql`
+    mutation GetBudgetInsight($prompt: String!) {
+        askAIAdvisor(message: $prompt) {
+            messages {
+                role
+                parts {
+                    text
+                }
+            }
+        }
+    }
+`;
+
+
+// ================================================================================================
+// CUSTOM HOOKS (Feature-Sliced State Management)
+// ================================================================================================
+
+const useBudgets = () => useQuery<Budget[], Error>({
+    queryKey: ['budgets'],
+    queryFn: async () => {
+        const data = await graphqlRequest<{ userData: { budgets: Budget[] } }>(GET_BUDGETS_QUERY);
+        return data.userData.budgets;
+    },
+});
+
+const useAddBudget = () => {
+    const queryClient = useQueryClient();
+    return useMutation<Budget, Error, { name: string, limit: number }>({
+        mutationFn: (variables) => graphqlRequest(ADD_BUDGET_MUTATION, variables),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['budgets'] });
+        },
+    });
+};
+
+const useTransactionsForCategory = (category: string | null) => useQuery<Transaction[], Error>({
+    queryKey: ['transactions', { category }],
+    queryFn: () => graphqlRequest<{ transactionsByCategory: Transaction[] }>(GET_TRANSACTIONS_BY_CATEGORY_QUERY, { category }).then(data => data.transactionsByCategory),
+    enabled: !!category, // Only run this query when a category is selected
+});
+
+const useBudgetInsight = () => useMutation<any, Error, { prompt: string }>({
+    mutationFn: ({ prompt }) => graphqlRequest(GET_BUDGET_INSIGHT_MUTATION, { prompt }),
+});
+
 
 // ================================================================================================
 // MODAL & UI SUB-COMPONENTS
 // ================================================================================================
 
-const NewBudgetModal: React.FC<{ isOpen: boolean; onClose: () => void; onAdd: (name: string, limit: number) => void; }> = ({ isOpen, onClose, onAdd }) => {
+const NewBudgetModal: React.FC<{ 
+    isOpen: boolean; 
+    onClose: () => void; 
+    onAdd: (name: string, limit: number) => void; 
+    isAdding: boolean;
+}> = ({ isOpen, onClose, onAdd, isAdding }) => {
     const [name, setName] = useState('');
     const [limit, setLimit] = useState('');
 
     const handleSubmit = () => {
-        if(name && limit) {
+        if(name && limit && !isAdding) {
             onAdd(name, parseFloat(limit));
             onClose();
             setName('');
@@ -33,16 +139,19 @@ const NewBudgetModal: React.FC<{ isOpen: boolean; onClose: () => void; onAdd: (n
                 <div className="p-6 space-y-4">
                     <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Budget Name (e.g., Entertainment)" className="w-full bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500" />
                     <input type="number" value={limit} onChange={e => setLimit(e.target.value)} placeholder="Monthly Limit ($)" className="w-full bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-cyan-500" />
-                    <button onClick={handleSubmit} className="w-full py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg">Create</button>
+                    <button onClick={handleSubmit} disabled={isAdding} className="w-full py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg disabled:opacity-50">
+                        {isAdding ? 'Creating...' : 'Create'}
+                    </button>
                 </div>
             </div>
         </div>
     );
 };
 
-const BudgetDetailModal: React.FC<{ budget: BudgetCategory | null; transactions: Transaction[]; onClose: () => void; }> = ({ budget, transactions, onClose }) => {
+const BudgetDetailModal: React.FC<{ budget: Budget | null; onClose: () => void; }> = ({ budget, onClose }) => {
+    const { data: transactions, isLoading } = useTransactionsForCategory(budget?.name || null);
+
     if (!budget) return null;
-    const relevantTransactions = transactions.filter(t => t.category.toLowerCase() === budget.name.toLowerCase() && t.type === 'expense');
 
     return (
          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm" onClick={onClose}>
@@ -53,7 +162,8 @@ const BudgetDetailModal: React.FC<{ budget: BudgetCategory | null; transactions:
                 </div>
                 <div className="p-6">
                     <div className="max-h-80 overflow-y-auto space-y-2">
-                        {relevantTransactions.length > 0 ? relevantTransactions.map(tx => (
+                        {isLoading ? <p>Loading transactions...</p> : 
+                        transactions && transactions.length > 0 ? transactions.map(tx => (
                             <div key={tx.id} className="flex justify-between items-center p-2 bg-gray-900/50 rounded-lg text-sm">
                                 <div>
                                     <p className="text-white">{tx.description}</p>
@@ -70,7 +180,7 @@ const BudgetDetailModal: React.FC<{ budget: BudgetCategory | null; transactions:
 };
 
 
-const BudgetRing: React.FC<{ budget: BudgetCategory; onClick: () => void; }> = ({ budget, onClick }) => {
+const BudgetRing: React.FC<{ budget: Budget; onClick: () => void; }> = ({ budget, onClick }) => {
   const percentage = Math.min(Math.floor((budget.spent / budget.limit) * 100), 100);
   const circumference = 2 * Math.PI * 45;
   const offset = circumference - (percentage / 100) * circumference;
@@ -114,106 +224,60 @@ interface InsightMessage {
 // ================================================================================================
 
 const BudgetsView: React.FC = () => {
-  const context = useContext(DataContext);
-  const [conversation, setConversation] = useState<InsightMessage[]>([]);
-  const [userInput, setUserInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [hasStarted, setHasStarted] = useState(false);
-  const chatRef = useRef<Chat | null>(null);
-  const [isNewBudgetModalOpen, setIsNewBudgetModalOpen] = useState(false);
-  const [selectedBudget, setSelectedBudget] = useState<BudgetCategory | null>(null);
+    const { data: budgets, isLoading: isLoadingBudgets, error: budgetsError } = useBudgets();
+    const { mutate: addBudget, isPending: isAddingBudget } = useAddBudget();
+    const { mutate: getInsight, isPending: isLoadingInsight, data: insightData, error: insightError } = useBudgetInsight();
 
+    const [conversation, setConversation] = useState<InsightMessage[]>([]);
+    const [userInput, setUserInput] = useState('');
+    const [isNewBudgetModalOpen, setIsNewBudgetModalOpen] = useState(false);
+    const [selectedBudget, setSelectedBudget] = useState<Budget | null>(null);
 
-  if (!context) {
-    throw new Error("BudgetsView must be a child of DataProvider.");
-  }
-  const { budgets, transactions, addBudget } = context;
-  
-  const initializeChat = () => {
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-        const budgetContext = `You are Quantum, a specialized financial advisor AI focused on budget analysis. The user's current budget data is: ${JSON.stringify(budgets)}. Your goal is to provide concise, actionable advice to help them manage their spending effectively. Keep responses brief and to the point.`;
+    const handleSendMessage = useCallback((messageText: string) => {
+        if (!messageText.trim()) return;
+
+        const userMsg: InsightMessage = { id: Date.now().toString(), sender: 'user', text: messageText };
+        setConversation(prev => [...prev, userMsg]);
+        setUserInput('');
         
-        chatRef.current = ai.chats.create({
-            model: 'gemini-2.5-flash',
-            config: {
-                systemInstruction: budgetContext
-            }
-        });
-    } catch (err) {
-        console.error("AI insight error:", err);
-        setError("I'm having trouble providing insights right now. Please try again later.");
-    }
-  }
-
-  const handleSendMessage = async (messageText: string) => {
-    if (!messageText.trim() || isLoading) return;
-
-    if (!chatRef.current) {
-        initializeChat();
-    }
-    if (!chatRef.current) return; // initialization failed
+        // Include current budget data as context for the AI
+        const contextPrompt = `Context: My current budgets are ${JSON.stringify(budgets)}. Question: ${messageText}`;
+        getInsight({ prompt: contextPrompt });
+    }, [budgets, getInsight]);
     
-    setIsLoading(true);
-    setError('');
-    if (!hasStarted) setHasStarted(true);
-
-    const userMsg: InsightMessage = { id: Date.now().toString(), sender: 'user', text: messageText };
-    setConversation(prev => [...prev, userMsg]);
-    setUserInput('');
-
-    try {
-        const chat = chatRef.current;
-        const stream = await chat.sendMessageStream({ message: messageText });
-        
-        let aiResponseText = '';
-        const aiMsgId = Date.now().toString() + '-ai';
-        setConversation(prev => [...prev, { id: aiMsgId, sender: 'ai', text: '' }]);
-
-        for await (const chunk of stream) {
-            aiResponseText += chunk.text;
-            setConversation(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: aiResponseText } : m));
+    // Add AI response to conversation when data changes
+    useMemo(() => {
+        if(insightData) {
+            const aiText = insightData.askAIAdvisor.messages.find((m: any) => m.role === 'model')?.parts[0]?.text;
+            if (aiText) {
+                const aiMsg: InsightMessage = { id: `ai_${Date.now()}`, sender: 'ai', text: aiText };
+                setConversation(prev => [...prev, aiMsg]);
+            }
         }
+    }, [insightData]);
 
-    } catch (err) {
-        console.error("AI insight error:", err);
-        setError("I'm having trouble providing an insight right now. Please try again later.");
-    } finally {
-        setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!hasStarted) {
-        // Automatically trigger the first AI insight when the component loads.
-        const timer = setTimeout(() => {
+    // Initial insight on component load
+    useEffect(() => {
+        if (budgets && budgets.length > 0 && conversation.length === 0) {
             handleSendMessage("Analyze my current budgets and give me one key insight.");
-        }, 500);
-        return () => clearTimeout(timer);
-    }
-  }, [hasStarted]);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [budgets]);
 
   return (
     <>
     <div className="space-y-6">
-      <Card title="Monthly Budgets" headerActions={[{ id: 'add', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>, onClick: () => setIsNewBudgetModalOpen(true), label: 'Add new budget' }]}>
+      <Card title="Monthly Budgets" isLoading={isLoadingBudgets} errorState={budgetsError?.message} headerActions={[{ id: 'add', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>, onClick: () => setIsNewBudgetModalOpen(true), label: 'Add new budget' }]}>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          {budgets.map(budget => (
+          {budgets && budgets.map(budget => (
             <BudgetRing key={budget.id} budget={budget} onClick={() => setSelectedBudget(budget)} />
           ))}
         </div>
       </Card>
       <Card title="Quantum Insights">
-         {!hasStarted && !isLoading ? (
-             <div className="text-center min-h-[10rem] flex flex-col items-center justify-center">
-                 <p className="text-gray-400 mb-4">Let Quantum analyze your spending and provide personalized advice.</p>
-                 <div className="flex items-center space-x-2 text-cyan-300">
-                    <div className="h-2 w-2 bg-cyan-400 rounded-full animate-pulse [animation-delay:-0.3s]"></div>
-                    <div className="h-2 w-2 bg-cyan-400 rounded-full animate-pulse [animation-delay:-0.15s]"></div>
-                    <div className="h-2 w-2 bg-cyan-400 rounded-full animate-pulse"></div>
-                    <span>Quantum is preparing your first insight...</span>
-                </div>
+         {(conversation.length === 0 && !isLoadingInsight) ? (
+             <div className="text-center min-h-[10rem] flex items-center justify-center">
+                 <p className="text-gray-400">Quantum is ready to analyze your spending habits.</p>
             </div>
          ) : (
             <div className="flex flex-col space-y-4 max-h-96">
@@ -226,7 +290,7 @@ const BudgetsView: React.FC = () => {
                             </div>
                         </div>
                     ))}
-                    {isLoading && (
+                    {isLoadingInsight && (
                          <div className="flex items-start gap-2">
                              <div className="w-6 h-6 rounded-full bg-cyan-600/50 flex items-center justify-center text-cyan-200 font-bold text-xs flex-shrink-0 mt-1">Q</div>
                              <div className="max-w-md p-3 text-sm rounded-lg bg-gray-700 text-gray-200">
@@ -238,9 +302,9 @@ const BudgetsView: React.FC = () => {
                              </div>
                          </div>
                     )}
-                     {error && (
+                     {insightError && (
                         <div className="p-3 bg-red-900/50 border border-red-500/30 rounded-lg text-red-200 text-sm">
-                            <p>{error}</p>
+                            <p>Sorry, I couldn't generate an insight: {insightError.message}</p>
                         </div>
                     )}
                 </div>
@@ -251,16 +315,16 @@ const BudgetsView: React.FC = () => {
                         onChange={(e) => setUserInput(e.target.value)}
                         placeholder="Ask a follow-up question..."
                         className="flex-1 bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                        disabled={isLoading}
+                        disabled={isLoadingInsight}
                     />
-                    <button type="submit" disabled={isLoading || !userInput} className="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm transition-colors disabled:opacity-50">Send</button>
+                    <button type="submit" disabled={isLoadingInsight || !userInput} className="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm transition-colors disabled:opacity-50">Send</button>
                  </form>
             </div>
          )}
       </Card>
     </div>
-    <NewBudgetModal isOpen={isNewBudgetModalOpen} onClose={() => setIsNewBudgetModalOpen(false)} onAdd={(name, limit) => addBudget({ name, limit })} />
-    <BudgetDetailModal budget={selectedBudget} transactions={transactions} onClose={() => setSelectedBudget(null)} />
+    <NewBudgetModal isOpen={isNewBudgetModalOpen} onClose={() => setIsNewBudgetModalOpen(false)} onAdd={addBudget} isAdding={isAddingBudget} />
+    <BudgetDetailModal budget={selectedBudget} onClose={() => setSelectedBudget(null)} />
     </>
   );
 };

@@ -1,7 +1,7 @@
-import React, { useContext, useState } from 'react';
+import React, { useState } from 'react';
 import Card from './Card';
 import { AIInsight } from '../types';
-import { DataContext } from '../context/DataContext';
+import { useData } from '../context/DataContext';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 
 /**
@@ -43,10 +43,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
  * enhanced with client-side state management for dismissing insights and a more polished UI.
  */
 const AIInsights: React.FC = () => {
-    const context = useContext(DataContext);
-    if (!context) throw new Error("AIInsights must be within a DataProvider");
-    
-    const { aiInsights, isInsightsLoading } = context;
+    const { aiInsights, isLoading: isInsightsLoading } = useData();
 
     // Local state to track which insights the user has dismissed.
     const [dismissed, setDismissed] = useState<string[]>([]);
@@ -91,7 +88,7 @@ const AIInsights: React.FC = () => {
                         key={insight.id} 
                         className="relative p-4 bg-gray-700/50 rounded-lg border border-gray-600/50 hover:border-cyan-400/50 transition-all duration-200 group"
                     >
-                        <UrgencyIndicator urgency={insight.urgency} />
+                        <UrgencyIndicator urgency={insight.urgency as 'low' | 'medium' | 'high'} />
                         
                         <button 
                             onClick={(e) => handleDismiss(e, insight.id)} 
