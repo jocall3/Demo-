@@ -1,9 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
-
-// Apollo Client for GraphQL integration
-import { ApolloClient, InMemoryCache, ApolloProvider } from '@apollo/client';
+import AppWrapper from './App';
 
 // OpenTelemetry for client-side web instrumentation
 import { WebTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-web';
@@ -71,22 +68,17 @@ const initializeOpenTelemetry = () => {
 // Initialize OpenTelemetry as early as possible in the application lifecycle.
 initializeOpenTelemetry();
 
-// Configure the Apollo Client to connect to the GraphQL Supergraph Gateway.
-const client = new ApolloClient({
-    uri: import.meta.env.VITE_GRAPHQL_GATEWAY_URL || 'http://localhost:4000/', // The URL of the Apollo Gateway
-    cache: new InMemoryCache(),
-});
-
+// Get the root HTML element where the React application will be mounted.
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
+// Create a React root and render the main application component.
+// The AppWrapper now encapsulates all necessary providers (Auth0Provider, ApolloProvider, Redux Provider).
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <ApolloProvider client={client}>
-      <App />
-    </ApolloProvider>
+    <AppWrapper />
   </React.StrictMode>
 );

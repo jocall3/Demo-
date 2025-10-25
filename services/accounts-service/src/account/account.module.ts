@@ -1,36 +1,77 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { HttpModule } from '@nestjs/axios';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ClientsModule } from '@nestjs/microservices';
 
+// Presentation Layer
 import { AccountResolver } from './account.resolver';
-import { AccountService } from './account.service';
-import { PlaidService } from './plaid.service';
-import { Account } from './entities/account.entity';
-import { PlaidItem } from './entities/plaid-item.entity';
+
+// Application Layer - Command Side
+import { AccountCommandService } from './commands/account-command.service';
+import { AccountController } from './account.controller';
+
+// Domain & Infrastructure Layer - Event Sourcing (Write Model)
+import { AccountEventRepository } from './eventsourcing/account-event.repository';
+// Note: AccountAggregate is a pure domain model, not a NestJS provider.
+
+// Application Layer - Query Side
+import { AccountQueryService } from './queries/account-query.service';
+
+// Infrastructure Layer - Read Model (Projections)
+import { AccountProjection } from './read-model/account.projection'; // TypeORM Entity for the read model
+import { AccountProjectionService } from './read-model/account-projection.service'; // Event handler to update the read model
+
+// Import constants for Kafka client from shared EventBusModule
+import { EVENT_BUS_CLIENT } from '../event-bus/event-bus.module';
 
 /**
- * The AccountModule encapsulates all logic related to financial accounts.
- * As part of the Accounts microservice, this module is responsible for:
- * - Resolving GraphQL queries and mutations related to accounts.
- * - Interacting with the Plaid API via the PlaidService to fetch account data.
- * - Managing persistence of account and Plaid item data in the database.
+ * @module AccountModule
+ * @description Encapsulates all logic for the Account bounded context, adhering strictly to
+ * CQRS and Event Sourcing principles. This module orchestrates the flow from commands
+ * to event storage, and from events to read model projections.
+ *
+ * It is responsible for:
+ * - Exposing GraphQL queries and mutations (`AccountResolver`).
+ * - Handling inbound asynchronous events (`AccountController`).
+ * - Processing commands and interacting with the Event Store (`AccountCommandService`, `AccountEventRepository`).
+ * - Managing and providing access to the read model (projections) (`AccountQueryService`).
+ * - Maintaining the read model by reacting to domain events (`AccountProjectionService`).
  */
 @Module({
   imports: [
     ConfigModule, // Provides access to environment variables for configuration.
-    HttpModule.register({
-      timeout: 10000, // Set a 10-second timeout for external API calls.
-      maxRedirects: 5,
-    }),
-    // Register the entities this module is responsible for with TypeORM.
-    TypeOrmModule.forFeature([Account, PlaidItem]),
+    
+    // Configure TypeORM specifically for the read model (projections).
+    // The write model (AccountAggregates) is managed by the Event Store.
+    TypeOrmModule.forFeature([AccountProjection]),
+    
+    // Import the Kafka client configured in EventBusModule. This enables
+    // AccountEventRepository to publish events and AccountProjectionService
+    // to subscribe to them.
+    ClientsModule.forFeature([{ name: EVENT_BUS_CLIENT }]),
   ],
   providers: [
-    AccountResolver, // Handles GraphQL API requests.
-    AccountService, // Contains the core business logic for accounts.
-    PlaidService, // Encapsulates communication with the Plaid API.
+    // Presentation layer: GraphQL API entry point
+    AccountResolver,
+    
+    // Application layer: Command handling and event listening
+    AccountCommandService,
+    AccountController,
+    
+    // Domain/Infrastructure layer: Event Sourcing components
+    AccountEventRepository,
+    
+    // Application layer: Query handling
+    AccountQueryService,
+    
+    // Infrastructure layer: Read model projection handling
+    AccountProjectionService,
   ],
-  exports: [AccountService], // Export the service for use in other modules if needed.
+  exports: [
+    // Export core services that might be used by the root AppModule or other modules.
+    AccountCommandService,
+    AccountQueryService,
+    AccountProjectionService,
+  ],
 })
 export class AccountModule {}

@@ -1,0 +1,37 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: mfe-dashboard
+  description: The Dashboard Micro-Frontend, displaying a personalized financial overview for users. It is a remote application orchestrated by the main Micro-Frontend Shell.
+  tags:
+    - microfrontend
+    - react
+    - dashboard
+    - frontend
+    - financial
+    - module-federation
+  annotations:
+    backstage.io/techdocs-ref: url:https://github.com/demobank/demobank-frontend/tree/main/mfe-dashboard
+    backstage.io/source-location: url:https://github.com/demobank/demobank-frontend/tree/main/mfe-dashboard
+    backstage.io/language: typescript
+    backstage.io/framework: react
+    backstage.io/managed-by: team-frontend-dashboard
+spec:
+  type: website
+  lifecycle: production
+  owner: team-frontend-dashboard
+  system: demobank-microfrontends
+  dependsOn:
+    - component:apollo-gateway
+    - component:mfe-shell
+  providesApis:
+    - dashboard-module-federation-entrypoint
+  consumesApis:
+    - apollo-gateway-graphql-api
+  links:
+    - url: http://localhost:5173/dashboard
+      title: Local Development
+      icon: dashboard
+    - url: https://demobank.example.com/dashboard
+      title: Production Deployment
+      icon: website

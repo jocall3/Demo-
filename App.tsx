@@ -187,7 +187,7 @@ const TheVisionView: React.FC = () => (
 
 const SettingsIcon: FC<React.SVGProps<SVGSVGElement>> = (props) => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" {...props}>
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924-1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
 );
 
@@ -289,6 +289,8 @@ const RewardsView: FC = () => {
                 setMessage(`Successfully redeemed ${item.name}!`);
             } catch (e: any) {
                 setMessage(`Failed to redeem ${item.name}: ${e.message}`);
+            }catch (e: any) {
+                setMessage(`Failed to redeem ${item.name}: ${e.message}`);
             }
         } else {
             setMessage(`Not enough points for ${item.name}.`);
@@ -360,8 +362,8 @@ const CreditHealthView: FC = () => {
         }
     }, [creditScore, creditFactors, getAIInsight]);
     
-    const StatusIndicator: FC<{ status: 'Excellent' | 'Good' | 'Fair' | 'Poor' }> = ({ status }) => {
-        const colors = { Excellent: 'bg-green-500', Good: 'bg-cyan-500', Fair: 'bg-yellow-500', Poor: 'bg-red-500' };
+    const StatusIndicator: FC<{ status: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' }> = ({ status }) => {
+        const colors = { EXCELLENT: 'bg-green-500', GOOD: 'bg-cyan-500', FAIR: 'bg-yellow-500', POOR: 'bg-red-500' };
         return <div className={`w-3 h-3 rounded-full ${colors[status]}`}></div>
     }
 
@@ -433,6 +435,10 @@ const LoginScreen: FC = () => {
           <button
             onClick={() => loginWithRedirect()}
             className="px-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-lg shadow-lg transition-transform transform hover:scale-105"
+          >
+            Log In / Sign Up
+          </button>
+        }
           >
             Log In / Sign Up
           </button>
@@ -524,7 +530,7 @@ const AuthenticatedApp: FC = () => {
 
   const apolloClient = useMemo(() => {
     const httpLink = createHttpLink({
-      uri: import.meta.env.VITE_GRAPHQL_GATEWAY_URL || '/graphql',
+      uri: import.meta.env.VITE_BFF_URL || '/graphql', // Use VITE_BFF_URL from deployment configuration
     });
 
     const authLink = setContext(async (_, { headers }) => {

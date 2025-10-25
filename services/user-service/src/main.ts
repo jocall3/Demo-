@@ -22,7 +22,7 @@ const otelSDK = new NodeSDK({
   traceExporter: new OTLPTraceExporter(),
   // PrometheusExporter exposes a /metrics endpoint for Prometheus to scrape.
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.METRICS_PROMETHEUS_PORT || '9464', 10),
+    port: parseInt(process.env.METRICS_PROMETHEUS_PORT || '9465', 10),
   }),
   // Auto-instrument popular libraries (e.g., @nestjs/core, http, graphql)
   instrumentations: [getNodeAutoInstrumentations()],
@@ -161,7 +161,7 @@ async function bootstrap() {
   logger.log(`User subgraph is running on: http://localhost:${port}`);
   logger.log(`GraphQL endpoint available at: http://localhost:${port}/graphql`);
   logger.log(
-    `Prometheus metrics available on port ${process.env.METRICS_PROMETHEUS_PORT || '9464'}`,
+    `Prometheus metrics available on port ${process.env.METRICS_PROMETHEUS_PORT || '9465'}`, 
   );
 }
 

@@ -83,34 +83,33 @@ plugins:
 # -----------------------------------------------------------------------------
 # Route-Specific Plugins (Applied to the GraphQL API route)
 # -----------------------------------------------------------------------------
-# OIDC Plugin for Authentication
+
+# OIDC Plugin for JWT Validation (Bearer-Only Mode)
+# This plugin acts as the first line of defense, validating JWTs sent by the SPA frontend.
+# It is configured for a stateless "bearer-only" mode, which is appropriate for APIs.
 - name: oidc
   route: graphql-api-route
   config:
     # The discovery endpoint for the OpenID Connect provider (e.g., Keycloak, Auth0).
-    # This URL should be an environment variable.
+    # This URL is used to fetch the JWKS for token signature validation.
     discovery: "${OIDC_DISCOVERY_ENDPOINT}/.well-known/openid-configuration"
+    
+    # Client credentials may be needed by the plugin to communicate with the IdP for tasks
+    # like token introspection, though local JWT validation is preferred.
     client_id: "${OIDC_CLIENT_ID}"
     client_secret: "${OIDC_CLIENT_SECRET}"
-    # Standard OIDC scopes. 'offline_access' is needed for refresh tokens.
-    scope: "openid profile email offline_access"
-    response_type: "code"
-    # Session management configuration.
-    session_secret: "${KONG_SESSION_SECRET}"
-    session_cookie_name: "demobank_session"
-    session_cookie_http_only: true
-    session_cookie_secure: false # CHANGE TO TRUE IN PRODUCTION WITH HTTPS
-    session_cookie_samesite: "Lax"
-    # After authentication, Kong extracts the id_token and userinfo,
-    # and can pass them as headers to the upstream service (Apollo Gateway).
-    pass_id_token: true
-    pass_userinfo: true
-    # This header will contain the userinfo JSON object.
-    userinfo_header_name: "X-User-Info"
-    # This header will contain the id_token.
-    id_token_header_name: "X-Id-Token"
-    # This header will contain the access_token from the IdP.
-    access_token_header_name: "X-Access-Token"
+    introspection_endpoint_auth_method: "client_secret_post"
+
+    # This is the key change for SPA / API authentication. It tells the plugin to expect a
+    # JWT in the `Authorization: Bearer <token>` header and validate it, rather than managing a session.
+    bearer_only: "yes"
+
+    # Specify the expected algorithm for token signatures. RS256 is standard for OIDC.
+    token_signing_alg_values_expected: "RS256"
+
+    # In bearer-only mode, the plugin validates the Authorization header. Kong then passes this
+    # original, validated header upstream to the Apollo Gateway, which needs it for token exchange.
+    # The old session-based and custom header configurations are removed.
   tags:
   - security
   - authentication

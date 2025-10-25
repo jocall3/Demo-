@@ -2,28 +2,31 @@ import React, { useState, useContext, useEffect } from 'react';
 import { DataContext } from '../context/DataContext';
 import { WeaverStage, AIPlanStep, AIQuestion, AIPlan } from '../types';
 import Card from './Card';
-import { GoogleGenAI } from "@google/genai";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
 // ================================================================================================
 // HELPER & WIDGET COMPONENTS
+// These components are refactored to use the DataContext's assumed `generateAIText` function,
+// which will internally call the GraphQL API, thus removing direct GoogleGenAI usage.
 // ================================================================================================
 
 /**
  * @description A reusable widget for generating and displaying AI content on demand.
- * It handles the loading and error states for an individual API call.
+ * It handles the loading and error states for an individual AI API call, mediated by DataContext.
  */
 const AIGeneratorWidget: React.FC<{
     title: string;
-    prompt: string;
-    businessPlan: string;
+    prompt: string; // The specific prompt for this AI task
+    businessPlan: string; // The business plan content as context for the AI
     children?: (result: string) => React.ReactNode;
 }> = ({ title, prompt, businessPlan, children }) => {
-    const context = useContext(DataContext);
-    if (!context) {
-        throw new Error("AIGeneratorWidget must be inside DataProvider");
+    const dataContext = useContext(DataContext);
+    if (!dataContext || !dataContext.generateAIText) {
+        // In a full application, proper error boundaries or default behavior would be implemented.
+        throw new Error("AIGeneratorWidget requires DataContext with 'generateAIText' function.");
     }
-    const { geminiApiKey } = context;
+    const { generateAIText } = dataContext;
+
     const [result, setResult] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -32,22 +35,13 @@ const AIGeneratorWidget: React.FC<{
         setIsLoading(true);
         setError('');
         setResult('');
-        if (!geminiApiKey) {
-            setError('Please set your Gemini API key in the API Status view.');
-            setIsLoading(false);
-            return;
-        }
         try {
-            const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-            const fullPrompt = `${prompt}\n\nHere is the business plan for context:\n\n"${businessPlan}"`;
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: fullPrompt,
-            });
-            setResult(response.text.trim());
-        } catch (err) {
+            // Call the DataContext's function, which is assumed to wrap a GraphQL mutation to the AI service.
+            const aiResult = await generateAIText(prompt, businessPlan);
+            setResult(aiResult.trim());
+        } catch (err: any) {
             console.error(`Error generating ${title}:`, err);
-            setError('Plato AI could not generate this insight.');
+            setError(err.message || 'Plato AI could not generate this insight.');
         } finally {
             setIsLoading(false);
         }
@@ -111,6 +105,7 @@ const Scorecard: React.FC<{ scores: { viability: number, marketFit: number, risk
 
 // ================================================================================================
 // STAGE COMPONENTS
+// These components now consume data and trigger actions via the DataContext.
 // ================================================================================================
 
 const PitchStage: React.FC<{
@@ -205,7 +200,7 @@ const TestStage: React.FC<{
         <Card title="Plato's Assessment">
             <p className="text-lg text-cyan-300 mb-2">Initial Feedback:</p>
             <div className="text-gray-300 italic mb-6">
-                <p>"{feedback}{!isFeedbackExpanded && '...'}"</p>
+                <p>\"{feedback}{!isFeedbackExpanded && '...'}\"</p>
                 {isFeedbackExpanded && <p className="mt-2">{mockDetailedFeedback}</p>}
                 <button onClick={() => setIsFeedbackExpanded(!isFeedbackExpanded)} className="text-cyan-400 text-sm mt-2 hover:underline">
                     {isFeedbackExpanded ? "Show Less" : "Drilldown for Detail"}
@@ -238,6 +233,12 @@ const ApprovedStage: React.FC<{
     coachingPlan: AIPlan;
     businessPlan: string;
 }> = ({ loanAmount, coachingPlan, businessPlan }) => {
+    const dataContext = useContext(DataContext); // Use DataContext to pass generateAIText to AIGeneratorWidget
+    if (!dataContext || !dataContext.generateAIText) {
+        throw new Error("ApprovedStage requires DataContext with 'generateAIText' function.");
+    }
+    const { generateAIText } = dataContext;
+
     const [completedSteps, setCompletedSteps] = useState<number[]>([]);
     
     const handleCompleteStep = (stepIndex: number) => {
@@ -293,9 +294,9 @@ const ApprovedStage: React.FC<{
                     </div>
                 </Card>
 
-                <AIGeneratorWidget title="Plato's Pro-Tip" prompt="Give me a single, powerful pro-tip for a new founder based on this business idea. Be concise and inspiring." businessPlan={businessPlan} />
+                <AIGeneratorWidget title="Plato's Pro-Tip" prompt="Give me a single, powerful pro-tip for a new founder based on this business idea. Be concise and inspiring." businessPlan={businessPlan} generateFn={generateAIText} />
                 
-                <AIGeneratorWidget title="Competitor Landscape" prompt="Briefly identify 2-3 potential competitors for this business. For each, give a name, a one-sentence description of their focus, and a key strength." businessPlan={businessPlan}>
+                <AIGeneratorWidget title="Competitor Landscape" prompt="Briefly identify 2-3 potential competitors for this business. For each, give a name, a one-sentence description of their focus, and a key strength." businessPlan={businessPlan} generateFn={generateAIText}>
                     {(result) => {
                         const competitors = result.split('\n\n').map(c => {
                             const nameMatch = c.match(/\*\*(.*?)\*\*/);
@@ -321,17 +322,17 @@ const ApprovedStage: React.FC<{
                     }}
                 </AIGeneratorWidget>
 
-                <AIGeneratorWidget title="Risk Assessment" prompt="List the top 3 potential risks for this business idea in a bulleted list." businessPlan={businessPlan} />
+                <AIGeneratorWidget title="Risk Assessment" prompt="List the top 3 potential risks for this business idea in a bulleted list." businessPlan={businessPlan} generateFn={generateAIText} />
 
-                <AIGeneratorWidget title="Target Audience Persona" prompt="Create a brief user persona for the ideal customer of this business. Include a name, age, and a key motivation." businessPlan={businessPlan} />
+                <AIGeneratorWidget title="Target Audience Persona" prompt="Create a brief user persona for the ideal customer of this business. Include a name, age, and a key motivation." businessPlan={businessPlan} generateFn={generateAIText} />
                 
-                <AIGeneratorWidget title="SWOT Analysis" prompt="Generate a simple SWOT analysis (Strengths, Weaknesses, Opportunities, Threats) for this business. Use one bullet point for each." businessPlan={businessPlan} />
+                <AIGeneratorWidget title="SWOT Analysis" prompt="Generate a simple SWOT analysis (Strengths, Weaknesses, Opportunities, Threats) for this business. Use one bullet point for each." businessPlan={businessPlan} generateFn={generateAIText} />
                 
-                <AIGeneratorWidget title="Elevator Pitch" prompt="Craft a compelling one-sentence elevator pitch for this business." businessPlan={businessPlan} />
+                <AIGeneratorWidget title="Elevator Pitch" prompt="Craft a compelling one-sentence elevator pitch for this business." businessPlan={businessPlan} generateFn={generateAIText} />
                 
-                <AIGeneratorWidget title="Team Builder AI" prompt="Suggest the first two key hires this founder should make, and provide a one-sentence justification for each." businessPlan={businessPlan} />
+                <AIGeneratorWidget title="Team Builder AI" prompt="Suggest the first two key hires this founder should make, and provide a one-sentence justification for each." businessPlan={businessPlan} generateFn={generateAIText} />
                 
-                <AIGeneratorWidget title="Brand Identity" prompt="Suggest one creative company name and a catchy tagline for this business." businessPlan={businessPlan} />
+                <AIGeneratorWidget title="Brand Identity" prompt="Suggest one creative company name and a catchy tagline for this business." businessPlan={businessPlan} generateFn={generateAIText} />
                 
                 <Card title="Burn Rate & Runway">
                      <div className="space-y-3 text-sm">
@@ -340,7 +341,7 @@ const ApprovedStage: React.FC<{
                     </div>
                 </Card>
 
-                <AIGeneratorWidget title="Funding Allocation" prompt="Suggest a simple percentage-based budget allocation for this new funding across 3-4 key areas (e.g., Product, Marketing, Operations)." businessPlan={businessPlan}>
+                <AIGeneratorWidget title="Funding Allocation" prompt="Suggest a simple percentage-based budget allocation for this new funding across 3-4 key areas (e.g., Product, Marketing, Operations)." businessPlan={businessPlan} generateFn={generateAIText}>
                     {(result) => {
                         // A more complex child to parse the result and render a chart
                         const allocations = result.split('\n').map(line => {
@@ -388,16 +389,19 @@ const ErrorStage: React.FC<{ error: string }> = ({ error }) => (
 
 // ================================================================================================
 // MAIN COMPONENT & EXPORT
+// This component orchestrates the different stages of the Quantum Weaver process,
+// leveraging DataContext for state and actions.
 // ================================================================================================
 
 const QuantumWeaverView: React.FC = () => {
     const context = useContext(DataContext);
 
-    if (!context) {
-        throw new Error("QuantumWeaverView must be used within a DataProvider.");
+    if (!context || !context.weaverState || !context.pitchBusinessPlan || !context.simulateTestPass || !context.generateAIText) {
+        // In a real application, this would be handled with a loading state or a more specific error.
+        throw new Error("QuantumWeaverView requires DataContext with weaverState, pitchBusinessPlan, simulateTestPass, and generateAIText.");
     }
 
-    const { weaverState, pitchBusinessPlan, simulateTestPass } = context;
+    const { weaverState, pitchBusinessPlan, simulateTestPass, generateAIText } = context;
     const { stage, businessPlan, feedback, questions, loanAmount, coachingPlan, error } = weaverState;
 
     const isLoading = stage === WeaverStage.Analysis || stage === WeaverStage.FinalReview;
@@ -422,6 +426,7 @@ const QuantumWeaverView: React.FC = () => {
         case WeaverStage.Error:
             return <ErrorStage error={error || "An unknown error occurred."} />;
         default:
+            // Default to pitch stage if state is undefined or unhandled (e.g., initial load before API response)
             return <PitchStage onSubmit={pitchBusinessPlan} isLoading={isLoading} />;
     }
 };

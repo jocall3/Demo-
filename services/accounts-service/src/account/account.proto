@@ -2,55 +2,61 @@ syntax = "proto3";
 
 package account;
 
-// Option for Go code generation, a good practice for protobuf files.
+// Options for code generation in various languages.
 option go_package = "github.com/demobank/accounts-service/proto/account";
+option java_multiple_files = true;
+option java_package = "com.demobank.accountservice.account";
+option csharp_namespace = "DemoBank.AccountService.Account";
 
 // The AccountService is responsible for managing all aspects of user financial accounts.
 // It serves as the single source of truth for account data within the microservices ecosystem.
 service AccountService {
   // Retrieves all accounts associated with a specific user ID.
+  // This RPC is part of the read model for querying account aggregates.
   rpc GetAccountsByUserId(GetAccountsByUserIdRequest) returns (GetAccountsByUserIdResponse) {}
 
   // Retrieves a single account by its unique ID.
+  // This RPC is part of the read model for querying a specific account.
   rpc GetAccountById(GetAccountByIdRequest) returns (GetAccountByIdResponse) {}
 }
 
 // Represents a single financial account linked to a user.
+// This is a projection of the account state, suitable for read models.
 message Account {
-  // The unique identifier for the account (e.g., from Plaid).
+  // The unique identifier for the account (e.g., from Plaid or an internal UUID).
   string id = 1;
 
   // The ID of the user who owns this account.
   string user_id = 2;
 
-  // The user-friendly name of the account (e.g., "Chase Checking").
+  // The user-friendly name of the account (e.g., "Chase Checking", "Demo Bank Savings").
   string name = 3;
 
-  // The last 2-4 alphanumeric characters of an account number.
+  // The last 2-4 alphanumeric characters of an account number, for display purposes.
   optional string mask = 4;
 
-  // The high-level type of the account (e.g., "depository", "credit", "loan").
+  // The high-level type of the account (e.g., "depository", "credit", "loan", "investment").
   string type = 5;
 
-  // The specific subtype of the account (e.g., "checking", "savings", "credit card").
+  // The specific subtype of the account (e.g., "checking", "savings", "credit card", "401k").
   optional string subtype = 6;
 
-  // The balance information for the account.
+  // The current balance information for the account.
   Balance balance = 7;
 
-  // The name of the financial institution.
+  // The name of the financial institution that holds this account.
   string institution_name = 8;
 }
 
-// Represents the balance of a financial account.
+// Represents the balance of a financial account at a given point in time.
 message Balance {
-  // The amount of funds available for use. This can be null if not available.
+  // The amount of funds immediately available for use. This can be null if not explicitly provided.
   optional double available = 1;
 
-  // The total amount of funds in the account.
+  // The total amount of funds in the account, including pending transactions.
   double current = 2;
 
-  // The ISO-4217 currency code of the balance (e.g., "USD").
+  // The ISO-4217 currency code of the balance (e.g., "USD", "EUR", "GBP").
   string iso_currency_code = 3;
 }
 

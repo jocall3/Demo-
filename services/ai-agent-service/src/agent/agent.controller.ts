@@ -4,15 +4,15 @@ import { AgentService } from './agent.service';
 import {
   RunBusinessPlanAnalysisEvent,
   TriggerFinancialAnalysisEvent,
+  CardStoryRequestEvent
 } from './events/agent.events';
-// --- New Imports for Workflow Orchestration ---
 import { Client } from '@temporalio/client';
-import { TEMPORAL_CLIENT } from '../temporal/temporal.constants'; // Assumed DI token
+import { TEMPORAL_CLIENT } from '../temporal/temporal.constants';
 import {
   businessPlanAnalysisWorkflow,
   proactiveFinancialAnalysisWorkflow,
   cardStoryGenerationWorkflow,
-} from '../workflows'; // Assuming an index file for workflows
+} from '../temporal/workflows';
 
 /**
  * @class AgentController
@@ -25,13 +25,14 @@ import {
  * Instead of invoking service methods that manage complex state and retries (a "choreography" pattern),
  * it now starts durable, stateful "workflows" ("orchestration" pattern). This provides better visibility,
  * reliability, and scalability for long-running asynchronous processes like the Quantum Weaver analysis.
+ * The `AgentService` is no longer directly used by the controller for event handling, as its methods
+ * now primarily serve as Temporal Activities.
  */
 @Controller()
 export class AgentController {
   private readonly logger = new Logger(AgentController.name);
 
   constructor(
-    private readonly agentService: AgentService, // Kept for potential use by workflow activities
     @Inject(TEMPORAL_CLIENT) private readonly temporalClient: Client,
   ) {}
 
@@ -50,12 +51,12 @@ export class AgentController {
     );
 
     try {
+      const workflowId = `biz-plan-${payload.userId}-${Date.now()}`;
       const handle = await this.temporalClient.workflow.start(
         businessPlanAnalysisWorkflow,
         {
           taskQueue: 'ai-agent-tasks', // The task queue workers are listening on
-          // A unique and deterministic workflow ID is useful for idempotency and querying.
-          workflowId: `biz-plan-${payload.userId}-${Date.now()}`,
+          workflowId: workflowId,
           args: [payload], // Arguments passed to the workflow function
         },
       );
@@ -86,13 +87,13 @@ export class AgentController {
     );
 
     try {
+      const workflowId = `proactive-analysis-${payload.userId}`;
       const handle = await this.temporalClient.workflow.start(
         proactiveFinancialAnalysisWorkflow,
         {
           taskQueue: 'ai-agent-tasks',
-          // Using a business-meaningful workflow ID can prevent duplicate analyses if events are resent.
-          workflowId: `proactive-analysis-${payload.userId}`,
           // Allows starting the workflow only if one with the same ID is not already running.
+          workflowId: workflowId,
           workflowIdReusePolicy: 'AllowDuplicate',
           args: [payload],
         },
@@ -112,22 +113,23 @@ export class AgentController {
    * Listens for 'ai.card.story.requested' to generate a narrative for a custom card design.
    * This process is also now managed as a workflow.
    *
-   * @param payload - The event payload containing details for the story generation.
+   * @param {CardStoryRequestEvent} payload - The event payload containing details for the story generation.
    */
   @EventPattern('ai.card.story.requested')
   async handleCardStoryRequest(
-    @Payload(new ValidationPipe()) payload: { userId: string; prompt: string },
+    @Payload(new ValidationPipe()) payload: CardStoryRequestEvent,
   ) {
     this.logger.log(
       `Received event 'ai.card.story.requested' for user: ${payload.userId}. Starting workflow.`,
     );
 
     try {
+      const workflowId = `card-story-${payload.userId}-${Date.now()}`;
       const handle = await this.temporalClient.workflow.start(
         cardStoryGenerationWorkflow,
         {
           taskQueue: 'ai-agent-tasks',
-          workflowId: `card-story-${payload.userId}-${Date.now()}`,
+          workflowId: workflowId,
           args: [payload],
         },
       );

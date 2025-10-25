@@ -1,23 +1,180 @@
-import React, { useContext, useState } from 'react';
+import React, { useState } from 'react';
 import Card from './Card';
-import { DataContext } from '../context/DataContext';
-import PlaidLinkButton from './PlaidLinkButton';
+import PlaidLinkButton, { PlaidLinkSuccessMetadata } from './PlaidLinkButton';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
+// --- GraphQL Query/Mutation Definitions ---
+// This query fetches the user's linked financial accounts from the GraphQL API.
+// It assumes the API Gateway exposes a `userData.linkedAccounts` field.
+const GET_LINKED_ACCOUNTS_QUERY = `
+  query GetUserLinkedAccounts {
+    userData {
+      linkedAccounts {
+        id
+        name
+        mask
+        institutionId
+      }
+    }
+  }
+`;
+
+// This mutation sends a request to the GraphQL API to unlink a specific account.
+// It assumes the API Gateway exposes an `unlinkPlaidAccount` mutation.
+const UNLINK_PLAID_ACCOUNT_MUTATION = `
+  mutation UnlinkPlaidAccount($accountId: ID!) {
+    unlinkPlaidAccount(accountId: $accountId)
+  }
+`;
+
+// --- Type Definitions for GraphQL Payloads ---
+// Defines the structure of a single linked account as received from the GraphQL API.
+interface LinkedAccountData {
+  id: string;
+  name: string;
+  mask: string;
+  institutionId?: string;
+}
+
+// Defines the expected response structure for the `GET_LINKED_ACCOUNTS_QUERY`.
+interface LinkedAccountsResponse {
+  userData: {
+    linkedAccounts: LinkedAccountData[];
+  };
+}
+
+// Defines the expected response structure for the `UNLINK_PLAID_ACCOUNT_MUTATION`.
+interface UnlinkAccountResponse {
+  unlinkPlaidAccount: boolean;
+}
+
+// Defines the variables required for the `UNLINK_PLAID_ACCOUNT_MUTATION`.
+interface UnlinkAccountVariables {
+  accountId: string;
+}
+
+// --- Generic GraphQL Client (for demonstration within this file) ---
+/**
+ * A generic helper function to execute GraphQL queries/mutations against the API Gateway.
+ * This function is included here for self-containment, but in a real project, it would
+ * be a shared utility (e.g., in `services/graphqlClient.ts` or similar).
+ * @param query The GraphQL query or mutation string.
+ * @param variables Optional variables for the GraphQL operation.
+ * @returns The data from the GraphQL response.
+ * @throws An error if the network request or GraphQL execution fails.
+ */
+async function graphqlRequest<T, V>(query: string, variables?: V): Promise<T> {
+  const response = await fetch('/graphql', { // Assumes /graphql is the BFF/API Gateway endpoint
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({ message: 'Network response was not ok' }));
+    throw new Error(errorBody.message || `GraphQL request failed with status ${response.status}`);
+  }
+  const { data, errors } = await response.json();
+  if (errors) {
+    throw new Error(errors.map((e: any) => e.message).join('\n'));
+  }
+  return data;
+}
+
+// --- Custom Hooks for Security Data ---
+/**
+ * Custom hook to fetch a user's linked financial accounts from the GraphQL API.
+ * It uses `@tanstack/react-query` to manage fetching, caching, and loading states.
+ * This hook replaces direct consumption from a monolithic `DataContext`.
+ * @returns Query result containing linked accounts data, loading status, and any errors.
+ */
+const useLinkedAccountsQuery = () => {
+  return useQuery<LinkedAccountsResponse, Error>({
+    queryKey: ['linkedAccounts'],
+    queryFn: () => graphqlRequest<LinkedAccountsResponse, undefined>(GET_LINKED_ACCOUNTS_QUERY),
+    staleTime: 5 * 60 * 1000, // Data considered fresh for 5 minutes
+  });
+};
+
+/**
+ * Custom hook to unlink a Plaid-connected account via a GraphQL mutation.
+ * It uses `@tanstack/react-query` for managing the mutation process.
+ * On success, it invalidates relevant queries to refetch fresh data.
+ * @returns Mutation result containing the `mutate` function, loading status, and any errors.
+ */
+const useUnlinkAccountMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation<UnlinkAccountResponse, Error, UnlinkAccountVariables>({
+    mutationFn: (variables) => graphqlRequest<UnlinkAccountResponse, UnlinkAccountVariables>(UNLINK_PLAID_ACCOUNT_MUTATION, variables),
+    onSuccess: () => {
+      // Invalidate queries to trigger a refetch of linked accounts and other relevant user data.
+      queryClient.invalidateQueries({ queryKey: ['linkedAccounts'] });
+      queryClient.invalidateQueries({ queryKey: ['userData'] }); // Broader invalidation if other components rely on `userData`
+    },
+    onError: (error) => {
+        console.error("Failed to unlink account:", error);
+        // In a production application, integrate with a global toast/notification system.
+    }
+  });
+};
+
+/**
+ * @description The SecurityView component provides users with controls over their linked accounts
+ * and application-specific security settings.
+ *
+ * ARCHITECTURAL REFACTOR:
+ * This component has been refactored to align with the Federated Data Mesh architecture.
+ * It no longer consumes a monolithic `DataContext` directly for linked accounts. Instead,
+ * it uses dedicated `react-query` hooks (`useLinkedAccountsQuery`, `useUnlinkAccountMutation`)
+ * that interact with the GraphQL API Gateway.
+ * This enhances data fetching reliability, caching, and separation of concerns.
+ */
 const SecurityView: React.FC = () => {
-    const context = useContext(DataContext);
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
     const [settings, setSettings] = useState({ twoFactor: true, biometric: false });
 
+    // Fetch linked accounts using the new dedicated hook
+    const { data: linkedAccountsData, isLoading: isLoadingAccounts, error: accountsError } = useLinkedAccountsQuery();
+    const linkedAccounts = linkedAccountsData?.userData?.linkedAccounts || [];
 
-    if (!context) {
-        throw new Error("SecurityView must be within a DataProvider.");
-    }
-    const { linkedAccounts, handlePlaidSuccess, unlinkAccount } = context;
+    // Use the mutation hook for unlinking accounts
+    const { mutate: unlinkAccount, isPending: isUnlinking } = useUnlinkAccountMutation();
 
+    /**
+     * Handles the toggling of security settings (e.g., 2FA, Biometric Login).
+     * In a full implementation, this would trigger a backend mutation to update user preferences.
+     * @param setting The name of the setting to toggle.
+     */
     const handleToggle = (setting: 'twoFactor' | 'biometric') => {
         setSettings(prev => ({...prev, [setting]: !prev[setting]}));
+        console.log(`Toggled ${setting} to ${!settings[setting]}. (Backend update simulated)`);
     }
 
+    /**
+     * Initiates the process of unlinking a financial account.
+     * @param accountId The ID of the account to unlink.
+     */
+    const handleUnlinkAccount = (accountId: string) => {
+        if (window.confirm("Are you sure you want to unlink this account? This cannot be undone.")) {
+            unlinkAccount({ accountId });
+        }
+    };
+
+    /**
+     * Callback for successful Plaid Link integration.
+     * The `PlaidLinkButton` internally handles exchanging the public token and invalidating
+     * the `linkedAccounts` query, so no direct state update is needed here.
+     * @param publicToken The public token received from Plaid.
+     * @param metadata Metadata about the linked institution and accounts.
+     */
+    const handlePlaidLinkSuccess = (publicToken: string, metadata: PlaidLinkSuccessMetadata) => {
+        console.log("Plaid Link successful. UI will update automatically from query invalidation.");
+        // The `PlaidLinkButton` itself contains logic to call a GraphQL mutation for token exchange
+        // and to invalidate the 'linkedAccounts' query on success.
+    };
+
+    /**
+     * @description A modal component for changing the user's password.
+     */
     const PasswordModal: React.FC = () => (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm" onClick={() => setIsPasswordModalOpen(false)}>
             <div className="bg-gray-800 rounded-lg shadow-2xl max-w-md w-full border border-gray-700" onClick={e => e.stopPropagation()}>
@@ -36,8 +193,16 @@ const SecurityView: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <Card title="Linked Accounts & Data Sources">
+            <h2 className="text-3xl font-bold text-white tracking-wider">Security Settings</h2>
+
+            <Card 
+                title="Linked Accounts & Data Sources" 
+                isLoading={isLoadingAccounts || isUnlinking}
+                // Display error messages from data fetching or the unlinking process
+                errorState={accountsError?.message || (isUnlinking ? "Unlinking account..." : null)}
+            >
                 <div className="space-y-4">
+                    {/* Display dynamically fetched linked accounts */}
                     {linkedAccounts.length > 0 ? (
                         linkedAccounts.map(account => (
                             <div key={account.id} className="flex justify-between items-center p-4 bg-gray-800 rounded-lg">
@@ -45,13 +210,20 @@ const SecurityView: React.FC = () => {
                                     <h4 className="font-semibold text-white">{account.name}</h4>
                                     <p className="text-sm text-gray-400">Account ending in •••• {account.mask}</p>
                                 </div>
-                                <button onClick={() => unlinkAccount(account.id)} className="text-xs text-red-400 hover:text-red-300">Unlink</button>
+                                <button 
+                                    onClick={() => handleUnlinkAccount(account.id)} 
+                                    disabled={isUnlinking}
+                                    className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Unlink
+                                </button>
                             </div>
                         ))
                     ) : (
                         <p className="text-center text-gray-400 py-4">You haven't linked any bank accounts yet. Link an account to import your transactions automatically.</p>
                     )}
-                    <PlaidLinkButton onSuccess={handlePlaidSuccess} />
+                    {/* PlaidLinkButton handles its own API calls to GraphQL for link token and public token exchange */}
+                    <PlaidLinkButton onSuccess={handlePlaidLinkSuccess} />
                 </div>
             </Card>
             

@@ -1,0 +1,30 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: mfe-transactions
+  description: Micro-Frontend for managing user financial transactions, part of the decomposed monolithic frontend.
+  annotations:
+    github.com/project-slug: demobank/mfe-transactions
+    backstage.io/techdocs-ref: url:https://demobank.github.io/mfe-transactions/docs # Link to TechDocs for this micro-frontend
+  tags:
+    - react
+    - microfrontend
+    - transactions
+    - financial
+    - typescript
+  links:
+    - url: https://demobank.github.io/mfe-transactions
+      title: Live Application
+      icon: web
+    - url: https://demobank.github.com/demobank/mfe-transactions
+      title: GitHub Repository
+      icon: github
+spec:
+  type: website
+  lifecycle: production
+  owner: team-transactions-frontend
+  system: demobank-frontend
+  dependsOn:
+    - component:demobank-frontend/shell-app
+    - resource:demobank-api-gateway
+    - resource:demobank-transactions-service

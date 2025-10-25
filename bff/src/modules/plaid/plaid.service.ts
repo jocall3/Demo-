@@ -52,7 +52,7 @@ export class PlaidService {
     // Dynamically find the plaid-integration subgraph URL from the gateway configuration.
     const plaidSubgraph = this.configService
       .get<any[]>('gateway.subgraphs', [])
-      .find((s) => s.name === 'plaid_integration');
+      .find((s) => s.name === 'plaid-integration');
 
     if (!plaidSubgraph?.url) {
       this.logger.error('Plaid subgraph URL is not configured!');

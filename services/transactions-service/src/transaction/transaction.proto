@@ -3,10 +3,16 @@ syntax = "proto3";
 package transaction;
 
 import "google/protobuf/timestamp.proto";
-import "google/protobuf/wrappers.proto";
+
+// Best practice options for code generation in other languages.
+option go_package = "github.com/demobank/transactions-service/proto/transaction";
+option java_multiple_files = true;
+option java_package = "com.demobank.transactionsservice.transaction";
 
 // The TransactionService provides methods for managing and retrieving financial transactions.
-// It is the source of truth for all transaction data within the microservices ecosystem.
+// In a CQRS architecture, this service typically serves as the **Query side**,
+// exposing read models of transactions. Transactional state changes (Commands)
+// are usually handled through event sourcing or a separate Command service.
 service TransactionService {
   // Retrieves a single transaction by its unique ID.
   rpc GetTransaction(GetTransactionRequest) returns (Transaction);
@@ -34,7 +40,8 @@ message Location {
 }
 
 // The core Transaction entity, representing a single financial event.
-// This model is an abstraction over raw data from providers like Plaid.
+// This model is an abstraction over raw data from providers like Plaid and serves
+// as the read model for the Transactions domain.
 message Transaction {
   // Unique identifier for the transaction.
   string id = 1;
@@ -42,43 +49,51 @@ message Transaction {
   string user_id = 2;
   // The ID of the account this transaction belongs to.
   string account_id = 3;
-  // The merchant name or a description of the transaction.
-  string name = 4;
-  // The settled amount of the transaction. Positive for debits, negative for credits.
-  // The `type` field provides business context (income/expense).
+  // A short description of the transaction (e.g., "Coffee Shop purchase").
+  string description = 4;
+  // The absolute monetary value of the transaction. The `type` field (INCOME/EXPENSE)
+  // indicates whether this amount increases or decreases the balance.
   double amount = 5;
-  // The ISO-4217 currency code of the transaction.
+  // The ISO-4217 currency code of the transaction (e.g., "USD").
   string iso_currency_code = 6;
-  // The primary business category of the transaction (e.g., "Dining", "Shopping").
-  string category = 7;
-  // A more granular sub-category, if available.
-  google.protobuf.StringValue sub_category = 8;
-  // The high-level business type of the transaction.
+  // The primary, top-level category of the transaction (e.g., "Dining").
+  string primary_category = 7;
+  // A hierarchical list of categories, providing granular classification
+  // (e.g., ["Food & Drink", "Restaurants", "Fast Food"]).
+  repeated string category_hierarchy = 8;
+  // The high-level business type of the transaction (INCOME or EXPENSE).
   TransactionType type = 9;
-  // The date the transaction was posted, in UTC.
+  // The date the transaction was posted to the account, in UTC.
   google.protobuf.Timestamp date = 10;
-  // The date the transaction was authorized, in UTC. Can be different from the posted date.
-  google.protobuf.Timestamp authorized_date = 11;
-  // Indicates if the transaction is still pending or has been posted.
+  // The date the transaction was authorized, in UTC. This may differ from the posted date.
+  optional google.protobuf.Timestamp authorized_date = 11;
+  // Indicates if the transaction is still pending or has been posted/settled.
   bool pending = 12;
-  // Geographic information for the transaction.
+  // Geographic information associated with the transaction's merchant or location.
   optional Location location = 13;
-  // The channel through which the payment was made (e.g., "online", "in store").
-  string payment_channel = 14;
+  // The specific merchant name, if available, which might differ from the description.
+  optional string merchant_name = 14;
+  // The channel through which the payment was made (e.g., "online", "in store", "p2p").
+  optional string payment_channel = 15;
+  // Estimated carbon footprint of the transaction in kilograms of CO2 equivalent.
+  optional double carbon_footprint = 16;
 }
 
 // Request to retrieve a single transaction by its ID.
 message GetTransactionRequest {
   string transaction_id = 1;
+  string user_id = 2; // Including user_id for authorization context
 }
 
 // Request to retrieve a list of transactions.
 message ListTransactionsRequest {
   // The ID of the user whose transactions are being requested. Required.
   string user_id = 1;
-  // Optional filters
+  // Optional: Filter transactions by a specific account ID.
   optional string account_id = 2;
+  // Optional: Filter transactions occurring on or after this start date (UTC).
   optional google.protobuf.Timestamp start_date = 3;
+  // Optional: Filter transactions occurring on or before this end date (UTC).
   optional google.protobuf.Timestamp end_date = 4;
   // Pagination: The maximum number of transactions to return.
   // The service may return fewer than this value.
@@ -86,6 +101,12 @@ message ListTransactionsRequest {
   // Pagination: A page token, received from a previous `ListTransactions` call.
   // Provide this to retrieve the subsequent page.
   optional string page_token = 6;
+  // Optional: Filter by transaction type (INCOME or EXPENSE).
+  optional TransactionType type = 7;
+  // Optional: Filter by primary category.
+  optional string primary_category = 8;
+  // Optional: Search by transaction description or merchant name.
+  optional string search_query = 9;
 }
 
 // Response containing a list of transactions and pagination information.
@@ -93,7 +114,7 @@ message ListTransactionsResponse {
   repeated Transaction transactions = 1;
   // A token to retrieve the next page of results. If this field is omitted,
   // there are no more results.
-  string next_page_token = 2;
+  optional string next_page_token = 2;
   // The total number of transactions matching the query, which may be an estimate.
-  int32 total_size = 3;
+  optional int32 total_size = 3;
 }

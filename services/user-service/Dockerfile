@@ -53,9 +53,8 @@ RUN npm ci --omit=dev
 COPY --from=build /usr/src/app/dist ./dist
 
 # Expose the port the application will run on. This should match the port
-# configured in the service's main.ts or .env file. NestJS defaults to 3000.
-# The actual external port will be mapped in docker-compose or Kubernetes.
-EXPOSE 3000
+# configured in the service's main.ts or .env file. As per the service's main.ts, default is 4001.
+EXPOSE 4001
 
 # The command to start the application when the container launches.
 # We execute the compiled main.js file located in the 'dist' folder using Node.

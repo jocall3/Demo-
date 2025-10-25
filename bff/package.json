@@ -1,7 +1,7 @@
 {
   "name": "api-gateway",
-  "version": "0.0.1",
-  "description": "API Gateway for the Demo Bank federated supergraph.",
+  "version": "1.0.0",
+  "description": "API Gateway for the Demo Bank federated supergraph, responsible for composing subgraphs and handling secure cross-service communication.",
   "author": "Elite AI Implementation Team",
   "private": true,
   "license": "UNLICENSED",
@@ -22,6 +22,7 @@
   "dependencies": {
     "@apollo/gateway": "^2.7.2",
     "@nestjs/apollo": "^12.1.0",
+    "@nestjs/axios": "^3.0.2",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.2.2",
     "@nestjs/core": "^10.0.0",
@@ -35,10 +36,14 @@
     "@opentelemetry/sdk-metrics": "^1.25.0",
     "@opentelemetry/sdk-node": "^0.52.0",
     "@opentelemetry/semantic-conventions": "^1.25.0",
+    "axios": "^1.7.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "graphql": "^16.8.1",
+    "nestjs-pino": "^4.1.0",
+    "node-vault": "^1.0.0",
     "pino": "^9.2.0",
+    "pino-http": "^10.1.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.1"
   },

@@ -1,47 +1,56 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { MongooseModule } from '@nestjs/mongoose';
 
 /**
- * The DatabaseModule is responsible for configuring and establishing the connection
- * to the database for the Transactions microservice.
+ * The DatabaseModule is responsible for configuring and establishing connections
+ * to both the relational (PostgreSQL) and NoSQL (MongoDB) databases for the
+ * Transactions microservice.
  *
- * It uses TypeORM, a popular Object-Relational Mapper (ORM), and configures it
- * asynchronously (`forRootAsync`) to allow the use of the ConfigService.
- * This approach ensures that database credentials and settings are loaded from
- * environment variables, which is a best practice for security and portability,
- * especially in a containerized, microservices architecture.
+ * This dual-database setup supports the CQRS and Event Sourcing architectural
+ * directives:
+ * - PostgreSQL is typically used for the command-side (aggregates, if not fully
+ *   event-sourced in memory) or for metadata related to the event store.
+ * - MongoDB is used for the denormalized 'read model' (projections) of transactions,
+ *   enabling efficient querying for GraphQL APIs.
+ *
+ * Both database connections are configured asynchronously using NestJS's ConfigService
+ * to load credentials and settings from environment variables, ensuring secure
+ * and portable deployment.
  */
 @Module({
   imports: [
+    // Configuration for the PostgreSQL database (e.g., for command-side aggregates or event store metadata)
     TypeOrmModule.forRootAsync({
-      // Import ConfigModule to make ConfigService available for injection.
       imports: [ConfigModule],
-      // Inject the ConfigService into the factory function.
       inject: [ConfigService],
-      // The factory function that returns the TypeORM configuration object.
       useFactory: (configService: ConfigService) => ({
-        // Specify the database type. PostgreSQL is a robust choice for transactional data.
         type: 'postgres',
-        // Load connection parameters from environment variables via ConfigService.
         host: configService.get<string>('DATABASE_HOST'),
         port: configService.get<number>('DATABASE_PORT'),
         username: configService.get<string>('DATABASE_USER'),
         password: configService.get<string>('DATABASE_PASSWORD'),
         database: configService.get<string>('DATABASE_NAME'),
-        // Automatically load all entities registered with `forFeature` in other modules.
         autoLoadEntities: true,
-        // `synchronize` should be `true` only in development to automatically create
-        // database schema from entities. In production, this should be `false`,
-        // and migrations should be used for schema changes.
         synchronize: configService.get<string>('NODE_ENV') !== 'production',
-        // Enable logging for debugging purposes in non-production environments.
-        logging: configService.get<string>('NODE_ENV') !== 'production',
+        logging: configService.get<string>('NODE_ENV') !== 'production' ? ['query', 'error'] : false,
+      }),
+    }),
+    
+    // Configuration for the MongoDB database (for the denormalized read model of transactions)
+    MongooseModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        uri: configService.get<string>('MONGODB_URI', 'mongodb://localhost:27017'),
+        dbName: configService.get<string>('MONGODB_DATABASE', 'transactions_read_model'),
       }),
     }),
   ],
-  // Export TypeOrmModule to make repositories available for injection in other modules
-  // that import this DatabaseModule.
-  exports: [TypeOrmModule],
+  // Export both TypeOrmModule and MongooseModule so that other feature modules
+  // can use `TypeOrmModule.forFeature()` and `MongooseModule.forFeature()`
+  // without needing to re-configure the root connection.
+  exports: [TypeOrmModule, MongooseModule],
 })
 export class DatabaseModule {}

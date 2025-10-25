@@ -15,8 +15,8 @@ import { banks } from '../constants'; // Import the centralized bank list
 //
 // We are democratizing access to the financial ecosystem. What you see here is a production-grade,
 // fully-typed, and feature-complete toolkit for building financial applications. We've poured
-// thousands of hours into solving the hard problems—state management, API integration, UI/UX for
-// complex data, security patterns—so you don't have to.
+// thousands of hours into solving the hard problemsâ€”state management, API integration, UI/UX for
+// complex data, security patternsâ€”so you don't have to.
 //
 // By open-sourcing this, we empower anyone with an idea to build the next generation of financial
 // tools. A student in a dorm room can now create a budgeting app that rivals those from major
