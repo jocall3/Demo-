@@ -1,17 +1,16 @@
 # .github/workflows/deploy.yml - RE-ARCHITECTED
-# This GitHub Actions workflow orchestrates the deployment of the entire microservices architecture.
+# This GitHub Actions workflow orchestrates the build and deployment of the entire microservices architecture.
 # It aligns with a secure, multi-service, cloud-native deployment strategy.
 #
 # Architectural Changes Reflected:
-# 1. Monorepo Support: Builds and deploys multiple services from the monorepo.
-# 2. Microservice Deployment: Each service (API Gateway, User Service, etc.) is deployed independently to Cloud Run.
-# 3. Security Hardening:
-#    - Subgraph services are deployed with internal-only ingress, preventing direct public access.
-#    - Secrets are managed via Google Secret Manager and injected at runtime, not passed as plaintext environment variables.
-# 4. Dependency Management: Deployment is sequenced to ensure subgraphs are available before the API Gateway that consumes them.
-# 5. Workflow Orchestration: Configures services to connect to a central workflow engine (e.g., Temporal) for managing long-running asynchronous business processes (Sagas).
+# 1. Monorepo Support: Builds and deploys multiple backend services from the monorepo.
+# 2. Micro-Frontend Deployment: Builds multiple Micro-Frontends (MFE-Shell, Dashboard, etc.) and deploys them to Google Cloud Storage for static hosting.
+# 3. Zero-Trust Secret Management: Services are configured to fetch secrets from HashiCorp Vault at startup. This pipeline provides the necessary Vault authentication details (Role ID, Secret ID).
+# 4. CQRS & Event Sourcing: Services are configured with Kafka broker details (via Vault) to support the event-driven architecture.
+# 5. Durable Sagas: Services are configured with Temporal connection details (via Vault) to orchestrate long-running, stateful business processes.
+# 6. Service Mesh Principles: Backend services are deployed to Cloud Run with internal-only ingress, with the API Gateway as the single public entry point.
 
-name: CI/CD for Monorepo Services
+name: Deploy Microservices and Micro-Frontends
 
 on:
   push:
@@ -20,22 +19,18 @@ on:
 
 permissions:
   contents: 'read'
-  pages: 'write'
-  id-token: 'write'
+  id-token: 'write' # Required for Workload Identity Federation to GCP
 
 concurrency:
   group: "production-deploy"
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   # =================================================================================
-  # JOB 1: Build and Push Docker Images
-  # This job builds container images for all backend services and pushes them to
-  # Google Artifact Registry. It runs steps sequentially to provide clear, distinct
-  # outputs for each service's image URI.
+  # JOB 1: Build and Push Backend Docker Images
   # =================================================================================
-  build-and-push-images:
-    name: Build & Push Service Images
+  build-backend-images:
+    name: Build & Push Backend Images
     runs-on: ubuntu-latest
     outputs:
       api_gateway_image_uri: ${{ steps.build-api-gateway.outputs.image_uri }}
@@ -111,18 +106,151 @@ jobs:
           echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
 
   # =================================================================================
-  # JOB 2: Deploy Backend Services
-  # This job deploys all backend services to Google Cloud Run in sequence.
-  # Subgraphs are deployed first with internal-only ingress. The API Gateway is
-  # deployed last, configured with the internal URLs of the subgraphs.
+  # JOB 2: Deploy Backend Services to Cloud Run with Vault Integration
   # =================================================================================
-  deploy-backend-services:
+  deploy-backend:
     name: Deploy Backend Services
     runs-on: ubuntu-latest
-    needs: build-and-push-images
+    needs: build-backend-images
     outputs:
       api_gateway_url: ${{ steps.deploy-api-gateway.outputs.url }}
 
+    steps:
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Deploy User Service (Internal)
+        id: deploy-user-service
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: 'user-service'
+          region: ${{ secrets.GCP_REGION }}
+          image: ${{ needs.build-backend-images.outputs.user_service_image_uri }}
+          flags: --ingress=internal-and-cloud-load-balancing --min-instances=1
+          secrets:
+            - name: VAULT_SECRET_ID
+              secret: USER_SERVICE_VAULT_SECRET_ID
+          env_vars: |
+            NODE_ENV=production
+            PORT=8080
+            VAULT_ADDR=${{ secrets.VAULT_ADDR }}
+            VAULT_ROLE_ID=${{ secrets.USER_SERVICE_VAULT_ROLE_ID }}
+            OTEL_SERVICE_NAME=user-service
+            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+
+      - name: Deploy Accounts Service (Internal)
+        id: deploy-accounts-service
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: 'accounts-service'
+          region: ${{ secrets.GCP_REGION }}
+          image: ${{ needs.build-backend-images.outputs.accounts_service_image_uri }}
+          flags: --ingress=internal-and-cloud-load-balancing --min-instances=1
+          secrets:
+            - name: VAULT_SECRET_ID
+              secret: ACCOUNTS_SERVICE_VAULT_SECRET_ID
+          env_vars: |
+            NODE_ENV=production
+            PORT=8080
+            VAULT_ADDR=${{ secrets.VAULT_ADDR }}
+            VAULT_ROLE_ID=${{ secrets.ACCOUNTS_SERVICE_VAULT_ROLE_ID }}
+            OTEL_SERVICE_NAME=accounts-service
+            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+
+      - name: Deploy Transactions Service (Internal)
+        id: deploy-transactions-service
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: 'transactions-service'
+          region: ${{ secrets.GCP_REGION }}
+          image: ${{ needs.build-backend-images.outputs.transactions_service_image_uri }}
+          flags: --ingress=internal-and-cloud-load-balancing --min-instances=1
+          secrets:
+            - name: VAULT_SECRET_ID
+              secret: TRANSACTIONS_SERVICE_VAULT_SECRET_ID
+          env_vars: |
+            NODE_ENV=production
+            PORT=8080
+            VAULT_ADDR=${{ secrets.VAULT_ADDR }}
+            VAULT_ROLE_ID=${{ secrets.TRANSACTIONS_SERVICE_VAULT_ROLE_ID }}
+            OTEL_SERVICE_NAME=transactions-service
+            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+
+      - name: Deploy AI Agent Service (Internal)
+        id: deploy-ai-agent-service
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: 'ai-agent-service'
+          region: ${{ secrets.GCP_REGION }}
+          image: ${{ needs.build-backend-images.outputs.ai_agent_service_image_uri }}
+          flags: --ingress=internal-and-cloud-load-balancing
+          secrets:
+            - name: VAULT_SECRET_ID
+              secret: AI_AGENT_SERVICE_VAULT_SECRET_ID
+          env_vars: |
+            NODE_ENV=production
+            PORT=8080
+            VAULT_ADDR=${{ secrets.VAULT_ADDR }}
+            VAULT_ROLE_ID=${{ secrets.AI_AGENT_SERVICE_VAULT_ROLE_ID }}
+            OTEL_SERVICE_NAME=ai-agent-service
+            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+
+      - name: Deploy Plaid Integration Service (Internal)
+        id: deploy-plaid-integration-service
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: 'plaid-integration-service'
+          region: ${{ secrets.GCP_REGION }}
+          image: ${{ needs.build-backend-images.outputs.plaid_integration_service_image_uri }}
+          flags: --ingress=internal-and-cloud-load-balancing
+          secrets:
+            - name: VAULT_SECRET_ID
+              secret: PLAID_SERVICE_VAULT_SECRET_ID
+          env_vars: |
+            NODE_ENV=production
+            PORT=8080
+            VAULT_ADDR=${{ secrets.VAULT_ADDR }}
+            VAULT_ROLE_ID=${{ secrets.PLAID_SERVICE_VAULT_ROLE_ID }}
+            OTEL_SERVICE_NAME=plaid-integration-service
+            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+
+      - name: Deploy API Gateway (Public)
+        id: deploy-api-gateway
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: 'api-gateway'
+          region: ${{ secrets.GCP_REGION }}
+          image: ${{ needs.build-backend-images.outputs.api_gateway_image_uri }}
+          flags: --allow-unauthenticated --min-instances=1
+          secrets:
+            - name: VAULT_SECRET_ID
+              secret: API_GATEWAY_VAULT_SECRET_ID
+          env_vars: |
+            NODE_ENV=production
+            PORT=8080
+            FRONTEND_URL=${{ secrets.GCS_BUCKET_URL }}
+            VAULT_ADDR=${{ secrets.VAULT_ADDR }}
+            VAULT_ROLE_ID=${{ secrets.API_GATEWAY_VAULT_ROLE_ID }}
+            OTEL_SERVICE_NAME=api-gateway
+            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+            USERS_SERVICE_URL=${{ steps.deploy-user-service.outputs.url }}/graphql
+            ACCOUNTS_SERVICE_URL=${{ steps.deploy-accounts-service.outputs.url }}/graphql
+            TRANSACTIONS_SERVICE_URL=${{ steps.deploy-transactions-service.outputs.url }}/graphql
+            AI_AGENT_SERVICE_URL=${{ steps.deploy-ai-agent-service.outputs.url }}/graphql
+            PLAID_INTEGRATION_SERVICE_URL=${{ steps.deploy-plaid-integration-service.outputs.url }}/graphql
+
+  # =================================================================================
+  # JOB 3: Build and Deploy Micro-Frontends to GCS
+  # =================================================================================
+  build-and-deploy-frontend-mfes:
+    name: Build & Deploy Micro-Frontends
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -134,198 +262,6 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_SA_EMAIL }}
 
-      - name: Deploy User Service
-        id: deploy-user-service
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: 'user-service'
-          region: ${{ secrets.GCP_REGION }}
-          image: ${{ needs.build-and-push-images.outputs.user_service_image_uri }}
-          flags: --ingress=internal-and-cloud-load-balancing
-          secrets:
-            - name: DATABASE_URL
-              secret: USER_SERVICE_DB_URL
-            - name: KAFKA_BROKERS
-              secret: KAFKA_BROKERS
-            # --- Temporal Workflow Engine ---
-            - name: TEMPORAL_MTLS_CERT
-              secret: TEMPORAL_CLIENT_CERT
-            - name: TEMPORAL_MTLS_KEY
-              secret: TEMPORAL_CLIENT_KEY
-          env_vars: |
-            NODE_ENV=production
-            PORT=8080
-            OTEL_SERVICE_NAME=user-service
-            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
-            # --- Temporal Workflow Engine ---
-            TEMPORAL_ADDRESS=${{ secrets.TEMPORAL_ADDRESS }}
-            TEMPORAL_NAMESPACE=${{ secrets.TEMPORAL_NAMESPACE }}
-
-      - name: Deploy Accounts Service
-        id: deploy-accounts-service
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: 'accounts-service'
-          region: ${{ secrets.GCP_REGION }}
-          image: ${{ needs.build-and-push-images.outputs.accounts_service_image_uri }}
-          flags: --ingress=internal-and-cloud-load-balancing
-          secrets:
-            - name: DATABASE_URL
-              secret: ACCOUNTS_SERVICE_DB_URL
-            - name: KAFKA_BROKERS
-              secret: KAFKA_BROKERS
-            - name: JWT_SECRET
-              secret: JWT_SECRET
-            # --- Temporal Workflow Engine ---
-            - name: TEMPORAL_MTLS_CERT
-              secret: TEMPORAL_CLIENT_CERT
-            - name: TEMPORAL_MTLS_KEY
-              secret: TEMPORAL_CLIENT_KEY
-          env_vars: |
-            NODE_ENV=production
-            PORT=8080
-            OTEL_SERVICE_NAME=accounts-service
-            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
-            # --- Temporal Workflow Engine ---
-            TEMPORAL_ADDRESS=${{ secrets.TEMPORAL_ADDRESS }}
-            TEMPORAL_NAMESPACE=${{ secrets.TEMPORAL_NAMESPACE }}
-
-      - name: Deploy Transactions Service
-        id: deploy-transactions-service
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: 'transactions-service'
-          region: ${{ secrets.GCP_REGION }}
-          image: ${{ needs.build-and-push-images.outputs.transactions_service_image_uri }}
-          flags: --ingress=internal-and-cloud-load-balancing
-          secrets:
-            - name: DATABASE_URL
-              secret: TRANSACTIONS_SERVICE_DB_URL
-            - name: KAFKA_BROKERS
-              secret: KAFKA_BROKERS
-            # --- Temporal Workflow Engine ---
-            - name: TEMPORAL_MTLS_CERT
-              secret: TEMPORAL_CLIENT_CERT
-            - name: TEMPORAL_MTLS_KEY
-              secret: TEMPORAL_CLIENT_KEY
-          env_vars: |
-            NODE_ENV=production
-            PORT=8080
-            OTEL_SERVICE_NAME=transactions-service
-            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
-            # --- Temporal Workflow Engine ---
-            TEMPORAL_ADDRESS=${{ secrets.TEMPORAL_ADDRESS }}
-            TEMPORAL_NAMESPACE=${{ secrets.TEMPORAL_NAMESPACE }}
-      
-      - name: Deploy AI Agent Service (with Temporal Worker)
-        id: deploy-ai-agent-service
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: 'ai-agent-service'
-          region: ${{ secrets.GCP_REGION }}
-          image: ${{ needs.build-and-push-images.outputs.ai_agent_service_image_uri }}
-          flags: --ingress=internal-and-cloud-load-balancing
-          secrets:
-            - name: GOOGLE_GENAI_API_KEY
-              secret: GOOGLE_GENAI_API_KEY
-            - name: KAFKA_BROKERS
-              secret: KAFKA_BROKERS
-            # --- Temporal Workflow Engine ---
-            - name: TEMPORAL_MTLS_CERT
-              secret: TEMPORAL_CLIENT_CERT
-            - name: TEMPORAL_MTLS_KEY
-              secret: TEMPORAL_CLIENT_KEY
-          env_vars: |
-            NODE_ENV=production
-            PORT=8080
-            OTEL_SERVICE_NAME=ai-agent-service
-            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
-            # --- Temporal Workflow Engine ---
-            TEMPORAL_ADDRESS=${{ secrets.TEMPORAL_ADDRESS }}
-            TEMPORAL_NAMESPACE=${{ secrets.TEMPORAL_NAMESPACE }}
-
-      - name: Deploy Plaid Integration Service
-        id: deploy-plaid-integration-service
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: 'plaid-integration-service'
-          region: ${{ secrets.GCP_REGION }}
-          image: ${{ needs.build-and-push-images.outputs.plaid_integration_service_image_uri }}
-          flags: --ingress=internal-and-cloud-load-balancing
-          secrets:
-            - name: DATABASE_URL
-              secret: PLAID_INTEGRATION_DB_URL
-            - name: KAFKA_BROKERS
-              secret: KAFKA_BROKERS
-            - name: PLAID_CLIENT_ID
-              secret: PLAID_CLIENT_ID
-            - name: PLAID_SECRET
-              secret: PLAID_SECRET
-            - name: PLAID_ENV
-              secret: PLAID_ENV
-            # --- Temporal Workflow Engine ---
-            - name: TEMPORAL_MTLS_CERT
-              secret: TEMPORAL_CLIENT_CERT
-            - name: TEMPORAL_MTLS_KEY
-              secret: TEMPORAL_CLIENT_KEY
-          env_vars: |
-            NODE_ENV=production
-            PORT=8080
-            OTEL_SERVICE_NAME=plaid-integration-service
-            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
-            # --- Temporal Workflow Engine ---
-            TEMPORAL_ADDRESS=${{ secrets.TEMPORAL_ADDRESS }}
-            TEMPORAL_NAMESPACE=${{ secrets.TEMPORAL_NAMESPACE }}
-
-      - name: Deploy API Gateway
-        id: deploy-api-gateway
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: 'api-gateway'
-          region: ${{ secrets.GCP_REGION }}
-          image: ${{ needs.build-and-push-images.outputs.api_gateway_image_uri }}
-          flags: --allow-unauthenticated # This is the public entry point for now
-          secrets:
-            - name: JWT_SECRET
-              secret: JWT_SECRET
-            - name: SUBGRAPH_API_KEY
-              secret: SUBGRAPH_API_KEY
-            # --- Temporal Workflow Engine ---
-            - name: TEMPORAL_MTLS_CERT
-              secret: TEMPORAL_CLIENT_CERT
-            - name: TEMPORAL_MTLS_KEY
-              secret: TEMPORAL_CLIENT_KEY
-          env_vars: |
-            NODE_ENV=production
-            PORT=8080
-            FRONTEND_URL=${{ secrets.FRONTEND_URL }}
-            OTEL_SERVICE_NAME=api-gateway
-            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
-            USERS_SERVICE_URL=${{ steps.deploy-user-service.outputs.url }}/graphql
-            ACCOUNTS_SERVICE_URL=${{ steps.deploy-accounts-service.outputs.url }}/graphql
-            TRANSACTIONS_SERVICE_URL=${{ steps.deploy-transactions-service.outputs.url }}/graphql
-            AI_AGENT_SERVICE_URL=${{ steps.deploy-ai-agent-service.outputs.url }}/graphql
-            PLAID_INTEGRATION_SERVICE_URL=${{ steps.deploy-plaid-integration-service.outputs.url }}/graphql
-            # --- Temporal Workflow Engine ---
-            TEMPORAL_ADDRESS=${{ secrets.TEMPORAL_ADDRESS }}
-            TEMPORAL_NAMESPACE=${{ secrets.TEMPORAL_NAMESPACE }}
-
-  # =================================================================================
-  # JOB 3: Build and Deploy Frontend
-  # This job builds the static frontend, injecting the URL of the newly deployed
-  # API Gateway, and then deploys the assets to GitHub Pages.
-  # =================================================================================
-  deploy-frontend:
-    name: Deploy Frontend
-    runs-on: ubuntu-latest
-    needs: deploy-backend-services
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -335,20 +271,32 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build application
+      - name: Build Micro-Frontends
         env:
-          # VITE_BFF_URL is kept for compatibility with the existing frontend code.
-          # It now points to the new, publicly accessible API Gateway.
-          VITE_BFF_URL: ${{ needs.deploy-backend-services.outputs.api_gateway_url }}
+          VITE_GRAPHQL_GATEWAY_URL: ${{ needs.deploy-backend.outputs.api_gateway_url }}/graphql
+          VITE_MFE_DASHBOARD_URL: ${{ secrets.GCS_BUCKET_URL }}/dashboard/remoteEntry.js
+          VITE_MFE_TRANSACTIONS_URL: ${{ secrets.GCS_BUCKET_URL }}/transactions/remoteEntry.js
+          VITE_MFE_INVESTMENTS_URL: ${{ secrets.GCS_BUCKET_URL }}/investments/remoteEntry.js
           VITE_OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
           VITE_OTEL_SERVICE_NAME: 'frontend-client'
-        run: npm run build
+          VITE_AUTH0_DOMAIN: ${{ secrets.VITE_AUTH0_DOMAIN }}
+          VITE_AUTH0_CLIENT_ID: ${{ secrets.VITE_AUTH0_CLIENT_ID }}
+          VITE_AUTH0_AUDIENCE: ${{ secrets.VITE_AUTH0_AUDIENCE }}
+        run: |
+          npm run build --workspace=mfe-shell
+          npm run build --workspace=mfe-dashboard
+          npm run build --workspace=mfe-transactions
+          npm run build --workspace=mfe-investments
+          
+      - name: Deploy MFEs to Google Cloud Storage
+        run: |
+          gsutil -m rsync -r ./mfe-shell/dist gs://${{ secrets.GCS_BUCKET_NAME }}/
+          gsutil -m rsync -r ./mfe-dashboard/dist gs://${{ secrets.GCS_BUCKET_NAME }}/dashboard
+          gsutil -m rsync -r ./mfe-transactions/dist gs://${{ secrets.GCS_BUCKET_NAME }}/transactions
+          gsutil -m rsync -r ./mfe-investments/dist gs://${{ secrets.GCS_BUCKET_NAME }}/investments
 
-      - name: Upload production artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./dist
+      - name: Make GCS Bucket Publicly Readable
+        run: gsutil iam ch allUsers:objectViewer gs://${{ secrets.GCS_BUCKET_NAME }}
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Output Deployed URL
+        run: echo "Frontend available at: ${{ secrets.GCS_BUCKET_URL }}/index.html"
