@@ -24,6 +24,8 @@ export interface PlaidLinkSuccessMetadata {
     }>;
     link_session_id: string;
     products: PlaidProduct[];
+    user_id: string; // Added to align with full Plaid metadata
+    public_token_id: string; // Added to align with full Plaid metadata
 }
 
 export interface PlaidLinkButtonProps {
@@ -61,8 +63,8 @@ const CREATE_LINK_TOKEN_MUTATION = `
 `;
 
 const EXCHANGE_PUBLIC_TOKEN_MUTATION = `
-  mutation ExchangePublicToken($publicToken: String!) {
-    exchangePublicToken(publicToken: $publicToken)
+  mutation ExchangePublicToken($publicToken: String!, $userId: ID!) {
+    exchangePublicToken(publicToken: $publicToken, userId: $userId)
   }
 `;
 
@@ -73,7 +75,8 @@ const EXCHANGE_PUBLIC_TOKEN_MUTATION = `
 const PlaidLogo = () => <svg width="88" height="34" viewBox="0 0 88 34" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M82.2 3.82c-3.32 0-5.83 2.5-5.83 5.82 0 3.31 2.51 5.82 5.83 5.82 3.31 0 5.82-2.5 5.82-5.82 0-3.31-2.51-5.82-5.82-5.82Zm0 9.14c-1.87 0-3.32-1.45-3.32-3.32 0-1.87 1.45-3.32 3.32-3.32 1.87 0 3.31-1.45 3.31-3.32 0-1.87-1.44-3.32-3.31-3.32-1.87 0-3.32-1.45-3.32-3.32s1.45-3.32 3.32-3.32 3.31 1.45 3.31 3.32c0 1.87 1.45 3.32 3.32 3.32s3.32-1.45 3.32-3.32-1.45-3.32-3.32-3.32-3.31-1.45-3.31-3.32c0-3.31 2.5-5.82 5.82-5.82s5.82 2.5 5.82 5.82-2.5 5.82-5.82 5.82c-1.87 0-3.32 1.45-3.32 3.31 0 1.87-1.45 3.32-3.32 3.32Z" fill="#fff"></path><path d="M25.86 10.93c0 4.14-3.55 7.4-7.93 7.4-4.39 0-7.94-3.26-7.94-7.4S13.54 3.53 17.93 3.53c4.38 0 7.93 3.26 7.93 7.4Zm-10.45 0c0 1.45 1.12 2.5 2.52 2.5 1.39 0 2.51-1.05 2.51-2.5 0-1.45-1.12-2.5-2.51-2.5-1.4 0-2.52 1.05-2.52 2.5Z" fill="#fff"></path><path d="M49.6 10.93c0 4.14-3.54 7.4-7.93 7.4-4.38 0-7.93-3.26-7.93-7.4S37.29 3.53 41.67 3.53c4.39 0 7.93 3.26 7.93 7.4Zm-10.45 0c0 1.45 1.12 2.5 2.52 2.5 1.4 0 2.52-1.05 2.52-2.5 0-1.45-1.12-2.5-2.52-2.5-1.4 0-2.52 1.05-2.52 2.5Z" fill="#fff"></path><path d="M68.8 3.82c-3.32 0-5.83 2.5-5.83 5.82 0 3.31 2.51 5.82 5.83 5.82 3.31 0 5.82-2.5 5.82-5.82 0-3.31-2.51-5.82-5.82-5.82Zm0 9.14c-1.87 0-3.32-1.45-3.32-3.32 0-1.87 1.45-3.32 3.32-3.32s3.31-1.45 3.31-3.32c0-1.87-1.44-3.32-3.31-3.32-1.87 0-3.32-1.45-3.32-3.32s1.45-3.32 3.32-3.32 3.31 1.45 3.31 3.32c0 1.87 1.45 3.32 3.32 3.32s3.32-1.45 3.32-3.32-1.45-3.32-3.32-3.32-3.31-1.45-3.31-3.32c0-3.31 2.5-5.82 5.82-5.82s5.82 2.5 5.82 5.82-2.5 5.82-5.82 5.82c-1.87 0-3.32 1.45-3.32 3.31 0 1.87-1.45 3.32-3.32 3.32Z" fill="#fff"></path><path d="M25.86 28.33c0 2.2-1.78 3.97-3.97 3.97h-7.93c-2.2 0-3.97-1.77-3.97-3.97v-7.93c0-2.2 1.78-3.97 3.97-3.97h7.93c2.2 0 3.97 1.77 3.97 3.97v7.93Z" fill="#fff"></path><path d="M17.93 25.43c-2.2 0-3.97-1.78-3.97-3.97s1.78-3.97 3.97-3.97 3.97 1.78 3.97 3.97-1.78 3.97-3.97 3.97Z" fill="#0D0F2A"></path><path d="M2.5 18.23c-1.4 0-2.5-1.12-2.5-2.51V2.5C0 1.1 1.1 0 2.5 0s2.5 1.1 2.5 2.5v13.22c0 1.39-1.1 2.51-2.5 2.51Z" fill="#fff"></path></svg>;
 
 // ================================================================================================
-// HIGH-FIDELITY PLAID MODAL SIMULATION (Unchanged)
+// HIGH-FIDELITY PLAID MODAL SIMULATION
+// This component simulates the Plaid Link UI flow.
 // ================================================================================================
 
 const PlaidModal: React.FC<{
@@ -106,9 +109,17 @@ const PlaidModal: React.FC<{
             const mockPublicToken = `public-sandbox-${Math.random().toString(36).substring(7)}`;
             const mockMetadata: PlaidLinkSuccessMetadata = {
                 institution: { name: bank.name, institution_id: bank.institution_id },
-                accounts: [{ id: `acct_${Math.random().toString(36).substring(7)}`, name: `${bank.name} Checking`, mask: Math.floor(1000 + Math.random() * 9000).toString(), type: 'depository', subtype: 'checking' }],
+                accounts: [{
+                    id: `acct_${Math.random().toString(36).substring(7)}`,
+                    name: `${bank.name} Checking`,
+                    mask: Math.floor(1000 + Math.random() * 9000).toString(),
+                    type: 'depository',
+                    subtype: 'checking'
+                }],
                 link_session_id: `link-session-${Math.random().toString(36).substring(7)}`,
                 products: products,
+                user_id: 'user_123', // Mock user ID
+                public_token_id: `pub_tok_${Date.now()}`, // Mock public token ID
             };
             onSuccess(mockPublicToken, mockMetadata);
             onClose();
@@ -180,12 +191,16 @@ const PlaidLinkButton: React.FC<PlaidLinkButtonProps> = ({ onSuccess, products }
     const [isModalOpen, setIsModalOpen] = useState(false);
     const queryClient = useQueryClient();
 
+    // NOTE: In a real application, the userId would be retrieved securely from an authentication context (e.g., Auth0 `user.sub`).
+    const mockUserId = 'user_123'; 
+
     // --- Mutations ---
 
     const exchangeTokenMutation = useMutation({
         mutationFn: (variables: { publicToken: string; metadata: PlaidLinkSuccessMetadata }) =>
             graphqlRequest<{ exchangePublicToken: boolean }>(EXCHANGE_PUBLIC_TOKEN_MUTATION, {
                 publicToken: variables.publicToken,
+                userId: mockUserId, // Pass userId to the backend
             }),
         onSuccess: (data, variables) => {
             if (data.exchangePublicToken) {

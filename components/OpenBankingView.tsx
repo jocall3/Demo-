@@ -71,14 +71,16 @@ export interface OpenBankingSettings {
 }
 
 interface OpenBankingDashboardData {
-    connections: OpenBankingConnection[];
-    history: ConnectionHistoryEvent[];
-    settings: OpenBankingSettings;
-    availableApps: ThirdPartyApp[];
-    accounts: BankAccount[];
+    openBankingDashboard: {
+        connections: OpenBankingConnection[];
+        history: ConnectionHistoryEvent[];
+        settings: OpenBankingSettings;
+        availableApps: ThirdPartyApp[];
+        accounts: BankAccount[];
+    };
 }
 
-// --- GraphQL & SERVICE LAYER --- 
+// --- GraphQL & SERVICE LAYER ---
 
 const GET_OPEN_BANKING_DASHBOARD = `
   query GetOpenBankingDashboard {
@@ -150,7 +152,7 @@ const ADD_CONNECTION_MUTATION = `
 `;
 
 const graphqlClient = {
-  request: async (query: string, variables?: object) => {
+  request: async <T>(query: string, variables?: object) => {
     const response = await fetch('/graphql', { // Assuming /graphql is the endpoint
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -159,14 +161,14 @@ const graphqlClient = {
     if (!response.ok) throw new Error('Network response was not ok');
     const { data, errors } = await response.json();
     if (errors) throw new Error(errors.map((e: any) => e.message).join('\n'));
-    return data;
+    return data as T;
   }
 };
 
 const openBankingService = {
-  getDashboardData: (): Promise<OpenBankingDashboardData> => graphqlClient.request(GET_OPEN_BANKING_DASHBOARD).then(data => data.openBankingDashboard),
-  revokeConnection: (connectionId: number) => graphqlClient.request(REVOKE_CONNECTION_MUTATION, { connectionId: connectionId.toString() }),
-  addConnection: (variables: { appId: string, linkedAccountIds: string[], grantedPermissionKeys: string[] }) => graphqlClient.request(ADD_CONNECTION_MUTATION, variables),
+  getDashboardData: (): Promise<OpenBankingDashboardData> => graphqlClient.request<OpenBankingDashboardData>(GET_OPEN_BANKING_DASHBOARD),
+  revokeConnection: (connectionId: number) => graphqlClient.request<any>(REVOKE_CONNECTION_MUTATION, { connectionId: connectionId.toString() }),
+  addConnection: (variables: { appId: string, linkedAccountIds: string[], grantedPermissionKeys: string[] }) => graphqlClient.request<any>(ADD_CONNECTION_MUTATION, variables),
 };
 
 
@@ -181,7 +183,7 @@ const useOpenBankingDashboard = () => {
 
 const useRevokeConnection = () => {
     const queryClient = useQueryClient();
-    return useMutation<any, Error, number>({ // The type for the mutation function's variable is number
+    return useMutation<any, Error, number>({
         mutationFn: openBankingService.revokeConnection,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['openBankingDashboard'] });
@@ -191,7 +193,7 @@ const useRevokeConnection = () => {
 
 const useAddConnection = () => {
     const queryClient = useQueryClient();
-    return useMutation<any, Error, { appId: string, linkedAccountIds: string[], grantedPermissionKeys: string[] }>({ 
+    return useMutation<any, Error, { appId: string, linkedAccountIds: string[], grantedPermissionKeys: string[] }>({
         mutationFn: openBankingService.addConnection,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['openBankingDashboard'] });
@@ -347,7 +349,7 @@ export const ConnectNewAppWizard: FC<{ isOpen: boolean; onClose: () => void; ava
     const renderStep = () => {
         switch(step) {
             case 1: 
-                return <div><h4 className="text-white font-semibold mb-4">Choose an application to connect</h4><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{availableApps.map(app => (<div key={app.id} onClick={() => handleSelectApp(app)} className="p-4 bg-gray-700/50 rounded-lg flex items-start gap-4 cursor-pointer hover:bg-gray-700 transition-colors"><div className="w-10 h-10 bg-cyan-500/10 rounded-full flex items-center justify-center text-cyan-300 flex-shrink-0"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={app.icon} /></svg></div><div><p className="font-semibold text-white">{app.name}</p><p className="text-xs text-gray-400">{app.description}</p></div></div>))}</div></div>;
+                return <div><h4 className="text-white font-semibold mb-4">Choose an application to connect</h4><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{availableApps.map(app => (<div key={app.id} onClick={() => handleSelectApp(app)} className="p-4 bg-gray-700/50 rounded-lg flex items-start gap-4 cursor-pointer hover:bg-gray-700 transition-colors"><div className="w-10 h-10 bg-cyan-500/10 rounded-full flex items-center justify-center text-cyan-300 flex-shrink-0"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={app.icon} /></svg></div><div><p className="font-semibold text-white">{app.name}</p><p className="text-xs text-gray-400">by {app.developer}</p></div></div>))}</div></div>;
             case 2: 
                 if (!selectedApp) return null;
                 return <div><button onClick={() => setStep(1)} className="text-sm text-cyan-400 mb-4">&larr; Back to app selection</button><h4 className="text-white font-semibold mb-1">{selectedApp.name} is requesting permission to:</h4><p className="text-sm text-gray-400 mb-4">Review the data this app wants to access.</p><ul className="space-y-3">{selectedApp.requestedPermissions.map(p => (<li key={p.key} className="p-3 bg-gray-700/50 rounded-lg"><div className="flex justify-between items-start"><p className="font-medium text-white">{p.label}</p>{p.riskLevel === 'high' && <span className="text-xs px-2 py-1 bg-red-500/30 text-red-300 rounded-full">High Risk</span>}{p.riskLevel === 'medium' && <span className="text-xs px-2 py-1 bg-yellow-500/30 text-yellow-300 rounded-full">Medium Risk</span>}</div><p className="text-xs text-gray-400 mt-1">{p.description}</p></li>))}</ul><div className="mt-6 flex justify-end"><button onClick={() => setStep(3)} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg">Next: Select Accounts &rarr;</button></div></div>;
@@ -378,7 +380,7 @@ const OpenBankingView: React.FC = () => {
     const { isOpen: isRevokeOpen, onOpen: onRevokeOpen, onClose: onRevokeClose } = useDisclosure();
     const { isOpen: isConnectOpen, onOpen: onConnectOpen, onClose: onConnectClose } = useDisclosure();
 
-    const { connections = [], history = [], settings, availableApps = [], accounts = [] } = data || {};
+    const { connections = [], history = [], settings, availableApps = [], accounts = [] } = data?.openBankingDashboard || {};
 
     const handleViewDetails = (connection: OpenBankingConnection) => {
         setSelectedConnection(connection);
@@ -395,7 +397,7 @@ const OpenBankingView: React.FC = () => {
     };
 
     const handleConnectNewApp = (payload: { appId: string, linkedAccountIds: string[], grantedPermissionKeys: string[] }) => {
-        addConnection(payload);
+        addConnection(payload, { onSuccess: onConnectClose });
     };
     
     const filteredConnections = useMemo(() => {
