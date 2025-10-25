@@ -1,0 +1,16 @@
+apiVersion: backstage.io/v1alpha1
+kind: Domain
+metadata:
+  name: financial-services
+  description: The core business domain for Demo Bank, encompassing all personal and corporate financial services, AI-driven insights, and platform tools.
+spec:
+  owner: architecture-board
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: demobank-platform
+  description: The complete Demo Bank platform, including all microservices, micro-frontends, libraries, and infrastructure components. This system provides a unified, AI-powered financial experience.
+spec:
+  owner: platform-engineering
+  domain: financial-services

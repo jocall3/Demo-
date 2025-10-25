@@ -1,0 +1,52 @@
+{
+  "name": "@demobank/plugin-temporal-visualizer",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "backstage": {
+    "role": "frontend-plugin"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "start": "backstage-cli package start",
+    "build": "backstage-cli package build",
+    "lint": "backstage-cli package lint",
+    "test": "backstage-cli package test",
+    "clean": "backstage-cli package clean",
+    "prepack": "backstage-cli package build",
+    "postpack": "backstage-cli package clean"
+  },
+  "dependencies": {
+    "@backstage/core-components": "^0.14.0",
+    "@backstage/core-plugin-api": "^0.9.0",
+    "@backstage/theme": "^0.5.0",
+    "@material-ui/core": "^4.12.4",
+    "@material-ui/icons": "^4.11.3",
+    "@material-ui/lab": "4.0.0-alpha.61",
+    "@tanstack/react-query": "^5.35.1",
+    "luxon": "^3.4.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.3",
+    "react-use": "^17.5.0",
+    "reactflow": "^11.11.3"
+  },
+  "devDependencies": {
+    "@backstage/cli": "^0.26.0",
+    "@backstage/dev-utils": "^0.8.0",
+    "@backstage/test-utils": "^1.5.0",
+    "@testing-library/jest-dom": "^6.4.2",
+    "@testing-library/react": "^14.2.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/luxon": "^3.4.2",
+    "@types/node": "*",
+    "cross-fetch": "^4.0.0",
+    "typescript": "~5.3.0"
+  },
+  "files": [
+    "dist"
+  ]
+}
