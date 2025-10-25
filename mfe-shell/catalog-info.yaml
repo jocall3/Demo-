@@ -1,0 +1,41 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: mfe-shell
+  description: A central micro-frontend application responsible for orchestrating layout, routing, and shared state across remote micro-frontends. It serves as the entry point and hosts core UI elements.
+  annotations:
+    backstage.io/source-location: url:https://github.com/your-org/demobank/tree/main/mfe-shell
+    backstage.io/techdocs-ref: url:https://github.com/your-org/demobank/tree/main/mfe-shell
+  tags:
+    - microfrontend
+    - frontend
+    - shell
+    - orchestration
+    - react
+spec:
+  type: website
+  lifecycle: production
+  owner: frontend-platform-team
+  system: demobank-frontend
+  dependsOn:
+    - component:mfe-dashboard
+    - component:mfe-transactions
+    - component:mfe-investments
+    - component:mfe-ai-advisor
+    - component:mfe-budgets
+    - component:mfe-crypto
+    - component:mfe-goals
+    - component:mfe-marketplace
+    - component:mfe-corporate-command
+    - component:mfe-open-banking
+    - component:mfe-ai-ad-studio
+  providesApis:
+    - api:mfe-event-bus
+    - api:mfe-router
+  links:
+    - url: https://demobank.example.com
+      title: Live Application
+      icon: dashboard
+    - url: https://github.com/your-org/demobank/tree/main/mfe-shell
+      title: Source Code
+      icon: github
