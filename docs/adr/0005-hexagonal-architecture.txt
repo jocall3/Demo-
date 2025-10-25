@@ -1,0 +1,58 @@
+ADR-0005: Mandate Hexagonal Architecture (Ports and Adapters) in All Backend Services
+
+Date: 2024-07-25
+
+## Status
+
+Accepted
+
+## Context
+
+Our current backend microservices, built with NestJS, exhibit a tight coupling between core business logic and infrastructure concerns. Service classes often directly depend on concrete implementations of data persistence (e.g., TypeORM repositories), messaging clients (e.g., KafkaJS), and external API clients (e.g., Plaid, Stripe).
+
+This coupling presents several challenges:
+
+1.  **Poor Testability**: Unit testing our core business logic is difficult and slow. It requires extensive mocking of complex, framework-dependent components like database connections and message brokers.
+2.  **Lack of Portability**: The core logic is dependent on the NestJS framework and specific libraries. Swapping out a technology (e.g., replacing PostgreSQL with MongoDB, or Kafka with RabbitMQ) requires significant refactoring within the application's core.
+3.  **Fragility**: Changes in external frameworks or library APIs can force cascading changes deep inside our business rules, making the system brittle.
+4.  **Inconsistency**: Without a clear architectural mandate, each service has evolved a slightly different structure, increasing cognitive overhead for developers moving between services.
+
+## Decision
+
+We will mandate the use of Hexagonal Architecture (also known as the "Ports and Adapters" pattern) in all backend NestJS microservices.
+
+This architectural style will enforce a strict separation between the application's core logic and its external dependencies.
+
+1.  **Core Isolation**: The core application, consisting of the `domain` and `application` layers, will be completely isolated from external concerns. It will have zero dependencies on frameworks (like NestJS), data sources (like TypeORM), or any other infrastructure-specific code.
+
+2.  **Ports (Interfaces)**: All communication between the core and the outside world will be defined by `Ports`, which are simple TypeScript interfaces defined within the `application` layer. Examples include `IAccountRepository`, `IEventPublisher`, `IPaymentGateway`.
+
+3.  **Adapters (Implementations)**: Concrete implementations of these ports will be `Adapters`, located in the `infrastructure` layer.
+    *   **Inbound Adapters (Driving Adapters)**: These initiate actions in the application core. Examples include GraphQL Resolvers, REST Controllers, and Kafka Consumers.
+    *   **Outbound Adapters (Driven Adapters)**: These are called by the application core to interact with external systems. Examples include a TypeORM implementation of `IAccountRepository` or a Kafka client implementation of `IEventPublisher`.
+
+4.  **Directory Structure**: A standardized directory structure will be enforced to reflect this separation:
+    *   `src/domain`: Core business models (Aggregates, Entities, Value Objects), domain events. Contains no external dependencies.
+    *   `src/application`: Use cases (Application Services), and Port definitions (interfaces). Depends only on the `domain` layer.
+    *   `src/infrastructure`: All external-facing code.
+        *   `src/infrastructure/adapters/inbound`: GraphQL Resolvers, REST Controllers, gRPC Controllers, Kafka Consumers.
+        *   `src/infrastructure/adapters/outbound`: TypeORM/Mongoose Repositories, Kafka Producers, REST clients to other services.
+        *   `src/infrastructure/config`: Database connection, etc.
+
+5.  **Dependency Inversion**: We will leverage NestJS's Dependency Injection (DI) system at the outermost layer (in the NestJS module files) to connect the Adapters (concrete implementations) to the Ports (interfaces). The application core will depend on abstractions (Ports), not on concrete details (Adapters).
+
+## Consequences
+
+### Positive
+
+*   **Superior Testability**: The domain and application layers can be unit-tested in complete isolation, using simple in-memory mock adapters. This will result in faster, more reliable, and more comprehensive tests.
+*   **Technology Agnosticism**: We can change database providers, message brokers, or even the web framework itself by simply creating new adapters, without modifying the core business logic.
+*   **Clear Separation of Concerns**: The architecture creates an unambiguous boundary between business rules and infrastructure code, making the system easier to understand, maintain, and evolve.
+*   **Parallel Development**: Once the `Port` interfaces are defined, teams can work on different adapters (e.g., a web UI adapter and a database adapter) in parallel.
+*   **Delayed Decisions**: We can defer decisions about which specific technologies to use, as the core logic is independent of them.
+
+### Negative
+
+*   **Increased Boilerplate**: This pattern requires additional files and layers of abstraction (interfaces, adapters, mappers/DTOs). This may feel like more upfront work, especially for simple CRUD operations.
+*   **Learning Curve**: Developers unfamiliar with Hexagonal Architecture, Domain-Driven Design, and Dependency Inversion will require training and time to adapt to this new pattern.
+*   **Potential Over-Engineering**: For extremely simple microservices (e.g., a service that only proxies another API without any business logic), this architecture could be considered overkill. However, we accept this trade-off for the sake of consistency and future-proofing across the entire backend.

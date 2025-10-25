@@ -1,0 +1,44 @@
+ADR-0007: Enforce OAuth 2.0 Token Exchange for Internal API Calls
+
+Date: 2024-07-24
+
+Status: Accepted
+
+## Context
+
+Our current security model involves the API Gateway receiving an end-user's JSON Web Token (JWT) and forwarding it directly to downstream microservices in the `Authorization` header. Each downstream service validates this token to authorize the request.
+
+This approach presents several security vulnerabilities and architectural drawbacks:
+
+1.  **Violation of Least Privilege**: A forwarded token carries all the original permissions of the end-user. If a downstream service (e.g., `transactions-service`) is compromised, an attacker could potentially use the captured JWT to impersonate the user and call other services (e.g., `user-service` to change profile details), leading to a significant security breach.
+2.  **Poor Auditability**: All internal API calls appear to originate directly from the end-user. It is difficult to trace which service initiated a specific action on behalf of the user, complicating security audits and debugging.
+3.  **Token Over-exposure**: The end-user's primary JWT is propagated deep into the internal network, increasing its surface area for potential interception or leakage.
+4.  **Coupling**: Downstream services are coupled to the format and claims of the end-user's token. Changes to the authentication flow for end-users could require updates across multiple microservices.
+
+## Decision
+
+We will re-architect the API Gateway and all downstream microservices to implement the **OAuth 2.0 Token Exchange flow (RFC 8693)** for all internal API calls originating from the gateway.
+
+The flow will be as follows:
+
+1.  An end-user makes a request to the API Gateway with their primary JWT (the "subject token").
+2.  The API Gateway authenticates this token.
+3.  Before proxying the request to a specific downstream microservice (e.g., `accounts-service`), the API Gateway will make a server-to-server call to our Identity Provider (Keycloak).
+4.  In this call, the Gateway will exchange the end-user's JWT for a new, narrowly-scoped JWT. This new token will have an `aud` (audience) claim that is specific to the target downstream service (e.g., `aud: "accounts-service"`).
+5.  The API Gateway will then use this new, audience-specific token in the `Authorization` header when calling the downstream service.
+6.  Every downstream service will be configured to strictly validate the `aud` claim of all incoming JWTs. It must reject any token where the `aud` claim does not match its own designated audience identifier.
+
+## Consequences
+
+### Positive
+
+*   **Enhanced Security & Zero Trust**: This implements the principle of least privilege. A compromised service will only possess a token valid for itself, preventing it from calling other services. The scope of a stolen token is drastically reduced.
+*   **Improved Auditability**: The exchanged token will contain claims (`azp` - authorized party) identifying the API Gateway as the client that performed the exchange. This provides a clear audit trail showing that the call was made by the gateway on behalf of the user.
+*   **Service Decoupling**: Downstream services no longer need to know about the end-user's token. They only need to trust tokens issued by the Identity Provider with the correct audience, leading to stronger service boundaries.
+*   **Reduced Token Exposure**: The end-user's primary token is never propagated beyond the API Gateway, reducing its attack surface.
+
+### Negative
+
+*   **Increased Latency**: Every unique request passing through the gateway will incur an additional network round-trip to the Identity Provider for the token exchange. This latency can be partially mitigated by caching the exchanged tokens at the gateway for a very short duration (e.g., 1-5 minutes), balancing performance with security.
+*   **Increased Complexity**: The API Gateway's logic becomes more stateful and complex. Each downstream service must also be updated to include strict audience validation.
+*   **Critical Dependency on Identity Provider**: The Identity Provider (Keycloak) becomes a critical, single point of failure for all API requests. Its availability and performance must be robust and closely monitored. An outage in the IdP will result in a system-wide failure to process API calls.

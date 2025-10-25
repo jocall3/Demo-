@@ -1,0 +1,49 @@
+ADR: 0008. Implement a Multi-Layered Distributed Caching Strategy with Redis
+
+Status: Accepted
+
+## Context
+
+The platform is observing increased latency and database load on core microservices (`accounts-service`, `transactions-service`, `user-service`) as user activity scales. Analysis indicates a high volume of repetitive read queries for frequently accessed but infrequently updated data, such as user profiles, account details, and common application settings.
+
+Furthermore, the `api-gateway` is processing a significant number of identical, idempotent GraphQL queries, resulting in redundant processing and unnecessary calls to downstream services. The current session management within our identity provider (Keycloak) is node-local, presenting a single point of failure and a bottleneck for horizontal scaling.
+
+A comprehensive caching strategy is required to improve response times, reduce the load on primary datastores, enhance system resilience, and enable scalable session management.
+
+## Decision
+
+We will implement a multi-layered distributed caching strategy leveraging a centralized Redis cluster. This strategy will be composed of three distinct layers:
+
+1.  **Microservice-Level Cache (Cache-Aside Pattern)**:
+    *   Each microservice's repository/data access layer will implement the cache-aside pattern.
+    *   Before querying the primary database for an entity (e.g., by ID), the repository will first attempt to retrieve the data from Redis.
+    *   On a cache miss, the data will be fetched from the database, written to Redis with an appropriate Time-To-Live (TTL), and then returned to the application.
+    *   On all write operations (create, update, delete), the corresponding cache key in Redis will be explicitly invalidated (deleted) to maintain data consistency.
+
+2.  **API Gateway-Level Cache (GraphQL Query Caching)**:
+    *   The `api-gateway` will be configured to cache the results of idempotent GraphQL `Query` operations.
+    *   A unique cache key will be generated from the full GraphQL query string and its variables.
+    *   This layer will act as a shared cache for downstream service responses, significantly reducing load for common, non-personalized API calls.
+
+3.  **Distributed Session Store**:
+    *   The Redis cluster will be configured as the primary session store for Keycloak.
+    *   This replaces Keycloak's default in-memory session management, enabling a stateless, horizontally scalable, and fault-tolerant identity and session management infrastructure.
+
+**Technology Choice**: Redis is selected for its high performance, low latency, versatile data structures, and mature ecosystem. A managed Redis service (e.g., Google Cloud Memorystore, AWS ElastiCache) will be utilized in production environments to offload operational overhead.
+
+## Consequences
+
+### Positive
+
+*   **Performance Improvement**: User-facing latency will be significantly reduced for cached data and queries.
+*   **Reduced Backend Load**: The number of read operations on primary databases will decrease substantially, allowing them to handle write loads more effectively and reducing scaling costs.
+*   **Increased Scalability**: The system will be able to handle a much higher volume of read traffic without proportionally scaling the database tier.
+*   **Enhanced Resilience**: The gateway cache can be configured to serve stale data in the event of a downstream service outage, improving overall system availability.
+*   **Scalable Authentication**: Keycloak can be scaled horizontally without session affinity concerns, improving the reliability and performance of the identity system.
+
+### Negative / Risks
+
+*   **Increased Complexity**: Introduces a new critical component (Redis) into the architecture that requires monitoring, maintenance, and security considerations.
+*   **Data Consistency Challenges**: The system moves from a strongly consistent to an eventually consistent model for cached data. Developers must be diligent in implementing correct cache invalidation logic to avoid serving stale data.
+*   **Cache Invalidation Strategy**: Implementing a robust and correct cache invalidation strategy is complex. Write-through or write-behind caching might be considered for specific use cases in the future, but cache-aside with TTL and explicit invalidation is the chosen starting point.
+*   **Cache Stampede (Thundering Herd)**: A risk exists where a popular, hot cache key expires and multiple concurrent requests attempt to regenerate the value, overwhelming the underlying data source. This will be mitigated using locking mechanisms within the cache-aside implementation where critical.
