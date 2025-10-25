@@ -1,7 +1,7 @@
 {
   "name": "banking-service",
   "version": "1.0.0",
-  "description": "Banking subgraph for the Demo Bank federated supergraph, handling Plaid integration and payment processing.",
+  "description": "Banking subgraph for the Demo Bank federated supergraph, handling Plaid integration, payment processing orchestrated via Temporal workflows, and event-driven communication.",
   "author": "Elite AI Implementation Team",
   "private": true,
   "license": "UNLICENSED",
@@ -17,7 +17,9 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "start:worker:dev": "nest start --watch --entryFile src/temporal/worker",
+    "start:worker": "node dist/temporal/worker"
   },
   "dependencies": {
     "@apollo/subgraph": "^2.7.2",
@@ -37,6 +39,10 @@
     "@opentelemetry/resources": "^1.25.0",
     "@opentelemetry/sdk-node": "^0.52.0",
     "@opentelemetry/semantic-conventions": "^1.25.0",
+    "@temporalio/activity": "^1.9.0",
+    "@temporalio/client": "^1.9.0",
+    "@temporalio/worker": "^1.9.0",
+    "@temporalio/workflow": "^1.9.0",
     "axios": "^1.7.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",

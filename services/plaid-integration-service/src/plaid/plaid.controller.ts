@@ -8,23 +8,52 @@ import {
   Payload,
 } from '@nestjs/microservices';
 import { PlaidService } from './plaid.service';
+import { IsString, IsNotEmpty, IsOptional, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 
 /**
- * DTO for the payload of a 'plaid.link_token.create' request.
+ * @description DTO for relevant Plaid institution metadata.
+ * Only includes fields immediately used or relevant to the event.
+ */
+class PlaidInstitutionMetadataDto {
+  @IsString()
+  @IsNotEmpty()
+  institution_id: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+}
+
+/**
+ * @description DTO for the payload of a 'plaid.link_token.create' request.
  * Sent by the API Gateway when a user needs to start the Plaid Link flow.
  */
-interface CreateLinkTokenPayload {
+class CreateLinkTokenPayloadDto {
+  @IsString()
+  @IsNotEmpty()
   userId: string;
 }
 
 /**
- * DTO for the payload of a 'plaid.public_token.exchange' event.
+ * @description DTO for the payload of a 'plaid.public_token.exchange' event.
  * Emitted by the API Gateway after the user successfully completes the Plaid Link flow.
  */
-interface ExchangePublicTokenPayload {
+class ExchangePublicTokenPayloadDto {
+  @IsString()
+  @IsNotEmpty()
   publicToken: string;
+
+  @IsString()
+  @IsNotEmpty()
   userId: string;
-  metadata: Record<string, any>; // Contains institution_id, etc.
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PlaidInstitutionMetadataDto)
+  metadata?: {
+    institution?: PlaidInstitutionMetadataDto;
+  };
 }
 
 /**
@@ -32,6 +61,9 @@ interface ExchangePublicTokenPayload {
  * from the central message bus (Kafka). It listens for messages and events,
  * delegates tasks to the PlaidService, and emits events to notify other services
  * of outcomes. It does not expose any HTTP endpoints.
+ *
+ * This controller adheres to the Hexagonal Architecture by acting as an inbound adapter,
+ * translating external Kafka messages into domain-specific service calls.
  */
 @Controller()
 export class PlaidController implements OnModuleInit {
@@ -59,7 +91,7 @@ export class PlaidController implements OnModuleInit {
    * @returns An object containing the link token data or an error.
    */
   @MessagePattern('plaid.link_token.create')
-  async createLinkToken(@Payload() payload: CreateLinkTokenPayload) {
+  async createLinkToken(@Payload() payload: CreateLinkTokenPayloadDto) {
     this.logger.log(`Handling createLinkToken request for user: ${payload.userId}`);
     try {
       const linkTokenData = await this.plaidService.createLinkToken(payload.userId);
@@ -80,7 +112,7 @@ export class PlaidController implements OnModuleInit {
    */
   @EventPattern('plaid.public_token.exchange')
   async handlePublicTokenExchange(
-    @Payload() payload: ExchangePublicTokenPayload,
+    @Payload() payload: ExchangePublicTokenPayloadDto,
     @Ctx() context: KafkaContext,
   ) {
     const { publicToken, userId, metadata } = payload;
@@ -104,6 +136,7 @@ export class PlaidController implements OnModuleInit {
       // As the owner of the Plaid connection, this service can also trigger
       // the initial data syncs immediately after item creation.
       // The service methods would then emit more granular events like `transactions.synced`.
+      // This ensures the data mesh product is made available quickly.
       this.plaidService.triggerInitialDataSync(userId, itemId);
     } catch (error) {
       this.logger.error(`Failed to exchange public token for user ${userId}`, error.stack);
@@ -120,6 +153,8 @@ export class PlaidController implements OnModuleInit {
   /**
    * Handles incoming webhooks from Plaid, which are forwarded as events by the API Gateway.
    * This allows the service to react to real-time updates from the financial institution.
+   * This is critical for keeping our read models (projections) up-to-date and enabling
+   * event sourcing consistency.
    * @param payload The full webhook payload from Plaid.
    */
   @EventPattern('plaid.webhook.received')
