@@ -1,0 +1,32 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: cache-warmer-service
+  description: A dedicated microservice that subscribes to domain event streams from Kafka to proactively compute and populate complex, aggregated query results in the L2 (Redis) cache.
+  tags:
+    - service
+    - backend
+    - caching
+    - nodejs
+    - kafka
+    - redis
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: service
+  lifecycle: production
+  owner: team-platform-engineering
+  system: demobank-platform
+  dependsOn:
+    # Infrastructure dependencies
+    - resource:kafka-message-bus
+    - resource:redis-l2-cache
+    # Service dependencies for data aggregation
+    - component:accounts-service
+    - component:transactions-service
+    - component:user-service
+  consumesApis:
+    - api:domain-events-stream # Represents the Kafka topics it consumes
+    - api:accounts-graphql-subgraph
+    - api:transactions-graphql-subgraph
+  providesApis: [] # This service does not expose a public API; it's a background worker.

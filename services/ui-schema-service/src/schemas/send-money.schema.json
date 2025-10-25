@@ -1,0 +1,158 @@
+{
+  "schemaId": "send-money-wizard-v1",
+  "title": "Send Money",
+  "description": "A multi-step wizard to securely send money to a recipient.",
+  "api": {
+    "submit": {
+      "endpoint": "/api/experience-dashboard/v1/send-money",
+      "method": "POST"
+    }
+  },
+  "steps": [
+    {
+      "stepId": "recipient",
+      "title": "Choose Recipient",
+      "fields": [
+        {
+          "name": "recipientId",
+          "label": "Who are you sending money to?",
+          "type": "recipient-picker",
+          "validation": {
+            "required": {
+              "value": true,
+              "message": "Please select a recipient."
+            }
+          },
+          "ui": {
+            "component": "RecipientPicker",
+            "props": {
+              "dataSource": {
+                "type": "api",
+                "endpoint": "/api/experience-dashboard/v1/recipients"
+              }
+            }
+          }
+        },
+        {
+          "name": "paymentRail",
+          "label": "How would you like to send it?",
+          "type": "select",
+          "defaultValue": "quantumpay",
+          "options": [
+            { "label": "QuantumPay (Instant)", "value": "quantumpay" },
+            { "label": "Standard ACH (2-3 Business Days)", "value": "ach" },
+            { "label": "Wire Transfer", "value": "wire" }
+          ],
+          "validation": {
+            "required": {
+              "value": true,
+              "message": "Please select a payment method."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stepId": "amount",
+      "title": "Enter Amount",
+      "fields": [
+        {
+          "name": "amount",
+          "label": "Amount",
+          "type": "currency",
+          "defaultValue": 0.00,
+          "validation": {
+            "required": {
+              "value": true,
+              "message": "Please enter an amount."
+            },
+            "min": {
+              "value": 1.00,
+              "message": "Amount must be at least $1.00."
+            },
+            "max": {
+                "value": 10000.00,
+                "message": "You can send up to $10,000.00 in a single transaction."
+            }
+          },
+          "ui": {
+              "component": "CurrencyInput",
+              "props": {
+                  "currency": "USD"
+              }
+          }
+        },
+        {
+          "name": "memo",
+          "label": "Memo (Optional)",
+          "type": "text",
+          "validation": {
+            "maxLength": {
+              "value": 140,
+              "message": "Memo cannot exceed 140 characters."
+            }
+          },
+          "ui": {
+            "component": "TextInput",
+            "props": {
+              "placeholder": "For dinner, rent, etc."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stepId": "source",
+      "title": "From Account",
+      "fields": [
+        {
+          "name": "sourceAccountId",
+          "label": "Select an account to send from",
+          "type": "radio-group-card",
+          "validation": {
+            "required": {
+              "value": true,
+              "message": "Please select a source account."
+            }
+          },
+          "ui": {
+            "component": "AccountSelector",
+             "props": {
+              "dataSource": {
+                "type": "api",
+                "endpoint": "/api/experience-dashboard/v1/accounts?type=depository"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stepId": "review",
+      "title": "Review & Send",
+      "fields": [
+        {
+          "name": "summary",
+          "type": "summary",
+          "ui": {
+            "component": "TransactionSummary",
+            "props": {
+              "fields": ["recipientId", "amount", "memo", "sourceAccountId", "paymentRail"]
+            }
+          }
+        },
+        {
+          "name": "termsConfirmation",
+          "label": "I have reviewed the details and confirm the transfer.",
+          "type": "checkbox",
+          "validation": {
+            "required": {
+              "value": true,
+              "message": "You must confirm the details before sending."
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

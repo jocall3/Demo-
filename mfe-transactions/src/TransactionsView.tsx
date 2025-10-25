@@ -1,84 +1,79 @@
-import React, { useState, useMemo, useCallback, FC, ReactNode } from 'react';
-import { useQuery, useMutation, UseMutationResult, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import React, { useState, useMemo, FC } from 'react';
+import { useMutation, UseMutationResult, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import Card from '../../../components/Card';
+import { Transaction, TransactionType } from '../../../types';
 import { gql } from 'graphql-request';
+import { useTransactionsData } from '../hooks/useTransactionsData';
 
 // ================================================================================================
-// SHARED TYPES (Copied for self-containment, but ideally from a shared types package)
+// GRAPHQL & SERVICE LAYER (FOR MUTATIONS)
+// The query logic is encapsulated in the useTransactionsData hook.
+// This section defines mutation logic specific to this view.
 // ================================================================================================
 
-export enum TransactionType {
-  INCOME = 'INCOME',
-  EXPENSE = 'EXPENSE',
-}
-
-export interface Transaction {
-  __typename?: 'Transaction';
-  id: string;
-  type: TransactionType;
-  category: string;
-  description: string;
-  amount: number;
-  date: string; // Corresponds to the 'Date' scalar
-  carbonFootprint?: number | null;
-}
-
-// ================================================================================================
-// CORE UI COMPONENTS (Inlined for self-containment as an MFE)
-// ================================================================================================
-
-// --- Card Component (Simplified but functional version) ---
-export interface CardProps {
-  title?: string;
-  children: React.ReactNode;
-  isCollapsible?: boolean;
-  defaultCollapsed?: boolean;
-  isLoading?: boolean;
-  errorState?: string | null;
-  className?: string;
-}
-
-const Card: FC<CardProps> = ({ title, children, isCollapsible = false, defaultCollapsed = false, isLoading = false, errorState = null, className = '' }) => {
-  const [isCollapsed, setIsCollapsed] = useState(isCollapsible && defaultCollapsed);
-
-  const renderContent = () => {
-    if (isLoading) {
-      return <div className="p-6 text-center text-gray-500">Loading...</div>;
+/**
+ * A lightweight GraphQL client function for mutations.
+ * @param query The GraphQL query string.
+ * @param variables The variables for the query.
+ * @returns A promise that resolves with the data from the GraphQL response.
+ */
+const graphqlRequest = async <T, V>(query: string, variables?: V): Promise<T> => {
+    const response = await fetch('/graphql', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables }),
+    });
+    if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({ message: 'An unknown network error occurred' }));
+        throw new Error(errorBody.message || `GraphQL request failed with status ${response.status}`);
     }
-    if (errorState) {
-      return <div className="p-6 text-center text-red-400">Error: {errorState}</div>;
+    const { data, errors } = await response.json();
+    if (errors) {
+        throw new Error(errors.map((e: any) => e.message).join('\n'));
     }
-    return <div className="p-6">{children}</div>;
-  };
-
-  return (
-    <div className={`bg-gray-800/50 backdrop-blur-sm border border-gray-700/60 rounded-xl shadow-lg ${className}`}>
-      {(title || isCollapsible) && (
-        <div className={`flex justify-between items-center p-4 border-b border-gray-700/60 ${isCollapsible ? 'cursor-pointer' : ''}`} onClick={() => isCollapsible && setIsCollapsed(!isCollapsed)}>
-          {title && <h3 className="text-xl font-semibold text-gray-100 truncate">{title}</h3>}
-          {isCollapsible && <button className="text-gray-400 hover:text-white">{isCollapsed ? 'Show' : 'Hide'}</button>}
-        </div>
-      )}
-      {!isCollapsed && renderContent()}
-    </div>
-  );
+    return data;
 };
 
-// --- Transaction-specific Sub-Components ---
-
-const TransactionIcon: FC<{ category: string }> = ({ category }) => {
-    let iconPath;
-    switch (category) {
-        case 'Dining': iconPath = "M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c2 1 5 1 7 0 2-1 2.657-1.343 2.657-1.343a8 8 0 010 10z"; break;
-        case 'Salary': case 'Freelance': iconPath = "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v.01"; break;
-        case 'Shopping': iconPath = "M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"; break;
-        case 'Groceries': iconPath = "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"; break;
-        case 'Utilities': iconPath = "M13 10V3L4 14h7v7l9-11h-7z"; break;
-        case 'Transport': iconPath = "M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M12 11a3 3 0 100-6 3 3 0 000 6z"; break;
-        case 'Entertainment': iconPath = "M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 002 2h14a2 2 0 002-2V7a2 2 0 00-2-2H5z"; break;
-        default: iconPath = "M4 6h16M4 10h16M4 14h16M4 18h16"; break;
+const ASK_AI_ADVISOR_MUTATION = gql`
+    mutation AskAdvisorForTransactionInsight($message: String!) {
+        askAIAdvisor(message: $message) {
+            messages {
+                role
+                parts {
+                    text
+                }
+            }
+        }
     }
-    return (<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={iconPath}></path></svg>);
+`;
+
+// ================================================================================================
+// CUSTOM HOOKS (FOR MUTATIONS)
+// ================================================================================================
+
+/**
+ * Hook to generate an AI insight for transactions via a GraphQL mutation.
+ * @param insightType - The type of insight to request.
+ * @returns A mutation object from TanStack Query.
+ */
+const useTransactionInsight = (insightType: string) => {
+    return useMutation<{ askAIAdvisor: { messages: any[] } }, Error>({
+        mutationFn: () => {
+            const prompts = {
+                'subscription_hunter': 'Analyze my recent transactions and identify any recurring payments that are likely subscriptions. List their name and estimated monthly amount in a markdown list.',
+                'anomaly_detection': "Analyze my recent transactions and identify any spending anomalies or outliers compared to typical patterns. Describe one significant anomaly.",
+                'tax_deduction_finder': 'Review my transactions for any potential tax-deductible expenses and list a few examples.',
+                'savings_finder': 'Based on my spending habits shown in these transactions, suggest one specific area where I could save money.'
+            };
+            const message = prompts[insightType as keyof typeof prompts] || 'Analyze my transactions and provide an insight.';
+            return graphqlRequest(ASK_AI_ADVISOR_MUTATION, { message });
+        },
+    });
 };
+
+// ================================================================================================
+// UI COMPONENTS
+// ================================================================================================
 
 const TransactionDetailModal: FC<{ transaction: Transaction | null; onClose: () => void }> = ({ transaction, onClose }) => {
     if (!transaction) return null;
@@ -151,86 +146,6 @@ const TransactionTableSkeleton: FC = () => (
 );
 
 // ================================================================================================
-// GRAPHQL CLIENT & QUERIES
-// ================================================================================================
-
-const graphqlRequest = async <T, V>(query: string, variables?: V): Promise<T> => {
-    const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, variables }),
-    });
-    if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({ message: 'An unknown network error occurred' }));
-        throw new Error(errorBody.errors?.[0]?.message || `GraphQL request failed with status ${response.status}`);
-    }
-    const { data, errors } = await response.json();
-    if (errors) {
-        throw new Error(errors.map((e: any) => e.message).join('\n'));
-    }
-    return data;
-};
-
-const GET_TRANSACTIONS_QUERY = gql`
-    query GetUserTransactions {
-        userData {
-            transactions {
-                id
-                type
-                category
-                description
-                amount
-                date
-                carbonFootprint
-            }
-        }
-    }
-`;
-
-const ASK_AI_ADVISOR_MUTATION = gql`
-    mutation AskAdvisorForTransactionInsight($message: String!) {
-        askAIAdvisor(message: $message) {
-            messages {
-                role
-                parts {
-                    text
-                }
-            }
-        }
-    }
-`;
-
-// ================================================================================================
-// CUSTOM HOOKS (Feature-Sliced State Management)
-// ================================================================================================
-
-const useTransactions = () => {
-    return useQuery<Transaction[], Error>({
-        queryKey: ['transactions'],
-        queryFn: async () => {
-            const data = await graphqlRequest<{ userData: { transactions: Transaction[] } }>(GET_TRANSACTIONS_QUERY);
-            return data.userData.transactions;
-        },
-        staleTime: 1000 * 60 * 5, // 5 minutes
-    });
-};
-
-const useTransactionInsight = (insightType: string) => {
-    return useMutation<{ askAIAdvisor: { messages: any[] } }, Error>({
-        mutationFn: () => {
-            const prompts = {
-                'subscription_hunter': 'Analyze my recent transactions and identify any recurring payments that are likely subscriptions. List their name and estimated monthly amount in a markdown list.',
-                'anomaly_detection': "Analyze my recent transactions and identify any spending anomalies or outliers compared to typical patterns. Describe one significant anomaly.",
-                'tax_deduction_finder': 'Review my transactions for any potential tax-deductible expenses and list a few examples.',
-                'savings_finder': 'Based on my spending habits shown in these transactions, suggest one specific area where I could save money.'
-            };
-            const message = prompts[insightType as keyof typeof prompts] || 'Analyze my transactions and provide an insight.';
-            return graphqlRequest(ASK_AI_ADVISOR_MUTATION, { message });
-        },
-    });
-};
-
-// ================================================================================================
 // MAIN COMPONENT
 // ================================================================================================
 
@@ -240,7 +155,7 @@ const TransactionsView: FC = () => {
     const [sort, setSort] = useState<'date' | 'amount'>('date');
     const [searchTerm, setSearchTerm] = useState('');
 
-    const { data: transactions, isLoading, error } = useTransactions();
+    const { transactions, isLoading, error } = useTransactionsData();
     
     const subscriptionInsight = useTransactionInsight('subscription_hunter');
     const anomalyInsight = useTransactionInsight('anomaly_detection');

@@ -1,0 +1,45 @@
+{
+  "name": "demobank-developer-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Centralized developer portal for the DemoBank platform, powered by Backstage.io.",
+  "engines": {
+    "node": "18 || 20"
+  },
+  "scripts": {
+    "dev": "concurrently \"yarn start-backend\" \"yarn start-app\"",
+    "start": "yarn dev",
+    "start-app": "yarn workspace app start",
+    "start-backend": "yarn workspace backend start",
+    "build": "backstage-cli repo build --all",
+    "build:all": "backstage-cli repo build --all",
+    "clean": "backstage-cli repo clean && lerna clean --yes",
+    "test": "backstage-cli repo test",
+    "test:all": "backstage-cli repo test --coverage",
+    "lint": "backstage-cli repo lint --since origin/main",
+    "lint:all": "backstage-cli repo lint",
+    "prettier:check": "prettier --check .",
+    "prettier:fix": "prettier --write .",
+    "create-plugin": "backstage-cli create-plugin",
+    "new": "backstage-cli new --scope app",
+    "postinstall": "backstage-cli repo prepack --all"
+  },
+  "workspaces": {
+    "packages": [
+      "packages/*",
+      "plugins/*"
+    ]
+  },
+  "devDependencies": {
+    "@backstage/cli": "^0.25.1",
+    "@spotify/prettier-config": "^12.0.0",
+    "concurrently": "^8.2.2",
+    "lerna": "^7.3.0",
+    "prettier": "^2.8.8",
+    "typescript": "~5.3.0"
+  },
+  "resolutions": {
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0"
+  }
+}

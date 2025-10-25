@@ -2,10 +2,10 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: mfe-shell
-  description: A central micro-frontend application responsible for orchestrating layout, routing, and shared state across remote micro-frontends. It serves as the entry point and hosts core UI elements.
+  description: The central MFE Shell application responsible for orchestrating layout, routing, and shared state across remote micro-frontends using Webpack Module Federation.
   annotations:
-    backstage.io/source-location: url:https://github.com/your-org/demobank/tree/main/mfe-shell
-    backstage.io/techdocs-ref: url:https://github.com/your-org/demobank/tree/main/mfe-shell
+    github.com/project-slug: your-org/demobank
+    backstage.io/techdocs-ref: dir:.
   tags:
     - microfrontend
     - frontend
@@ -15,23 +15,33 @@ metadata:
 spec:
   type: website
   lifecycle: production
-  owner: frontend-platform-team
-  system: demobank-frontend
+  owner: team-frontend-platform
+  system: demobank-microfrontends
   dependsOn:
+    # Backend service this shell directly communicates with
+    - component:api-gateway
+    # Remote micro-frontends orchestrated by this shell
     - component:mfe-dashboard
     - component:mfe-transactions
     - component:mfe-investments
-    - component:mfe-ai-advisor
+    - component:mfe-send-money
     - component:mfe-budgets
+    - component:mfe-ai-advisor
+    - component:mfe-quantum-weaver
+    - component:mfe-ai-ad-studio
     - component:mfe-crypto
     - component:mfe-goals
     - component:mfe-marketplace
+    - component:mfe-security
     - component:mfe-corporate-command
     - component:mfe-open-banking
-    - component:mfe-ai-ad-studio
+    - component:mfe-rewards
+    - component:mfe-credit-health
   providesApis:
     - api:mfe-event-bus
     - api:mfe-router
+  consumesApis:
+    - api:apollo-gateway-graphql-api
   links:
     - url: https://demobank.example.com
       title: Live Application

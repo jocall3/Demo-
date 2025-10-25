@@ -8,20 +8,25 @@ import {
   Post,
   ValidationPipe,
 } from '@nestjs/common';
-import { Client } from '@temporalio/client';
-import { v4 as uuidv4 } from 'uuid';
-import { InitiatePaymentDto } from '../../application/dtos/initiate-payment.dto';
-import { paymentWorkflow } from '../../application/workflows/payment.workflow';
-import { TEMPORAL_CLIENT } from '../temporal/temporal.constants';
+import { Client as TemporalClient } from '@temporalio/client';
 import { WorkflowExecutionDescription } from '@temporalio/client';
+import { InitiatePaymentDto } from '../../application/dtos/initiate-payment.dto';
+import { TransactionCommandService } from '../../application/services/transaction-command.service';
+import { TEMPORAL_CLIENT_TOKEN } from '../temporal/temporal.constants';
 
 /**
  * @class TransactionController
- * @description This controller is an **Input Adapter** in the Hexagonal Architecture.
+ * @description This controller is an **inbound adapter** in a Hexagonal Architecture.
  * Its primary role is to translate incoming HTTP requests into commands for the application's core logic.
- * Following the "Durable Saga Pattern" directive, it does not contain business logic itself;
+ * Following the "Durable Saga Pattern" directive, it does not contain complex business logic;
  * instead, it initiates and queries long-running, durable workflows managed by a workflow
- * orchestration engine (Temporal).
+ * orchestration engine (Temporal) via the application service.
+ *
+ * This controller provides a synchronous REST API for initiating payment sagas, which might be used
+ * by internal tools or for specific integration scenarios that do not use the GraphQL supergraph.
+ *
+ * @see TransactionCommandService - The application service port for command-side operations.
+ * @see paymentWorkflow - The durable workflow that orchestrates the payment saga.
  */
 @Controller('transactions')
 export class TransactionController {
@@ -36,11 +41,12 @@ export class TransactionController {
 
   /**
    * Creates an instance of TransactionController.
-   * @param {Client} temporalClient - The injected Temporal client, used to start and query workflows.
-   * This client acts as the "port" to the application's core logic.
+   * @param {TransactionCommandService} transactionCommandService - The application service handling the command logic.
+   * @param {Client} temporalClient - The injected Temporal client, used to query workflows.
    */
   constructor(
-    @Inject(TEMPORAL_CLIENT) private readonly temporalClient: Client,
+    private readonly transactionCommandService: TransactionCommandService,
+    @Inject(TEMPORAL_CLIENT_TOKEN) private readonly temporalClient: TemporalClient,
   ) {}
 
   /**
@@ -56,25 +62,22 @@ export class TransactionController {
   async initiatePayment(
     @Body(new ValidationPipe()) paymentDto: InitiatePaymentDto,
   ): Promise<{ workflowId: string }> {
-    const workflowId = `payment-${uuidv4()}`;
     this.logger.log(
-      `Received request to initiate payment. Starting workflow with ID: ${workflowId}`,
+      `Received REST request to initiate payment for user ${paymentDto.userId}.`,
     );
 
-    await this.temporalClient.workflow.start(paymentWorkflow, {
-      taskQueue: 'transactions-queue',
-      workflowId: workflowId,
-      args: [paymentDto], // Pass the validated DTO directly to the workflow
-    });
-
-    this.logger.log(`Workflow ${workflowId} started successfully.`);
+    // Delegate the command to the application service. The service is responsible
+    // for orchestrating the workflow start.
+    const workflowId = await this.transactionCommandService.initiatePayment(
+      paymentDto,
+    );
 
     return { workflowId };
   }
 
   /**
    * @method getWorkflowStatus
-   * @description Retrieves the current status and execution history of a specific workflow.
+   * @description Retrieves the current status and execution history of a specific payment workflow.
    * This allows clients to poll for the outcome of an initiated payment saga.
    *
    * @param {string} workflowId - The unique ID of the workflow to query.
@@ -86,6 +89,8 @@ export class TransactionController {
   ): Promise<WorkflowExecutionDescription> {
     this.logger.log(`Querying status for workflow ID: ${workflowId}`);
 
+    // Querying workflow status is a direct interaction with the orchestration engine's infrastructure,
+    // so using the Temporal client directly here is appropriate.
     const handle = this.temporalClient.workflow.getHandle(workflowId);
     const description = await handle.describe();
 

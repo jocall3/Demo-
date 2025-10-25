@@ -1,0 +1,30 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: metrics-service
+  description: A microservice subgraph that queries Prometheus and exposes key system and business metrics via a federated GraphQL API.
+  tags:
+    - microservice
+    - backend
+    - observability
+    - metrics
+    - prometheus
+    - graphql
+  annotations:
+    backstage.io/techdocs-ref: dir:./docs
+    backstage.io/source-location: url:https://github.com/demobank/demobank/tree/main/services/metrics
+    backstage.io/kubernetes-id: metrics-service
+    # This annotation allows Backstage to discover the relevant Grafana dashboard
+    grafana/dashboard-selector: 'tags @> "metrics-service"'
+spec:
+  type: service
+  lifecycle: production
+  owner: team-observability
+  system: demobank-platform
+  dependsOn:
+    - component:api-gateway # Consumed by the gateway
+    - resource:prometheus-db # Relies on Prometheus as its data source
+  providesApis:
+    - metrics-graphql-api
+  consumesApis:
+    - prometheus-http-api

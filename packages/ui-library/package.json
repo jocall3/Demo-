@@ -1,7 +1,7 @@
 {
   "name": "@demobank/ui-library",
   "version": "1.0.0",
-  "description": "Shared UI components, types, and hooks for the Demo Bank federated application.",
+  "description": "Shared UI components, types, hooks, and schema-driven form engine for the Demo Bank federated application.",
   "author": "Elite AI Implementation Team",
   "license": "UNLICENSED",
   "private": true,
@@ -15,24 +15,43 @@
     "build": "tsup src/index.ts --format cjs,esm --dts --external react",
     "dev": "tsup src/index.ts --format cjs,esm --dts --external react --watch",
     "lint": "eslint \"src/**/*.ts*\" --fix",
-    "clean": "rm -rf .turbo dist node_modules"
+    "clean": "rm -rf .turbo dist node_modules",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
+  },
+  "dependencies": {
+    "ajv": "^8.12.0",
+    "react-hook-form": "^7.51.2"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",
-    "react-dom": "^18.0.0 || ^19.0.0"
+    "react-dom": "^18.0.0 || ^19.0.0",
+    "recharts": "^2.12.7"
   },
   "devDependencies": {
+    "@chromatic-com/storybook": "^1.6.1",
+    "@storybook/addon-essentials": "^8.1.11",
+    "@storybook/addon-interactions": "^8.1.11",
+    "@storybook/addon-links": "^8.1.11",
+    "@storybook/addon-onboarding": "^8.1.11",
+    "@storybook/blocks": "^8.1.11",
+    "@storybook/react": "^8.1.11",
+    "@storybook/react-webpack5": "^8.1.11",
+    "@storybook/test": "^8.1.11",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.19",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.1.3",
     "eslint-plugin-react": "^7.34.3",
+    "eslint-plugin-storybook": "^0.8.0",
     "postcss": "^8.4.38",
     "prettier": "^3.3.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "recharts": "^2.12.7",
+    "storybook": "^8.1.11",
     "tailwindcss": "^3.4.4",
     "tsup": "^8.0.2",
     "typescript": "^5.4.5"

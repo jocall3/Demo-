@@ -1,0 +1,38 @@
+{
+  "name": "@demobank/opa-middleware",
+  "version": "1.0.0",
+  "description": "A middleware library for querying Open Policy Agent (OPA) sidecars to externalize authorization logic from microservices.",
+  "author": "Elite AI Implementation Team",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "lint": "eslint \"src/**/*.ts*\" --fix",
+    "clean": "rm -rf .turbo dist node_modules"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.0.0",
+    "axios": "^1.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.3.1",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.42.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-prettier": "^5.0.0",
+    "prettier": "^3.0.0",
+    "tsup": "^8.0.2",
+    "typescript": "^5.1.3"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  }
+}

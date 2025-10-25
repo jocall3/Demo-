@@ -1,0 +1,139 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: experience-onboarding-api-sa
+  namespace: demobank
+  labels:
+    app.kubernetes.io/name: experience-onboarding-api
+    app.kubernetes.io/part-of: demobank-experience-layer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: experience-onboarding-api
+  namespace: demobank
+  labels:
+    app.kubernetes.io/name: experience-onboarding-api
+    app.kubernetes.io/part-of: demobank-experience-layer
+spec:
+  selector:
+    app: experience-onboarding-api
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http-api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: experience-onboarding-api
+  namespace: demobank
+  labels:
+    app.kubernetes.io/name: experience-onboarding-api
+    app.kubernetes.io/part-of: demobank-experience-layer
+    backstage.io/kubernetes-id: experience-onboarding-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: experience-onboarding-api
+  template:
+    metadata:
+      labels:
+        app: experience-onboarding-api
+        tier: experience-api
+      annotations:
+        sidecar.istio.io/inject: "true"
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9464"
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "experience-onboarding-api-role"
+        vault.hashicorp.com/agent-inject-secret-secrets.env: "secret/data/demobank/experience-onboarding-api"
+    spec:
+      serviceAccountName: experience-onboarding-api-sa
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: app
+          image: demobank-docker-registry/experience-onboarding-api:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http-api
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9464
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "8080"
+            - name: OTEL_SERVICE_NAME
+              value: "experience-onboarding-api"
+            - name: SUPERGRAPH_URL
+              value: "http://demobank-api-gateway.demobank.svc.cluster.local/graphql"
+            - name: KAFKA_BROKERS
+              value: "kafka.message-bus.svc.cluster.local:9092"
+            - name: OPA_URL
+              value: "http://localhost:8181/v1/data/httpapi/authz"
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-connection
+                  key: url
+          envFrom:
+            - secretRef:
+                name: experience-onboarding-api-secrets # Created by Vault agent
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http-api
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http-api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+        - name: opa
+          image: openpolicyagent/opa:latest-istio
+          imagePullPolicy: IfNotPresent
+          args:
+            - "run"
+            - "--server"
+            - "--addr=localhost:8181"
+            - "--diagnostic-addr=0.0.0.0:8282"
+            - "--log-level=info"
+            - "/policies/policy.tar.gz" # Load policy bundle from ConfigMap volume
+          ports:
+            - name: opa-http
+              containerPort: 8181
+            - name: opa-diag
+              containerPort: 8282
+          volumeMounts:
+            - name: opa-policies
+              mountPath: /policies
+              readOnly: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+
+      volumes:
+        - name: opa-policies
+          configMap:
+            # This ConfigMap must be created by the CI/CD pipeline and contain the policy bundle.
+            name: experience-onboarding-api-policies

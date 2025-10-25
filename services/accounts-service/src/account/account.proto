@@ -2,84 +2,86 @@ syntax = "proto3";
 
 package account;
 
+import "google/protobuf/empty.proto";
+
 // Options for code generation in various languages.
 option go_package = "github.com/demobank/accounts-service/proto/account";
 option java_multiple_files = true;
 option java_package = "com.demobank.accountservice.account";
 option csharp_namespace = "DemoBank.AccountService.Account";
 
-// The AccountService is responsible for managing all aspects of user financial accounts.
-// It serves as the single source of truth for account data within the microservices ecosystem.
-service AccountService {
-  // Retrieves all accounts associated with a specific user ID.
-  // This RPC is part of the read model for querying account aggregates.
-  rpc GetAccountsByUserId(GetAccountsByUserIdRequest) returns (GetAccountsByUserIdResponse) {}
+// AccountCommandService defines the gRPC interface for the command-side of the Account bounded context.
+// It adheres to CQRS by only exposing methods that change the state of an Account aggregate.
+// All operations are idempotent and result in the emission of domain events.
+service AccountCommandService {
+  // Creates a new account aggregate.
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
 
-  // Retrieves a single account by its unique ID.
-  // This RPC is part of the read model for querying a specific account.
-  rpc GetAccountById(GetAccountByIdRequest) returns (GetAccountByIdResponse) {}
+  // Debits a specified amount from an account. This is an idempotent operation.
+  rpc DebitAccount(DebitAccountRequest) returns (google.protobuf.Empty);
+
+  // Credits a specified amount to an account. This is an idempotent operation.
+  rpc CreditAccount(CreditAccountRequest) returns (google.protobuf.Empty);
+
+  // Closes an account. The account must have a zero balance.
+  rpc CloseAccount(CloseAccountRequest) returns (google.protobuf.Empty);
 }
 
-// Represents a single financial account linked to a user.
-// This is a projection of the account state, suitable for read models.
-message Account {
-  // The unique identifier for the account (e.g., from Plaid or an internal UUID).
-  string id = 1;
+// --- Command Messages ---
 
+// Request to create a new account.
+message CreateAccountRequest {
   // The ID of the user who owns this account.
-  string user_id = 2;
-
-  // The user-friendly name of the account (e.g., "Chase Checking", "Demo Bank Savings").
-  string name = 3;
-
-  // The last 2-4 alphanumeric characters of an account number, for display purposes.
-  optional string mask = 4;
-
-  // The high-level type of the account (e.g., "depository", "credit", "loan", "investment").
-  string type = 5;
-
-  // The specific subtype of the account (e.g., "checking", "savings", "credit card", "401k").
-  optional string subtype = 6;
-
-  // The current balance information for the account.
-  Balance balance = 7;
-
-  // The name of the financial institution that holds this account.
-  string institution_name = 8;
-}
-
-// Represents the balance of a financial account at a given point in time.
-message Balance {
-  // The amount of funds immediately available for use. This can be null if not explicitly provided.
-  optional double available = 1;
-
-  // The total amount of funds in the account, including pending transactions.
-  double current = 2;
-
-  // The ISO-4217 currency code of the balance (e.g., "USD", "EUR", "GBP").
-  string iso_currency_code = 3;
-}
-
-// Request message for the GetAccountsByUserId RPC.
-message GetAccountsByUserIdRequest {
-  // The ID of the user whose accounts are to be retrieved.
   string user_id = 1;
+
+  // A user-friendly name for the new account (e.g., "Main Checking").
+  string name = 2;
+
+  // The high-level type of the account (e.g., "depository", "credit").
+  string type = 3;
+
+  // The specific subtype of the account (e.g., "checking", "savings").
+  optional string subtype = 4;
+
+  // The initial balance for the account. Defaults to 0 if not provided.
+  double initial_balance = 5;
+
+  // The ISO-4217 currency code.
+  string currency_code = 6;
 }
 
-// Response message for the GetAccountsByUserId RPC.
-message GetAccountsByUserIdResponse {
-  // A list of accounts belonging to the user.
-  repeated Account accounts = 1;
-}
-
-// Request message for the GetAccountById RPC.
-message GetAccountByIdRequest {
-  // The unique ID of the account to retrieve.
+// Response after a successful account creation.
+message CreateAccountResponse {
+  // The unique identifier of the newly created account aggregate.
   string account_id = 1;
 }
 
-// Response message for the GetAccountById RPC.
-message GetAccountByIdResponse {
-  // The requested account, if found.
-  Account account = 1;
+// Request to debit funds from an account.
+message DebitAccountRequest {
+  // The unique identifier of the account to debit.
+  string account_id = 1;
+
+  // The amount to debit. Must be a positive value.
+  double amount = 2;
+
+  // A unique identifier for the transaction to ensure idempotency.
+  string transaction_id = 3;
+}
+
+// Request to credit funds to an account.
+message CreditAccountRequest {
+  // The unique identifier of the account to credit.
+  string account_id = 1;
+
+  // The amount to credit. Must be a positive value.
+  double amount = 2;
+
+  // A unique identifier for the transaction to ensure idempotency.
+  string transaction_id = 3;
+}
+
+// Request to close an account.
+message CloseAccountRequest {
+  // The unique identifier of the account to close.
+  string account_id = 1;
 }

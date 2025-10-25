@@ -1,0 +1,157 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: experience-dashboard-api-sa
+  namespace: demobank
+  labels:
+    app.kubernetes.io/name: experience-dashboard-api
+    app.kubernetes.io/part-of: demobank
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opa-policy-dashboard
+  namespace: demobank
+data:
+  policy.rego: |
+    package dashboard.authz
+
+    import input.auth.claims
+    import input.http_request as http
+
+    default allow = false
+
+    # Allow any authenticated user (with a valid JWT) to make GET requests to dashboard endpoints
+    allow {
+        is_authenticated
+        http.method == "GET"
+        path_is_dashboard
+    }
+
+    is_authenticated {
+        claims.sub
+    }
+
+    path_is_dashboard {
+        startswith(http.path, "/api/v1/dashboard")
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: experience-dashboard-api
+  namespace: demobank
+  labels:
+    app.kubernetes.io/name: experience-dashboard-api
+    app.kubernetes.io/part-of: demobank
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: experience-dashboard-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: experience-dashboard-api
+        app.kubernetes.io/part-of: demobank
+      annotations:
+        # Istio sidecar injection for service mesh capabilities (mTLS, observability, traffic management)
+        sidecar.istio.io/inject: "true"
+        # Vault agent injector annotations for zero-trust secret management
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "experience-dashboard-api-role"
+        # Define the Redis password secret to be rendered by the Vault agent
+        vault.hashicorp.com/agent-inject-secret-redis-creds: "secret/data/shared/redis"
+        vault.hashicorp.com/agent-inject-template-redis-creds: |
+          {{- with secret "secret/data/shared/redis" -}}
+          export REDIS_PASSWORD="{{ .Data.data.password }}"
+          {{- end -}}
+    spec:
+      serviceAccountName: experience-dashboard-api-sa
+      containers:
+        # Main application container for the Experience API
+        - name: experience-dashboard-api
+          image: gcr.io/demobank/experience-dashboard-api:latest # Placeholder image
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            # OTel configuration for observability
+            - name: OTEL_SERVICE_NAME
+              value: "experience-dashboard-api"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.observability.svc.cluster.local:4318"
+            # URL for the federated supergraph gateway this service will call
+            - name: SUPERGRAPH_URL
+              value: "http://api-gateway.demobank.svc.cluster.local:4000/graphql"
+            # Redis L2 cache connection details (password sourced from Vault)
+            - name: REDIS_HOST
+              value: "redis-master.demobank.svc.cluster.local"
+            - name: REDIS_PORT
+              value: "6379"
+            # OPA sidecar URL for authorization checks
+            - name: OPA_URL
+              value: "http://localhost:8181/v1/data/dashboard/authz"
+          # Source secrets from the file rendered by the Vault agent, then start the application
+          command: ["/bin/sh", "-c"]
+          args: ["source /vault/secrets/redis-creds && /app/start-server"]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+
+        # OPA sidecar container for decoupled authorization, as per architectural directive
+        - name: opa
+          image: openpolicyagent/opa:latest-envoy
+          args:
+            - "run"
+            - "--server"
+            - "--addr=:8181"
+            - "--set=plugins.envoy_ext_authz_grpc.addr=:9191"
+            - "--set=decision_logs.console=true"
+            - "/policies/policy.rego"
+          ports:
+            - name: opa-http
+              containerPort: 8181
+              protocol: TCP
+            - name: opa-grpc
+              containerPort: 9191
+              protocol: TCP
+          volumeMounts:
+            - name: opa-policy-volume
+              mountPath: /policies
+              readOnly: true
+      volumes:
+        - name: opa-policy-volume
+          configMap:
+            name: opa-policy-dashboard
+---
+# 4. Service to expose the Deployment internally within the cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: experience-dashboard-api
+  namespace: demobank
+  labels:
+    app.kubernetes.io/name: experience-dashboard-api
+    app.kubernetes.io/part-of: demobank
+spec:
+  selector:
+    app.kubernetes.io/name: experience-dashboard-api
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http

@@ -1,0 +1,79 @@
+# k8s/base/opa-sidecar-patch.yaml
+#
+# This Kustomize patch is applied to all Deployment resources to inject an
+# Open Policy Agent (OPA) sidecar container. This is a central component of the
+# "Externalize Authorization Logic" architectural directive.
+#
+# The OPA sidecar runs alongside each microservice, providing a local endpoint
+# (http://localhost:8181) for the service to query for authorization decisions.
+# This decouples authorization logic from the application code.
+#
+# The OPA agent is configured to pull its policy bundles from a central
+# policy distribution service, as defined in the 'opa-config-map' ConfigMap.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: not-important # This name is a placeholder and is ignored by Kustomize.
+spec:
+  template:
+    spec:
+      # Define a volume that will mount the OPA configuration from a ConfigMap.
+      volumes:
+        - name: opa-config
+          configMap:
+            name: opa-config-map # This ConfigMap must be defined elsewhere in the Kustomize base.
+            items:
+              - key: config.yaml
+                path: config.yaml
+
+      # Add the OPA sidecar container to the Pod's list of containers.
+      containers:
+        - name: opa
+          image: openpolicyagent/opa:0.65.0 # Use a specific, stable version of the OPA image.
+          args:
+            - "run"
+            - "--server"
+            - "--config-file=/config/config.yaml"
+            - "--log-level=info" # Adjust log level as needed for production.
+            - "--set=decision_logs.console=true" # Log decisions for observability.
+          ports:
+            - containerPort: 8181
+              name: opa-api
+              protocol: TCP
+          volumeMounts:
+            - name: opa-config
+              mountPath: /config
+              readOnly: true # Mount the config as read-only for security.
+          # Define resource requests and limits for the sidecar to ensure stable performance.
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          # Health checks to ensure the sidecar is running and has loaded its policies.
+          readinessProbe:
+            httpGet:
+              path: /health?bundles=true # Wait for policy bundles to be loaded and activated.
+              port: opa-api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: opa-api
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+          # Security context to run the container with least privilege.
+          securityContext:
+            runAsUser: 1100 # A non-root user ID.
+            runAsGroup: 1100 # A non-root group ID.
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

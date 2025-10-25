@@ -1,0 +1,24 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ui-schema-service
+  description: Serves declarative JSON schemas defining the structure, layout, validation rules, and conditional logic for all forms and multi-step wizards across the application.
+  tags:
+    - microservice
+    - backend
+    - ui
+    - schema
+    - form-engine
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    # backstage.io/kubernetes-label-selector: 'app.kubernetes.io/name=ui-schema-service'
+spec:
+  type: service
+  lifecycle: production
+  owner: team-ui-platform
+  system: demobank-platform
+  dependsOn:
+    # This service will likely depend on a database to store the UI schemas.
+    - resource:default/ui-schema-db
+  providesApis:
+    - ui-schema-api

@@ -1,0 +1,31 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ui-library
+  description: A shared React component library for the Demo Bank frontend ecosystem, providing consistent UI primitives, types, and hooks.
+  tags:
+    - react
+    - ui
+    - library
+    - shared
+    - typescript
+    - design-system
+  annotations:
+    # This annotation helps Backstage locate the source code for this component.
+    backstage.io/source-location: url:https://github.com/demobank/demobank-monorepo/tree/main/packages/ui-library
+    # This annotation points to the location of the technical documentation. 'dir:.' tells TechDocs to look in this directory.
+    backstage.io/techdocs-ref: dir:.
+    backstage.io/language: typescript
+    backstage.io/framework: react
+spec:
+  # This component is a reusable software library.
+  type: library
+  # It is considered production-ready.
+  lifecycle: production
+  # The team responsible for maintaining this shared library.
+  owner: team-frontend-platform
+  # This library is part of the larger frontend platform system.
+  system: demobank-frontend-platform
+  # This library provides a set of React components as its public API.
+  providesApis:
+    - demobank-ui-components

@@ -1,0 +1,76 @@
+app:
+  title: DemoBank Developer Portal
+  baseUrl: http://localhost:3000
+
+organization:
+  name: DemoBank
+
+backend:
+  baseUrl: http://localhost:7007
+  listen:
+    port: 7007
+  cors:
+    origin: http://localhost:3000
+    methods: [GET, POST, PUT, DELETE]
+    credentials: true
+  database:
+    client: pg
+    connection:
+      host: ${POSTGRES_HOST}
+      port: ${POSTGRES_PORT}
+      user: ${POSTGRES_USER}
+      password: ${POSTGRES_PASSWORD}
+      database: backstage
+
+integrations:
+  github:
+    - host: github.com
+      token: ${GITHUB_TOKEN}
+
+catalog:
+  import:
+    entityFilename: catalog-info.yaml
+    pullRequestBranchName: backstage-integration
+  rules:
+    - allow: [Component, API, Group, User, Resource, System, Location, Domain, Template]
+  locations:
+    # This discovers all catalog-info.yaml files referenced from the root of the monorepo.
+    # For local development you can use a file location instead:
+    # - type: file
+    #   target: ../catalog-info.yaml
+    - type: url
+      target: https://github.com/your-org/your-repo/blob/main/catalog.yaml
+      rules:
+        - allow: [Component, System, Group, User, Resource, API, Location]
+
+techdocs:
+  builder: 'local'
+  generator:
+    runIn: 'docker'
+  publisher:
+    type: 'local'
+
+auth:
+  # See https://backstage.io/docs/auth/ to learn about auth providers
+  environment: development
+  providers:
+    guest: {}
+
+scaffolder:
+  # See https://backstage.io/docs/features/software-templates/configuration
+
+proxy:
+  # Custom plugin backend for Temporal workflow visualization
+  '/temporal/api':
+    target: 'http://temporal-frontend.internal:8088/api'
+    changeOrigin: true
+
+  # Custom plugin backend for visualizing Kafka event flows
+  '/kafka/api':
+    target: 'http://kafka-rest-proxy.internal:8082' # e.g., Confluent REST Proxy
+    changeOrigin: true
+
+  # Custom plugin backend for visualizing the federated GraphQL schema
+  '/graphql-voyager':
+    target: 'http://api-gateway.internal:4000/graphql' # Pointing to the internal API Gateway
+    changeOrigin: true

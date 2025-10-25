@@ -7,66 +7,94 @@ import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { diag, DiagConsoleLogger, DiagLogLevel, trace, context } from '@opentelemetry/api';
 
-// For troubleshooting OpenTelemetry, set the log level to DiagLogLevel.DEBUG
-diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
-
-const SERVICE_NAME = 'genai-service';
-
-const otelSDK = new NodeSDK({
-  // The service name is a required attribute for all telemetry data.
-  resource: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: SERVICE_NAME,
-  }),
-  // OTLPTraceExporter will send traces to an OTel Collector.
-  // The endpoint is configurable via the OTEL_EXPORTER_OTLP_ENDPOINT env var.
-  traceExporter: new OTLPTraceExporter(),
-  // PrometheusExporter exposes a /metrics endpoint for Prometheus to scrape.
-  metricReader: new PrometheusExporter({
-    port: parseInt(process.env.PROMETHEUS_PORT || '9465', 10), // Aligned with prometheus.yml scrape config
-  }),
-  // Auto-instrument popular libraries (Express, HTTP, Axios, gRPC, etc.)
-  instrumentations: [getNodeAutoInstrumentations()],
-});
-
-// Gracefully shut down the SDK on process exit to flush telemetry
-process.on('SIGTERM', () => {
-  otelSDK
-    .shutdown()
-    .then(() => console.log('OpenTelemetry SDK shut down successfully.'))
-    .catch((error) => console.log('Error shutting down OpenTelemetry SDK.', error))
-    .finally(() => process.exit(0));
-});
-
-// Start the OpenTelemetry SDK
-otelSDK.start();
-
-// --- 2. NestJS Application Imports (after OTel setup) ---
+// --- 2. Application Imports (after OTel setup) ---
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Transport } from '@nestjs/microservices';
 import pino from 'pino';
+import vault from 'node-vault';
 
-// --- 3. Structured Logging with OpenTelemetry Context ---
-/**
- * A custom logger implementation that uses Pino for structured JSON logging
- * and automatically injects OpenTelemetry trace and span IDs into log records.
- */
+const SERVICE_NAME = 'genai-service';
+
+// For troubleshooting OpenTelemetry, set the log level to DiagLogLevel.DEBUG
+diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
+
+const otelSDK = new NodeSDK({
+  resource: new Resource({
+    [SemanticResourceAttributes.SERVICE_NAME]: SERVICE_NAME,
+  }),
+  traceExporter: new OTLPTraceExporter(),
+  metricReader: new PrometheusExporter({
+    port: parseInt(process.env.PROMETHEUS_PORT || '9471', 10),
+  }),
+  instrumentations: [getNodeAutoInstrumentations()],
+});
+
+// Gracefully shut down the SDK on process exit.
+process.on('SIGTERM', () => {
+  otelSDK
+    .shutdown()
+    .then(() => console.log(`OpenTelemetry SDK for ${SERVICE_NAME} shut down successfully.`))
+    .catch((error) => console.log('Error shutting down OpenTelemetry SDK.', error))
+    .finally(() => process.exit(0));
+});
+
+otelSDK.start();
+
+// --- 3. Vault Secret Fetching (Pre-bootstrap) ---
+const preBootstrapLogger = pino({ level: process.env.LOG_LEVEL || 'info' });
+
+async function fetchSecretsFromVault() {
+  try {
+    const vaultAddr = process.env.VAULT_ADDR;
+    const roleId = process.env.VAULT_ROLE_ID;
+    const secretId = process.env.VAULT_SECRET_ID;
+
+    if (!vaultAddr || !roleId || !secretId) {
+      preBootstrapLogger.warn(
+        'Vault AppRole environment variables not set. Skipping secret fetching. This is not suitable for production.',
+      );
+      return;
+    }
+
+    const vaultClient = vault({ apiVersion: 'v1', endpoint: vaultAddr });
+
+    preBootstrapLogger.info('Authenticating to Vault with AppRole...');
+    const result = await vaultClient.approleLogin({ role_id: roleId, secret_id: secretId });
+    vaultClient.token = result.auth.client_token;
+    preBootstrapLogger.info('Successfully authenticated to Vault.');
+
+    const secretPath = process.env.VAULT_KV_PATH || 'secret/data/demobank/genai-service';
+    preBootstrapLogger.info(`Fetching secrets from Vault at path: ${secretPath}`);
+    const secrets = await vaultClient.read(secretPath);
+
+    if (!secrets?.data?.data) {
+      throw new Error(`Secrets not found in Vault at path '${secretPath}' or data is empty.`);
+    }
+
+    // Set secrets as environment variables for ConfigService to pick up
+    process.env.GEMINI_API_KEY = secrets.data.data.GEMINI_API_KEY;
+
+    preBootstrapLogger.info('Successfully fetched and configured secrets from Vault.');
+  } catch (error) {
+    preBootstrapLogger.error({ err: error }, 'Failed to fetch secrets from Vault. Application will exit.');
+    process.exit(1);
+  }
+}
+
+// --- 4. Structured Logging with OpenTelemetry Context ---
 class StructuredLogger implements LoggerService {
   private readonly pino: pino.Logger;
-  private readonly serviceName = SERVICE_NAME;
 
   constructor() {
     this.pino = pino({
       level: process.env.LOG_LEVEL || 'info',
-      // Format logs as JSON and enrich with OTel context and service name.
       formatters: {
         log: (object) => {
           const span = trace.getSpan(context.active());
-          const logObject: { [key: string]: any } = {
-            ...object,
-            service: this.serviceName,
-          };
+          const logObject: { [key: string]: any } = { ...object, service: SERVICE_NAME };
           if (span) {
             const spanContext = span.spanContext();
             logObject.trace_id = spanContext.traceId;
@@ -75,41 +103,27 @@ class StructuredLogger implements LoggerService {
           return logObject;
         },
       },
-      // Use pino-pretty for more readable logs in development.
       transport:
         process.env.NODE_ENV !== 'production'
           ? {
               target: 'pino-pretty',
-              options: {
-                colorize: true,
-                singleLine: true,
-                messageFormat: '{service} - {msg}',
-              },
+              options: { colorize: true, singleLine: true, messageFormat: '{service} - {msg}' },
             }
           : undefined,
     });
   }
 
-  log(message: any, context?: string) {
-    this.pino.info({ context }, message);
-  }
-  error(message: any, trace?: string, context?: string) {
-    this.pino.error({ context, stack: trace }, message);
-  }
-  warn(message: any, context?: string) {
-    this.pino.warn({ context }, message);
-  }
-  debug?(message: any, context?: string) {
-    this.pino.debug({ context }, message);
-  }
-  verbose?(message: any, context?: string) {
-    this.pino.trace({ context }, message);
-  }
+  log(message: any, context?: string) { this.pino.info({ context }, message); }
+  error(message: any, trace?: string, context?: string) { this.pino.error({ context, stack: trace }, message); }
+  warn(message: any, context?: string) { this.pino.warn({ context }, message); }
+  debug?(message: any, context?: string) { this.pino.debug({ context }, message); }
+  verbose?(message: any, context?: string) { this.pino.trace({ context }, message); }
 }
 
-// --- 4. Application Bootstrap ---
+// --- 5. Application Bootstrap ---
 async function bootstrap() {
-  // Use the custom structured logger for the entire application.
+  await fetchSecretsFromVault();
+
   const app = await NestFactory.create(AppModule, {
     logger: new StructuredLogger(),
   });
@@ -117,12 +131,26 @@ async function bootstrap() {
   const logger = app.get(StructuredLogger);
   const configService = app.get(ConfigService);
 
-  // Enable CORS - Important for local development with Apollo Studio Sandbox
-  // The Gateway will be the primary consumer in production.
-  app.enableCors();
-  logger.log(`CORS enabled for all origins.`);
+  // Connect Kafka for event consumers, if any are defined in the service
+  app.connectMicroservice({
+    transport: Transport.KAFKA,
+    options: {
+      client: {
+        brokers: configService.getOrThrow<string>('KAFKA_BROKERS').split(','),
+        clientId: SERVICE_NAME,
+      },
+      consumer: {
+        groupId: configService.getOrThrow<string>('KAFKA_GROUP_ID', 'genai-service-group'),
+      },
+    },
+  });
 
-  // Global pipes for validation and transformation of inputs in GraphQL resolvers.
+  await app.startAllMicroservices();
+  logger.log('Kafka microservice consumers started.');
+
+  app.enableCors();
+  logger.log('CORS has been enabled.');
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -133,18 +161,18 @@ async function bootstrap() {
       },
     }),
   );
-  logger.log('Global ValidationPipe configured for GraphQL inputs.');
+  logger.log('Global ValidationPipe configured.');
 
-  // Get port from environment variables, with a fallback that matches the docker-compose config
   const port = configService.get<number>('port') || 4002;
+  const prometheusPort = process.env.PROMETHEUS_PORT || '9471';
 
   await app.listen(port);
 
-  const appUrl = await app.getUrl();
-  logger.log(`GenAI Subgraph is running on: ${appUrl}/graphql`);
-  logger.log(
-    `Prometheus metrics available on port ${process.env.PROMETHEUS_PORT || '9465'}`,
-  );
+  logger.log(`🚀 GenAI Subgraph is running on: http://localhost:${port}/graphql`);
+  logger.log(`Prometheus metrics available on port ${prometheusPort}`);
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  preBootstrapLogger.error('Application bootstrap failed', err.stack);
+  process.exit(1);
+});

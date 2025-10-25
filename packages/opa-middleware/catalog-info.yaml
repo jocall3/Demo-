@@ -1,0 +1,25 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: opa-middleware
+  description: A reusable NestJS middleware package that queries a local Open Policy Agent (OPA) sidecar for authorization decisions. This externalizes all authorization logic from business code as per the architectural directive.
+  tags:
+    - nodejs
+    - library
+    - middleware
+    - security
+    - authorization
+    - opa
+    - rego
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    # github.com/project-slug: 'your-org/your-repo' # Replace with actual repo slug
+spec:
+  type: library
+  lifecycle: production
+  owner: team-platform-security # Team responsible for core security and platform concerns
+  system: platform-infrastructure # Part of the core platform infrastructure
+  providesApis:
+    - opa-middleware # The functions/classes exported by this library
+  consumesApis:
+    - opa-sidecar-http-api # The local HTTP API of the OPA sidecar

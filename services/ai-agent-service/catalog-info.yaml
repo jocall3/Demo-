@@ -1,0 +1,31 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ai-agent-service
+  description: AI Agent Subgraph for the Demo Bank Supergraph, handling the agent marketplace, execution, and orchestration of long-running AI workflows with Temporal.
+  tags:
+    - backend
+    - service
+    - microservice
+    - nodejs
+    - nestjs
+    - ai
+    - graphql-subgraph
+    - temporal
+  annotations:
+    github.com/project-slug: 'demobank/demobank'
+    backstage.io/techdocs-ref: dir:.
+    backstage.io/kubernetes-label-selector: 'app=ai-agent-service'
+spec:
+  type: service
+  lifecycle: production
+  owner: team-ai-platform
+  system: demobank-backend
+  dependsOn:
+    - resource:kafka-cluster
+    - resource:temporal-cluster
+    - resource:google-gemini-api
+  providesApis:
+    - ai-agent-graphql
+  consumesApis:
+    - api:google-gemini

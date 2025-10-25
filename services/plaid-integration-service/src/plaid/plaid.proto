@@ -6,6 +6,7 @@ package plaid;
 option go_package = "github.com/demobank/plaid-integration-service/plaid";
 option java_multiple_files = true;
 option java_package = "com.demobank.plaidintegrationservice.plaid";
+option csharp_namespace = "DemoBank.PlaidIntegrationService.Plaid";
 
 // =============================================================================
 // Service Definition
@@ -56,6 +57,24 @@ message Balance {
   string iso_currency_code = 3;
 }
 
+// Represents geographical information for a transaction.
+message Location {
+  // The full street address.
+  optional string address = 1;
+  // The city.
+  optional string city = 2;
+  // The region or state.
+  optional string region = 3;
+  // The postal code.
+  optional string postal_code = 4;
+  // The ISO 3166-1 alpha-2 country code.
+  optional string country = 5;
+  // The latitude of the transaction.
+  optional double lat = 6;
+  // The longitude of the transaction.
+  optional double lon = 7;
+}
+
 // Represents a single financial account linked to a user via Plaid.
 message Account {
   // Plaid's unique ID for the account.
@@ -72,6 +91,10 @@ message Account {
   string subtype = 6;
   // The high-level type of the account (e.g., "depository", "credit").
   string type = 7;
+  // The verification status of an Auth account. Can be: "pending_automatic_verification",
+  // "pending_manual_verification", "manually_verified", "verified",
+  // "verification_expired", "verification_failed".
+  optional string verification_status = 8;
 }
 
 // Represents a single financial transaction associated with an account.
@@ -94,6 +117,8 @@ message Transaction {
   optional string merchant_name = 8;
   // When true, identifies the transaction as pending or unsettled.
   bool pending = 9;
+  // Geographic information associated with the transaction's merchant or location.
+  optional Location location = 10;
 }
 
 // Represents a Plaid Item, which is a user's connection to a financial institution.

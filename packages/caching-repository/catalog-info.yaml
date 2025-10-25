@@ -1,0 +1,21 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: caching-repository
+  description: A generic repository library implementing a multi-tier (L1/L2) caching strategy with a read-through/write-through pattern. It abstracts caching logic from business code across all microservices.
+  tags:
+    - library
+    - caching
+    - repository
+    - typescript
+    - nodejs
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    github.com/project-slug: 'your-org/your-repo' # To be replaced with the actual repository slug
+spec:
+  type: library
+  lifecycle: production
+  owner: team-platform-core
+  system: demobank-platform
+  dependsOn:
+    - resource:default/redis-cache # This component relies on the central Redis L2 cache.

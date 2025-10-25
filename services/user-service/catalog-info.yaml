@@ -1,0 +1,40 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: user-service
+  description: Manages user profiles, authentication data, and preferences. It is the authoritative source for the User entity in the federated supergraph.
+  tags:
+    - microservice
+    - backend
+    - nodejs
+    - nestjs
+    - graphql
+    - user-management
+    - identity
+  annotations:
+    # This tells Backstage's TechDocs to look for documentation in Markdown files
+    # within this component's directory.
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: service
+  lifecycle: production
+  owner: team-identity
+  system: demobank-core-services
+  providesApis:
+    - user-service-graphql
+  consumesApis:
+    # This service consumes user creation events from the authentication system via the message bus.
+    - auth-events-api
+  dependsOn:
+    # Resource dependencies are other catalog entries for infrastructure components.
+    - resource:demobank-user-db
+    - resource:demobank-kafka
+    - resource:demobank-keycloak
+    - resource:demobank-vault
+  links:
+    - url: http://localhost:4001/graphql
+      title: GraphQL Playground
+      icon: api
+    - url: http://localhost:3000/d/user-service-dashboard/user-service-dashboard
+      title: Grafana Dashboard
+      icon: dashboard

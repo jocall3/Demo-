@@ -1,0 +1,19 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: domain-modeling-language
+  description: The centralized repository for the platform-agnostic Domain Modeling Language (DML). This is the single source of truth for all core business entities, value objects, commands, and events, feeding the polyglot code generation pipeline.
+  tags:
+    - dml
+    - domain-driven-design
+    - codegen
+    - source-of-truth
+    - schema
+  annotations:
+    backstage.io/source-location: dir:./dml
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: library
+  lifecycle: production
+  owner: team-platform-architecture
+  system: core-platform

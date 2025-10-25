@@ -1,256 +1,275 @@
 /**
- * @file This file defines the core User domain model (Aggregate Root) for the user-service,
- * adhering to Domain-Driven Design (DDD) and Hexagonal Architecture principles.
+ * @file This file defines the core User domain model as an Aggregate Root, along with its associated Domain Events.
+ * This implementation adheres to Domain-Driven Design (DDD) and Event Sourcing principles, which are central
+ * to the new microservices architecture. The User aggregate encapsulates all business logic and state transitions
+ * for a user profile, ensuring consistency and providing a full audit trail of changes.
+ *
+ * As per the architectural directive for a centralized Domain Modeling Language (DML), this TypeScript code
+ * serves as the generated artifact from such a DML. It is a pure domain model with no dependencies on
+ * external frameworks or infrastructure.
+ *
+ * @see ADR-0003: Implement a Full CQRS and Event Sourcing Pattern
+ * @see ADR-0005: Mandate Hexagonal Architecture (Ports and Adapters)
  */
 
 import { v4 as uuidv4 } from 'uuid';
 
+// =============================================================================
+// BASE DOMAIN PRIMITIVES (Would be in a shared domain library)
+// =============================================================================
+
 /**
- * @interface UserPreferences
- * @description Defines the structure for user-specific preferences, acting as a Value Object.
- * These are settings that a user can customize.
- * @property {string} theme - The user's preferred visual theme (e.g., 'dark', 'light').
- * @property {string} language - The user's preferred language (e.g., 'en-US').
- * @property {boolean} receiveMarketingEmails - Whether the user opts in to marketing communications.
+ * @abstract
+ * @class DomainEvent
+ * @description The base class for all domain events. It represents an immutable fact about something that has happened in the domain.
+ * @property {string} eventId - A unique identifier for this specific event instance.
+ * @property {string} aggregateId - The ID of the aggregate that this event belongs to.
+ * @property {Date} occurredOn - The timestamp when the event occurred.
+ * @property {string} eventName - The name of the event, used for identification and deserialization.
+ * @property {number} version - The version of the aggregate after this event was applied.
  */
-export interface UserPreferences {
-  theme: 'dark' | 'light';
-  language: string;
-  receiveMarketingEmails: boolean;
+export abstract class DomainEvent {
+  public readonly eventId: string;
+  public readonly aggregateId: string;
+  public readonly occurredOn: Date;
+  public readonly eventName: string;
+  public version: number;
+
+  protected constructor(aggregateId: string, eventName: string) {
+    this.eventId = uuidv4();
+    this.aggregateId = aggregateId;
+    this.occurredOn = new Date();
+    this.eventName = eventName;
+  }
 }
 
 /**
- * @class User
- * @description Represents the User aggregate root in the domain model.
- * It encapsulates the state and business logic related to a user, ensuring
- * that all state changes are valid and consistent.
+ * @abstract
+ * @class AggregateRoot
+ * @description Base class for all aggregates. Manages the aggregate's ID, version,
+ * and a list of uncommitted domain events, forming the core of an Event Sourced entity.
  */
-export class User {
-  /**
-   * The unique identifier for the user profile (UUID).
-   * @private
-   */
-  private readonly _id: string;
+export abstract class AggregateRoot {
+  public readonly id: string;
+  private _version = -1; // -1 indicates a new, unseen aggregate
+  private readonly _uncommittedEvents: DomainEvent[] = [];
 
-  /**
-   * The unique identifier from the external authentication provider (e.g., Keycloak sub).
-   * @private
-   */
+  protected constructor(id: string) {
+    this.id = id;
+  }
+
+  public get version(): number {
+    return this._version;
+  }
+
+  public getUncommittedEvents(): readonly DomainEvent[] {
+    return this._uncommittedEvents;
+  }
+
+  public markEventsAsCommitted(): void {
+    this._uncommittedEvents.length = 0;
+  }
+
+  public loadFromHistory(history: DomainEvent[]): void {
+    history.forEach((event) => this.apply(event, false));
+  }
+
+  protected apply(event: DomainEvent, isNew = true): void {
+    // Mutate the state first
+    this.mutate(event);
+    // Then, if it's a new event, add it to the uncommitted list
+    if (isNew) {
+      this._uncommittedEvents.push(event);
+    }
+    this._version++;
+    event.version = this.version;
+  }
+
+  protected abstract mutate(event: DomainEvent): void;
+}
+
+// =============================================================================
+// USER DOMAIN EVENTS
+// =============================================================================
+
+export class UserCreatedEvent extends DomainEvent {
+  constructor(
+    aggregateId: string,
+    public readonly authId: string,
+    public readonly email: string,
+    public readonly name: string,
+  ) {
+    super(aggregateId, 'UserCreatedEvent');
+  }
+}
+
+export class UserProfileUpdatedEvent extends DomainEvent {
+  constructor(
+    aggregateId: string,
+    public readonly updates: { name?: string; title?: string | null; avatarUrl?: string | null },
+  ) {
+    super(aggregateId, 'UserProfileUpdatedEvent');
+  }
+}
+
+export class UserDeactivatedEvent extends DomainEvent {
+  constructor(aggregateId: string, public readonly reason: string) {
+    super(aggregateId, 'UserDeactivatedEvent');
+  }
+}
+
+export class UserReactivatedEvent extends DomainEvent {
+  constructor(aggregateId: string) {
+    super(aggregateId, 'UserReactivatedEvent');
+  }
+}
+
+// =============================================================================
+// USER AGGREGATE ROOT
+// =============================================================================
+
+type UserStatus = 'ACTIVE' | 'DEACTIVATED';
+
+/**
+ * @class User
+ * @extends AggregateRoot
+ * @description The aggregate root for the User bounded context. It encapsulates the state
+ * and business rules for a user's profile, ensuring all state changes are valid and consistent
+ * by emitting domain events.
+ */
+export class User extends AggregateRoot {
   private _authId: string;
-
-  /**
-   * The user's email address.
-   * @private
-   */
   private _email: string;
-
-  /**
-   * The user's full name.
-   * @private
-   */
   private _name: string;
-
-  /**
-   * The user's hashed password. This should never be the plaintext password.
-   * @private
-   */
-  private _passwordHash: string;
-
-  /**
-   * User-specific preferences.
-   * @private
-   */
-  private _preferences: UserPreferences;
-
-  /**
-   * The timestamp when the user profile was created.
-   * @private
-   */
-  private readonly _createdAt: Date;
-
-  /**
-   * The timestamp when the user profile was last updated.
-   * @private
-   */
+  private _title: string | null;
+  private _avatarUrl: string | null;
+  private _status: UserStatus;
+  private _createdAt: Date;
   private _updatedAt: Date;
 
-  /**
-   * @constructor
-   * @private To enforce creation via the static `create` factory method.
-   * @param {string} id - The user's UUID.
-   * @param {string} authId - The ID from the authentication provider.
-   * @param {string} email - The user's email.
-   * @param {string} name - The user's name.
-   * @param {string} passwordHash - The user's hashed password.
-   * @param {UserPreferences} preferences - The user's preferences.
-   * @param {Date} createdAt - Creation timestamp.
-   * @param {Date} updatedAt - Update timestamp.
-   */
-  private constructor(
-    id: string,
-    authId: string,
-    email: string,
-    name: string,
-    passwordHash: string,
-    preferences: UserPreferences,
-    createdAt: Date,
-    updatedAt: Date,
-  ) {
-    this._id = id;
-    this._authId = authId;
-    this._email = email;
-    this._name = name;
-    this._passwordHash = passwordHash;
-    this._preferences = preferences;
-    this._createdAt = createdAt;
-    this._updatedAt = updatedAt;
+  private constructor(id: string) {
+    super(id);
   }
+
+  // --- Factory Methods for Aggregate Creation ---
 
   /**
    * @static
    * @method create
-   * @description Factory method to create a new User instance. This ensures that
-   * every new user is created in a valid initial state.
-   * @param {object} props - The properties for the new user.
-   * @param {string} props.authId - The unique ID from the authentication provider.
-   * @param {string} props.email - The user's email address. Must be a valid format.
-   * @param {string} props.name - The user's name. Cannot be empty.
-   * @param {string} props.passwordHash - The pre-hashed password.
-   * @returns {User} A new User instance.
-   * @throws {Error} if validation of initial properties fails.
+   * @description Factory method for creating a new `User` aggregate.
+   * @param {string} authId - The unique identifier from the external authentication provider.
+   * @param {string} email - The user's email address.
+   * @param {string} name - The user's full name.
+   * @returns {User} A new instance of the User aggregate with a `UserCreatedEvent`.
    */
-  public static create(props: {
-    authId: string;
-    email: string;
-    name: string;
-    passwordHash: string;
-  }): User {
-    if (!props.name || props.name.trim().length === 0) {
-      throw new Error('User name cannot be empty.');
-    }
-    if (!props.email || !/\S+@\S+\.\S+/.test(props.email)) {
-      throw new Error('Invalid email format provided.');
-    }
-
-    const now = new Date();
-    const defaultPreferences: UserPreferences = {
-      theme: 'dark',
-      language: 'en-US',
-      receiveMarketingEmails: false,
-    };
-
-    return new User(
-      uuidv4(),
-      props.authId,
-      props.email,
-      props.name,
-      props.passwordHash,
-      defaultPreferences,
-      now,
-      now,
-    );
+  public static create(authId: string, email: string, name: string): User {
+    const user = new User(uuidv4());
+    user.apply(new UserCreatedEvent(user.id, authId, email, name), true);
+    return user;
   }
+
+  /**
+   * @static
+   * @method fromHistory
+   * @description Factory method to rehydrate a `User` aggregate from its event history.
+   * @param {string} id - The aggregate's unique ID.
+   * @param {DomainEvent[]} history - The ordered sequence of domain events.
+   * @returns {User} A user instance restored to its correct state.
+   */
+  public static fromHistory(id: string, history: DomainEvent[]): User {
+    const user = new User(id);
+    user.loadFromHistory(history);
+    return user;
+  }
+
+  // --- Command Methods (Public Business Logic) ---
 
   /**
    * @method updateProfile
-   * @description Updates the user's name and/or email.
-   * @param {object} data - The data to update.
-   * @param {string} [data.name] - The new name for the user.
-   * @param {string} [data.email] - The new email for the user.
-   * @throws {Error} if the provided name or email is invalid.
+   * @description Updates the user's profile information. This method validates the input
+   * and applies a `UserProfileUpdatedEvent` if there are changes.
+   * @param {object} data - An object containing the fields to update.
    */
-  public updateProfile(data: { name?: string; email?: string }): void {
-    if (data.name && data.name.trim().length === 0) {
-      throw new Error('User name cannot be empty.');
-    }
-    if (data.email && !/\S+@\S+\.\S+/.test(data.email)) {
-      throw new Error('Invalid email format provided.');
+  public updateProfile(data: { name?: string; title?: string | null; avatarUrl?: string | null }): void {
+    if (this._status === 'DEACTIVATED') {
+      throw new Error('Cannot update the profile of a deactivated user.');
     }
 
-    if (data.name) {
-      this._name = data.name;
+    const updates: { name?: string; title?: string | null; avatarUrl?: string | null } = {};
+
+    if (data.name && data.name.trim() !== '' && data.name !== this._name) {
+      updates.name = data.name;
     }
-    if (data.email) {
-      this._email = data.email;
+    if (data.title !== undefined && data.title !== this._title) {
+      updates.title = data.title;
     }
-    this._updatedAt = new Date();
+    if (data.avatarUrl !== undefined && data.avatarUrl !== this._avatarUrl) {
+      updates.avatarUrl = data.avatarUrl;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      this.apply(new UserProfileUpdatedEvent(this.id, updates), true);
+    }
   }
 
   /**
-   * @method changePassword
-   * @description Updates the user's password hash.
-   * @param {string} newPasswordHash - The new, securely hashed password.
+   * @method deactivate
+   * @description Deactivates the user's account.
+   * @param {string} reason - The reason for deactivation.
    */
-  public changePassword(newPasswordHash: string): void {
-    this._passwordHash = newPasswordHash;
-    this._updatedAt = new Date();
+  public deactivate(reason: string): void {
+    if (this._status === 'DEACTIVATED') {
+      return; // Idempotent
+    }
+    this.apply(new UserDeactivatedEvent(this.id, reason), true);
   }
 
+  // --- State Mutators (Event Handlers) ---
+
   /**
-   * @method updatePreferences
-   * @description Updates the user's preferences.
-   * @param {Partial<UserPreferences>} newPreferences - The preference fields to update.
+   * @protected
+   * @method mutate
+   * @description Routes an event to the appropriate `on[EventName]` method to mutate the aggregate's state.
+   * This method should not contain any business logic, only state transitions.
+   * @param {DomainEvent} event - The domain event to apply.
    */
-  public updatePreferences(newPreferences: Partial<UserPreferences>): void {
-    this._preferences = { ...this._preferences, ...newPreferences };
-    this._updatedAt = new Date();
+  protected mutate(event: DomainEvent): void {
+    if (event instanceof UserCreatedEvent) {
+      this.onUserCreated(event);
+    } else if (event instanceof UserProfileUpdatedEvent) {
+      this.onUserProfileUpdated(event);
+    } else if (event instanceof UserDeactivatedEvent) {
+      this.onUserDeactivated(event);
+    } else if (event instanceof UserReactivatedEvent) {
+      this.onUserReactivated(event);
+    }
   }
 
-  // --- GETTERS ---
-
-  /**
-   * @returns {string} The user's unique ID.
-   */
-  public get id(): string {
-    return this._id;
+  private onUserCreated(event: UserCreatedEvent): void {
+    this._authId = event.authId;
+    this._email = event.email;
+    this._name = event.name;
+    this._status = 'ACTIVE';
+    this._title = null;
+    this._avatarUrl = null;
+    this._createdAt = event.occurredOn;
+    this._updatedAt = event.occurredOn;
   }
 
-  /**
-   * @returns {string} The user's external authentication provider ID.
-   */
-  public get authId(): string {
-    return this._authId;
+  private onUserProfileUpdated(event: UserProfileUpdatedEvent): void {
+    if (event.updates.name) this._name = event.updates.name;
+    if (event.updates.title !== undefined) this._title = event.updates.title;
+    if (event.updates.avatarUrl !== undefined) this._avatarUrl = event.updates.avatarUrl;
+    this._updatedAt = event.occurredOn;
   }
 
-  /**
-   * @returns {string} The user's email address.
-   */
-  public get email(): string {
-    return this._email;
+  private onUserDeactivated(event: UserDeactivatedEvent): void {
+    this._status = 'DEACTIVATED';
+    this._updatedAt = event.occurredOn;
   }
 
-  /**
-   * @returns {string} The user's full name.
-   */
-  public get name(): string {
-    return this._name;
-  }
-
-  /**
-   * @returns {string} The user's hashed password.
-   */
-  public get passwordHash(): string {
-    return this._passwordHash;
-  }
-
-  /**
-   * @returns {UserPreferences} The user's preferences object.
-   */
-  public get preferences(): UserPreferences {
-    return this._preferences;
-  }
-
-  /**
-   * @returns {Date} The creation timestamp.
-   */
-  public get createdAt(): Date {
-    return this._createdAt;
-  }
-
-  /**
-   * @returns {Date} The last update timestamp.
-   */
-  public get updatedAt(): Date {
-    return this._updatedAt;
+  private onUserReactivated(event: UserReactivatedEvent): void {
+    this._status = 'ACTIVE';
+    this._updatedAt = event.occurredOn;
   }
 }

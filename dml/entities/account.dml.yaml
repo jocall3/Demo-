@@ -1,0 +1,210 @@
+type: aggregate_root
+name: Account
+description: "Represents a financial account held by a user. It tracks balances and is the subject of transactions. As an aggregate root, it enforces its own consistency boundaries and business rules."
+version: 1.0
+
+fields:
+  - name: id
+    type: string
+    format: uuid
+    description: "The unique identifier for the account aggregate. This is the primary key."
+    is_key: true
+    is_required: true
+
+  - name: userId
+    type: string
+    format: uuid
+    description: "The unique identifier of the user who owns this account."
+    is_required: true
+    is_foreign_key: true
+    references: User
+
+  - name: name
+    type: string
+    description: "The user-defined or institution-provided name for the account (e.g., 'Primary Checking')."
+    is_required: true
+    constraints:
+      - type: length
+        min: 2
+        max: 100
+
+  - name: balance
+    type: Balance
+    description: "The current balance of the account."
+    is_required: true
+
+  - name: type
+    type: string
+    description: "The high-level classification of the account."
+    is_required: true
+    enum:
+      - depository
+      - credit
+      - loan
+      - investment
+      - brokerage
+      - other
+
+  - name: subtype
+    type: string
+    description: "The specific sub-classification of the account (e.g., 'checking', 'savings')."
+    is_required: false
+    enum:
+      - checking
+      - savings
+      - credit card
+      - mortgage
+      - 401k
+      - ira
+      - other
+
+  - name: status
+    type: string
+    description: "The current status of the account."
+    is_required: true
+    default: OPEN
+    enum:
+      - OPEN
+      - FROZEN
+      - CLOSED
+
+  - name: createdAt
+    type: datetime
+    description: "Timestamp when the account was created."
+    is_required: true
+    is_immutable: true
+
+  - name: updatedAt
+    type: datetime
+    description: "Timestamp of the last update to the account."
+    is_required: true
+
+value_objects:
+  - name: Balance
+    description: "Represents the monetary balance of an account. It is a value object because it has no identity on its own and is defined by its attributes."
+    fields:
+      - name: current
+        type: decimal
+        precision: 19
+        scale: 4
+        description: "The total amount of funds in the account, including any pending transactions. May be referred to as ledger balance."
+        is_required: true
+
+      - name: available
+        type: decimal
+        precision: 19
+        scale: 4
+        description: "The amount of funds available for use, which may be different from the current balance due to holds or pending transactions."
+        is_required: false
+
+      - name: currency
+        type: string
+        description: "The ISO 4217 currency code of the balance (e.g., 'USD')."
+        is_required: true
+        constraints:
+          - type: length
+            min: 3
+            max: 3
+
+commands:
+  - name: CreateAccount
+    description: "Command to create a new financial account."
+    parameters:
+      - name: userId
+        type: string
+        format: uuid
+      - name: name
+        type: string
+      - name: type
+        type: string
+      - name: subtype
+        type: string
+      - name: initialBalance
+        type: decimal
+      - name: currency
+        type: string
+
+  - name: DebitAccount
+    description: "Command to debit funds from an account."
+    parameters:
+      - name: accountId
+        type: string
+        format: uuid
+      - name: amount
+        type: decimal
+      - name: transactionId
+        type: string
+        format: uuid
+
+  - name: CreditAccount
+    description: "Command to credit funds to an account."
+    parameters:
+      - name: accountId
+        type: string
+        format: uuid
+      - name: amount
+        type: decimal
+      - name: transactionId
+        type: string
+        format: uuid
+
+  - name: CloseAccount
+    description: "Command to close an account."
+    parameters:
+      - name: accountId
+        type: string
+        format: uuid
+
+events:
+  - name: AccountCreated
+    description: "Event published when a new account is successfully created."
+    payload:
+      - name: accountId
+        type: string
+        format: uuid
+      - name: userId
+        type: string
+        format: uuid
+      - name: name
+        type: string
+      - name: type
+        type: string
+      - name: subtype
+        type: string
+      - name: balance
+        type: Balance
+
+  - name: AccountDebited
+    description: "Event published when an account is debited."
+    payload:
+      - name: accountId
+        type: string
+        format: uuid
+      - name: amount
+        type: decimal
+      - name: newBalance
+        type: decimal
+      - name: transactionId
+        type: string
+        format: uuid
+
+  - name: AccountCredited
+    description: "Event published when an account is credited."
+    payload:
+      - name: accountId
+        type: string
+        format: uuid
+      - name: amount
+        type: decimal
+      - name: newBalance
+        type: decimal
+      - name: transactionId
+        type: string
+        format: uuid
+
+  - name: AccountClosed
+    description: "Event published when an account is closed."
+    payload:
+      - name: accountId
+        type: string
+        format: uuid

@@ -1,0 +1,18 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: generated-types
+  description: "Shared, auto-generated TypeScript types, interfaces, and classes derived from the central Domain Modeling Language (DML). This package ensures type consistency across all microservices and frontends."
+  tags:
+    - library
+    - typescript
+    - generated
+    - dml
+    - shared
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: library
+  lifecycle: production
+  owner: platform-foundations-team
+  system: core-platform

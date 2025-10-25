@@ -1,47 +1,38 @@
+/**
+ * @file services/accounts-service/src/infrastructure/controllers/account.controller.ts
+ * @description This controller is an inbound adapter in a Hexagonal Architecture. It subscribes
+ * to domain events from a message bus (Kafka) and translates them into commands for the
+ * application layer. It is the primary asynchronous entry point for state changes in the
+ * Account bounded context, adhering to CQRS principles by only triggering command-side logic.
+ */
+
 import { Controller, Logger } from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
-import { AccountService } from '../../application/account.service';
+import { AccountCommandService } from '../../application/services/account-command.service';
 
-/**
- * @description Defines the structure of the payload for a 'user.created' event.
- * This event is emitted by the UserService.
- */
+// --- Event Payload DTOs (Data Transfer Objects) ---
+// These interfaces define the data contract for events consumed from other services.
+
 interface UserCreatedEventPayload {
   userId: string;
   email: string;
   name: string;
 }
 
-/**
- * @description Defines the structure of the payload for a 'plaid.item.created' event.
- * This event is emitted by the PlaidIntegrationService after a successful item link.
- */
 interface PlaidItemCreatedEventPayload {
   userId: string;
   itemId: string;
-  // NOTE: In a robust CQRS/ES system, the Accounts service would typically request account
-  // data from the PlaidIntegrationService directly (which securely holds the access token)
-  // using userId and itemId, rather than being given the raw access token.
-  // This is a simplification for inter-service communication.
-  accessToken: string; 
+  accessToken: string; // In a real system, this might be a one-time use token for security.
   institutionName: string;
 }
 
-/**
- * @description Defines the structure of the payload for a 'transactions.synced' event.
- * This event is emitted by the PlaidIntegrationService when new transactions are available.
- */
 interface TransactionsSyncedEventPayload {
   userId: string;
   itemId: string;
-  transactions: any[]; // Raw Plaid transaction objects
+  transactions: any[]; // Raw transaction data from the source (e.g., Plaid)
   syncTimestamp: string;
 }
 
-/**
- * @description Defines the structure of the payload for a 'transaction.debited' or 'transaction.credited' event.
- * These events are emitted by the Transactions service for CQRS/Event Sourcing.
- */
 interface TransactionBalanceUpdateEventPayload {
   transactionId: string;
   accountId: string;
@@ -51,137 +42,108 @@ interface TransactionBalanceUpdateEventPayload {
 }
 
 /**
- * The AccountController is an **Input Adapter** in the Hexagonal Architecture,
- * responsible for consuming asynchronous domain events from the central message bus (Kafka).
- * It acts as the "Command Dispatcher," translating incoming events into explicit commands
- * which are then processed by the core application logic (represented by `AccountService` acting as a command handler facade).
- *
- * This controller adheres to the CQRS principle by only triggering state-changing operations
- * via commands, never exposing query endpoints.
- *
  * @class AccountController
+ * @description Acts as a Kafka consumer, translating domain events from other microservices
+ * into commands for the application's core logic (the command service).
  */
 @Controller()
 export class AccountController {
   private readonly logger = new Logger(AccountController.name);
 
+  /**
+   * @constructor
+   * @param {AccountCommandService} accountCommandService - Injects the application's command service port.
+   */
   constructor(
-    private readonly accountService: AccountService // This is the application service port
+    private readonly accountCommandService: AccountCommandService,
   ) {}
 
   /**
-   * Handles the 'user.created' event, triggered by the UserService.
-   * This event prompts the creation of a default checking account for the new user.
-   * Internally, this translates to dispatching a `CreateDefaultAccountCommand`.
-   *
+   * Handles the 'user.created' event from the UserService, triggering the creation
+   * of a default account for the new user.
    * @param {UserCreatedEventPayload} event - The payload of the 'user.created' event.
    */
   @EventPattern('user.created')
   async handleUserCreated(@Payload() event: UserCreatedEventPayload): Promise<void> {
     this.logger.log(`Received 'user.created' event for userId: ${event.userId}`);
     try {
-      // Dispatch a command to the AccountService to create the default account.
-      // The AccountService is responsible for applying this command and emitting domain events.
-      await this.accountService.createDefaultAccountForUser(event);
+      await this.accountCommandService.createDefaultAccountForUser(event);
     } catch (error) {
       this.logger.error(`Failed to handle 'user.created' event for userId: ${event.userId}`, error.stack);
-      // In a robust system, such failures would trigger alerts and potentially dead-letter queue processing.
+      // In a production system, this would trigger an alert and potentially a dead-letter queue.
     }
   }
 
   /**
-   * Handles the 'plaid.item.created' event, triggered by the PlaidIntegrationService.
-   * This event signifies that a user has successfully linked a new financial institution via Plaid.
-   * It triggers a command to link the external institution's accounts to the user's profile
-   * in this service, potentially creating new `Account` aggregates or updating existing ones.
-   *
+   * Handles the 'plaid.item.created' event from the PlaidIntegrationService.
+   * This event triggers the process of creating corresponding account aggregates in this service.
    * @param {PlaidItemCreatedEventPayload} event - The payload of the 'plaid.item.created' event.
    */
   @EventPattern('plaid.item.created')
   async handlePlaidItemCreated(@Payload() event: PlaidItemCreatedEventPayload): Promise<void> {
     this.logger.log(`Received 'plaid.item.created' event for userId: ${event.userId}, institution: ${event.institutionName}`);
     try {
-      // Dispatch a command to link the external institution. The AccountService
-      // will handle fetching accounts via the PlaidIntegrationService and persisting them.
-      await this.accountService.linkExternalInstitution(event);
+      await this.accountCommandService.linkExternalInstitution(event);
     } catch (error) {
       this.logger.error(`Failed to handle 'plaid.item.created' event for userId: ${event.userId}`, error.stack);
     }
   }
 
   /**
-   * Handles the 'transactions.synced' event, emitted by the PlaidIntegrationService.
-   * This event contains new and updated transaction data for a specific Plaid item.
-   * For an Event Sourced 'Accounts' service, this event could potentially trigger
-   * updates to account balances by projecting these transactions onto the account aggregates.
-   *
+   * Handles the 'transactions.synced' event from the PlaidIntegrationService.
+   * This event triggers balance updates on the relevant account aggregates.
    * @param {TransactionsSyncedEventPayload} event - The payload of the 'transactions.synced' event.
    */
   @EventPattern('transactions.synced')
   async handleTransactionsSynced(@Payload() event: TransactionsSyncedEventPayload): Promise<void> {
     this.logger.log(`Received 'transactions.synced' event for userId: ${event.userId}, item: ${event.itemId}.`);
     try {
-      // In an Event Sourced system, this would trigger commands to update balances of affected accounts.
-      // The AccountService would encapsulate this logic.
-      await this.accountService.processSyncedTransactions(event);
+      await this.accountCommandService.processSyncedTransactions(event);
     } catch (error) {
       this.logger.error(`Failed to handle 'transactions.synced' event for userId: ${event.userId}`, error.stack);
     }
   }
 
   /**
-   * Handles the 'transaction.debited' event, emitted by the Transactions service
-   * after a successful debit from a source account.
-   * This event is a critical part of updating the aggregate state (account balance)
-   * in an event-sourced `Accounts` service. It triggers a command to update the
-   * balance of the affected account.
-   *
-   * @param {TransactionBalanceUpdateEventPayload} event - The payload of the 'transaction.debited' event.
+   * Handles the 'transaction.debited' event from the TransactionsService.
+   * This event is a core part of an event-sourced saga, triggering a debit command on the Account aggregate.
+   * @param {TransactionBalanceUpdateEventPayload} event - The event payload.
    */
   @EventPattern('transaction.debited')
   async handleTransactionDebited(@Payload() event: TransactionBalanceUpdateEventPayload): Promise<void> {
     this.logger.log(`Received 'transaction.debited' event for accountId: ${event.accountId}, amount: ${event.amount}`);
     try {
-      // This would trigger a command to the AccountService to update the balance of the specific account.
-      await this.accountService.debitAccount(event.accountId, event.amount, event.transactionId);
+      await this.accountCommandService.debitAccount(event.accountId, event.amount, event.transactionId);
     } catch (error) {
       this.logger.error(`Failed to handle 'transaction.debited' event for accountId: ${event.accountId}`, error.stack);
     }
   }
 
   /**
-   * Handles the 'transaction.credited' event, emitted by the Transactions service
-   * after a successful credit to a destination account.
-   * Similar to `transaction.debited`, this event is crucial for updating the
-   * aggregate state (account balance) in an event-sourced `Accounts` service.
-   * It triggers a command to update the balance of the affected account.
-   *
-   * @param {TransactionBalanceUpdateEventPayload} event - The payload of the 'transaction.credited' event.
+   * Handles the 'transaction.credited' event from the TransactionsService.
+   * This event triggers a credit command on the Account aggregate.
+   * @param {TransactionBalanceUpdateEventPayload} event - The event payload.
    */
   @EventPattern('transaction.credited')
   async handleTransactionCredited(@Payload() event: TransactionBalanceUpdateEventPayload): Promise<void> {
     this.logger.log(`Received 'transaction.credited' event for accountId: ${event.accountId}, amount: ${event.amount}`);
     try {
-      // This would trigger a command to the AccountService to update the balance of the specific account.
-      await this.accountService.creditAccount(event.accountId, event.amount, event.transactionId);
+      await this.accountCommandService.creditAccount(event.accountId, event.amount, event.transactionId);
     } catch (error) {
       this.logger.error(`Failed to handle 'transaction.credited' event for accountId: ${event.accountId}`, error.stack);
     }
   }
 
   /**
-   * Handles the 'transaction.refunded' event, emitted by the Transactions service
-   * when a previously debited amount is refunded due to a transaction failure.
-   * This triggers a command to reverse the debit on the source account.
-   *
-   * @param {TransactionBalanceUpdateEventPayload} event - The payload of the 'transaction.refunded' event.
+   * Handles the 'transaction.refunded' event from the TransactionsService.
+   * This event represents a compensation action in a saga, triggering a refund (credit) command.
+   * @param {TransactionBalanceUpdateEventPayload} event - The event payload.
    */
   @EventPattern('transaction.refunded')
   async handleTransactionRefunded(@Payload() event: TransactionBalanceUpdateEventPayload): Promise<void> {
     this.logger.log(`Received 'transaction.refunded' event for accountId: ${event.accountId}, amount: ${event.amount}`);
     try {
-      // This would trigger a command to the AccountService to reverse the debit (i.e., credit back the amount).
-      await this.accountService.refundAccount(event.accountId, event.amount, event.transactionId);
+      await this.accountCommandService.refundAccount(event.accountId, event.amount, event.transactionId);
     } catch (error) {
       this.logger.error(`Failed to handle 'transaction.refunded' event for accountId: ${event.accountId}`, error.stack);
     }

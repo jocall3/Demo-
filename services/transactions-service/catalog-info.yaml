@@ -1,0 +1,31 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: transactions-service
+  description: Manages financial transactions, orchestrates payment sagas using Temporal, and provides a GraphQL subgraph for transaction data.
+  tags:
+    - service
+    - backend
+    - nodejs
+    - nestjs
+    - cqrs
+    - event-sourcing
+    - temporal
+  annotations:
+    github.com/project-slug: 'your-org/your-repo'
+    backstage.io/techdocs-ref: dir:.
+    backstage.io/kubernetes-label-selector: 'app.kubernetes.io/name=transactions-service'
+    grafana/dashboard-selector: 'tags @> "transactions-service"'
+spec:
+  type: service
+  lifecycle: production
+  owner: team-core-banking
+  system: demobank-platform
+  dependsOn:
+    - component:api-gateway
+    - component:accounts-service
+    - resource:message-bus-kafka
+    - resource:temporal-cluster
+    - resource:transactions-db
+  providesApis:
+    - transactions-graphql-api

@@ -1,0 +1,31 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: experience-dashboard-api
+  description: >
+    Experience API for the main user dashboard. It orchestrates complex data aggregation 
+    from the supergraph and shapes payloads specifically for the `mfe-dashboard` 
+    frontend experience.
+  tags:
+    - experience-api
+    - bff
+    - api
+    - nodejs
+    - dashboard
+  annotations:
+    # Links to source code, documentation, and observability tools.
+    github.com/project-slug: 'demobank/experience-dashboard-api'
+    backstage.io/techdocs-ref: dir:.
+    grafana/dashboard-selector: 'dashboard="experience-dashboard-api"'
+    prometheus.io/rule: 'service=experience-dashboard-api'
+spec:
+  type: service
+  lifecycle: production
+  owner: team-dashboard-experience
+  system: experience-layer
+  # This service consumes data from the central supergraph gateway.
+  dependsOn:
+    - component:default/api-gateway
+  # This service provides a specific API consumed by the dashboard micro-frontend.
+  providesApis:
+    - experience-dashboard-graphql

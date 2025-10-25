@@ -1,0 +1,30 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: experience-onboarding-api
+  description: The Experience API for the user onboarding journey. It orchestrates data from the supergraph to provide a tailored experience for new users signing up and linking their first accounts.
+  tags:
+    - experience-api
+    - nodejs
+    - nestjs
+    - graphql
+    - onboarding
+  annotations:
+    github.com/project-slug: 'your-org/your-repo' # Placeholder for the actual repository
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: service
+  lifecycle: experimental
+  owner: team-onboarding
+  system: experience-layer
+  # This Experience API depends on the central supergraph gateway to fetch data and Kafka for events.
+  dependsOn:
+    - component:default/supergraph-gateway
+    - resource:default/kafka-cluster
+    - component:default/user-service # For direct calls during onboarding logic if needed
+  # This service provides a dedicated GraphQL API for the onboarding micro-frontend.
+  providesApis:
+    - experience-onboarding-api-graphql
+  # This service consumes the main federated GraphQL API from the supergraph.
+  consumesApis:
+    - supergraph-api

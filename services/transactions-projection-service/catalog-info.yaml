@@ -1,0 +1,29 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: transactions-projection-service
+  description: A CQRS projection service that consumes transaction events from Kafka and builds a denormalized read model in MongoDB for efficient querying.
+  tags:
+    - service
+    - backend
+    - cqrs
+    - projection
+    - nestjs
+    - kafka
+    - mongodb
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    github.com/project-slug: 'your-org/demobank' # Placeholder for the actual project slug
+    backstage.io/language: typescript
+    backstage.io/framework: nestjs
+spec:
+  type: service
+  lifecycle: production
+  owner: team-core-banking
+  system: demobank-backend
+  dependsOn:
+    - component:transactions-service # Depends on events from the command-side service
+    - resource:message-bus-kafka # Depends on the Kafka cluster resource
+    - resource:mongodb-read-models # Depends on the MongoDB cluster for its data store
+  consumesApis:
+    - api:transaction-events # Consumes the domain events published to Kafka

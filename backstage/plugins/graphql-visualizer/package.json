@@ -1,0 +1,52 @@
+{
+  "name": "@demobank/backstage-plugin-graphql-visualizer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A Backstage plugin to visualize the federated GraphQL schema of the Demo Bank platform.",
+  "author": "Elite AI Implementation Team",
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public",
+    "main": "dist/index.esm.js",
+    "types": "dist/index.d.ts"
+  },
+  "backstage": {
+    "role": "frontend-plugin"
+  },
+  "scripts": {
+    "start": "backstage-cli package start",
+    "build": "backstage-cli package build",
+    "lint": "backstage-cli package lint",
+    "test": "backstage-cli package test",
+    "clean": "backstage-cli package clean",
+    "prepack": "backstage-cli package prepack",
+    "postpack": "backstage-cli package postpack"
+  },
+  "dependencies": {
+    "@backstage/core-components": "^0.14.0",
+    "@backstage/core-plugin-api": "^1.9.0",
+    "@backstage/theme": "^0.5.0",
+    "@mui/material": "^5.15.14",
+    "@mui/icons-material": "^5.15.14",
+    "graphql-voyager": "^1.0.0-rc.31",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.3",
+    "react-use": "^17.4.0"
+  },
+  "devDependencies": {
+    "@backstage/cli": "^0.26.0",
+    "@backstage/core-app-api": "^1.12.0",
+    "@backstage/dev-utils": "^1.0.28",
+    "@backstage/test-utils": "^1.5.1",
+    "@testing-library/jest-dom": "^6.4.2",
+    "@testing-library/react": "^14.2.1",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/node": "*",
+    "cross-fetch": "^4.0.0",
+    "msw": "^2.2.13"
+  },
+  "files": [
+    "dist"
+  ]
+}

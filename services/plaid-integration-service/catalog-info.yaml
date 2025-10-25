@@ -1,0 +1,27 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: plaid-integration-service
+  description: Microservice that encapsulates all interactions with the Plaid API. It handles linking financial institutions, fetching account and transaction data, and publishes domain events to Kafka upon data synchronization.
+  tags:
+    - service
+    - backend
+    - plaid
+    - financial-data
+    - typescript
+    - nestjs
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: service
+  lifecycle: production
+  owner: team-core-banking
+  system: core-platform
+  dependsOn:
+    - component:api-gateway
+    - resource:kafka-cluster
+    - resource:plaid-integration-db
+  providesApis:
+    - plaid-integration-graphql-api
+  consumesApis:
+    - plaid-public-api
