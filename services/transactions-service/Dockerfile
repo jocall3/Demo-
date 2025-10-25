@@ -1,4 +1,4 @@
-# Dockerfile for the Transactions GraphQL Subgraph Service
+## Dockerfile for the Transactions GraphQL Subgraph Service
 
 # STAGE 1: Development - Install dependencies and copy source
 # Use a specific node version on a lean alpine base to keep the image small.
