@@ -19,37 +19,44 @@ service PlaidIntegrationService {
   rpc CreateLinkToken(CreateLinkTokenRequest) returns (CreateLinkTokenResponse);
 
   // Exchanges a temporary public token from Plaid Link for a permanent access token and item ID.
-  // The service is responsible for securely storing the access token.
+  // The service is responsible for securely storing the access token and associated metadata.
   rpc ExchangePublicToken(ExchangePublicTokenRequest) returns (ExchangePublicTokenResponse);
 
-  // Fetches account information for a given user.
+  // Fetches a list of financial accounts for a given user that are linked via Plaid.
   rpc GetAccounts(GetAccountsRequest) returns (GetAccountsResponse);
 
-  // Fetches transactions for a given user over a specified date range.
+  // Fetches a single financial account by its unique ID.
+  rpc GetAccountById(GetAccountByIdRequest) returns (Account);
+
+  // Fetches a list of transactions for a given user over a specified date range.
   rpc GetTransactions(GetTransactionsRequest) returns (GetTransactionsResponse);
+
+  // Fetches a single transaction by its unique ID.
+  rpc GetTransactionById(GetTransactionByIdRequest) returns (Transaction);
 
   // Fetches information about a Plaid Item (a user's connection to an institution).
   rpc GetItem(GetItemRequest) returns (GetItemResponse);
 
-  // Removes a Plaid Item, effectively unlinking the user's account.
+  // Removes a Plaid Item, effectively unlinking all accounts connected via that item for the user.
   rpc RemoveItem(RemoveItemRequest) returns (RemoveItemResponse);
 }
 
 // =============================================================================
-// Message Definitions
+// Core Data Structures
+// These messages represent the entities managed by the Plaid Integration Service.
 // =============================================================================
 
-// --- Core Data Structures ---
-
+// Represents the balance of a financial account.
 message Balance {
-  // The amount of funds available for use.
+  // The amount of funds available for use. Can be null if not available.
   optional double available = 1;
   // The total amount of funds in the account.
   double current = 2;
-  // The ISO-4217 currency code of the balance.
+  // The ISO-4217 currency code of the balance (e.g., "USD").
   string iso_currency_code = 3;
 }
 
+// Represents a single financial account linked to a user via Plaid.
 message Account {
   // Plaid's unique ID for the account.
   string account_id = 1;
@@ -61,12 +68,13 @@ message Account {
   string name = 4;
   // The official name of the account as provided by the financial institution.
   optional string official_name = 5;
-  // The specific subtype of the account (e.g., "checking").
+  // The specific subtype of the account (e.g., "checking", "credit card").
   string subtype = 6;
-  // The high-level type of the account (e.g., "depository").
+  // The high-level type of the account (e.g., "depository", "credit").
   string type = 7;
 }
 
+// Represents a single financial transaction associated with an account.
 message Transaction {
   // Plaid's unique ID for the transaction.
   string transaction_id = 1;
@@ -76,7 +84,7 @@ message Transaction {
   double amount = 3;
   // The ISO-4217 currency code of the transaction.
   string iso_currency_code = 4;
-  // A hierarchical list of categories reflecting the transaction.
+  // A hierarchical list of categories reflecting the transaction (e.g., ["Food and Drink", "Coffee Shops"]).
   repeated string category = 5;
   // The date the transaction posted, in ISO 8601 format (YYYY-MM-DD).
   string date = 6;
@@ -88,76 +96,120 @@ message Transaction {
   bool pending = 9;
 }
 
+// Represents a Plaid Item, which is a user's connection to a financial institution.
 message Item {
   // The Plaid Item ID.
   string item_id = 1;
-  // The Plaid Institution ID.
+  // The Plaid Institution ID associated with this item.
   string institution_id = 2;
-  // A list of products available for the Item.
+  // A list of products (e.g., "transactions", "auth") that are enabled for the Item.
   repeated string available_products = 3;
   // A list of products that have been billed for the Item.
   repeated string billed_products = 4;
 }
 
+// =============================================================================
+// RPC Request/Response Messages
+// =============================================================================
 
-// --- RPC Request/Response Messages ---
-
-// CreateLinkToken
+// Request to create a Plaid Link token.
 message CreateLinkTokenRequest {
+  // The ID of the user for whom the link token is being created.
   string user_id = 1;
 }
+
+// Response containing the created Plaid Link token.
 message CreateLinkTokenResponse {
+  // The generated link token string.
   string link_token = 1;
+  // The expiration date/time of the link token in ISO 8601 format.
   string expiration = 2;
+  // The Plaid request ID for debugging.
   string request_id = 3;
 }
 
-// ExchangePublicToken
+// Request to exchange a Plaid public token for an access token.
 message ExchangePublicTokenRequest {
+  // The ID of the user who initiated the Plaid Link flow.
   string user_id = 1;
+  // The public token received from the client-side Plaid Link `onSuccess` callback.
   string public_token = 2;
+  // Additional metadata from the client-side Plaid Link success callback.
+  // This typically includes institution details, masked account information, etc.
+  map<string, string> metadata = 3;
 }
+
+// Response after exchanging a public token.
 message ExchangePublicTokenResponse {
+  // The Plaid Item ID of the newly connected institution.
   string item_id = 1;
+  // The Plaid request ID for debugging.
   string request_id = 2;
+  // Indicates whether the public token exchange was successful.
   bool success = 3;
 }
 
-// GetAccounts
+// Request to get accounts for a user.
 message GetAccountsRequest {
+  // The ID of the user whose accounts are to be retrieved.
   string user_id = 1;
 }
+
+// Response containing a list of accounts.
 message GetAccountsResponse {
   repeated Account accounts = 1;
 }
 
-// GetTransactions
+// Request to get a specific account by ID.
+message GetAccountByIdRequest {
+  // The unique ID of the account to retrieve.
+  string account_id = 1;
+}
+
+// Request to get transactions for a user.
 message GetTransactionsRequest {
+  // The ID of the user whose transactions are being requested.
   string user_id = 1;
-  // Start date in YYYY-MM-DD format.
+  // Start date for transactions in YYYY-MM-DD format.
   string start_date = 2;
-  // End date in YYYY-MM-DD format.
+  // End date for transactions in YYYY-MM-DD format.
   string end_date = 3;
-  // Optional: Filter transactions by account ID.
+  // Optional: Filter transactions by a specific account ID.
   optional string account_id = 4;
 }
+
+// Response containing a list of transactions.
 message GetTransactionsResponse {
   repeated Transaction transactions = 1;
 }
 
-// GetItem
+// Request to get a specific transaction by ID.
+message GetTransactionByIdRequest {
+  // The unique ID of the transaction to retrieve.
+  string transaction_id = 1;
+}
+
+// Request to get an Item for a user.
 message GetItemRequest {
+  // The ID of the user whose Item is to be retrieved.
   string user_id = 1;
 }
+
+// Response containing Item details.
 message GetItemResponse {
   Item item = 1;
 }
 
-// RemoveItem
+// Request to remove an Item for a user.
 message RemoveItemRequest {
+  // The ID of the user whose Item is to be removed.
   string user_id = 1;
 }
+
+// Response after removing an Item.
 message RemoveItemResponse {
+  // Indicates whether the item removal was successful.
   bool success = 1;
+  // The Plaid request ID for debugging.
   string request_id = 2;
 }
