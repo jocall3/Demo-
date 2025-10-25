@@ -1,0 +1,47 @@
+# ADR-0004: Service Mesh for Zero-Trust Networking and Advanced Traffic Management
+
+Status: Accepted
+
+## Context
+
+As our architecture evolves into a distributed system of microservices, we face several challenges in ensuring security, resilience, and observability for service-to-service communication.
+
+1.  **Security:** Internal service-to-service traffic is not encrypted by default. We rely on a combination of Kubernetes NetworkPolicies and application-level API keys. This does not provide a true zero-trust security model, where no internal traffic is implicitly trusted.
+2.  **Resilience:** Individual services implement their own resilience patterns (retries, timeouts, circuit breakers). This leads to code duplication, inconsistent behavior, and a high cognitive load for developers who must manage this logic in every service.
+3.  **Observability:** While services are instrumented with OpenTelemetry, we lack a uniform, infrastructure-level view of L7 traffic metrics (e.g., request rates, error rates, latencies) for all service interactions. This makes it difficult to get a complete and consistent picture of the system's health.
+4.  **Traffic Management:** Advanced deployment strategies like canary releases and A/B testing are difficult to implement and manage at the infrastructure level, requiring complex manual configuration or bespoke tooling.
+5.  **Resilience Testing:** We lack a standardized way to perform chaos engineering by injecting faults (e.g., delays, HTTP errors) to test the resilience of our system in a controlled manner.
+
+## Decision
+
+We will deploy a service mesh (Istio) across our Kubernetes cluster to address these challenges. This will involve the following key implementations:
+
+1.  **Zero-Trust Networking:** Enable automatic sidecar proxy injection for all service pods. Configure a mesh-wide `PeerAuthentication` policy to enforce strict mutual TLS (mTLS) for all internal traffic, encrypting all service-to-service communication by default.
+
+2.  **Centralized Resilience Policies:** Offload resilience logic from application code to the service mesh. We will use Istio's `VirtualService` and `DestinationRule` resources to centrally configure:
+    *   Automatic HTTP retries with exponential backoff for transient network failures.
+    *   Connection and request timeouts to prevent cascading failures.
+    *   Circuit breaking patterns (`outlierDetection`) to isolate failing service instances.
+
+3.  **Advanced Traffic Management:** Leverage Istio's traffic-shifting capabilities to implement safe, progressive delivery. We will start by using `VirtualService` weighting to perform canary releases, gradually routing a small percentage of traffic to new service versions before a full rollout.
+
+4.  **Fault Injection for Chaos Engineering:** Utilize Istio's fault injection capabilities to systematically test the resilience of our services. We will create policies to inject controlled delays and HTTP aborts for specific services to validate our circuit breaking and retry configurations.
+
+5.  **Uniform Observability:** The sidecar proxies will generate a consistent set of metrics (the "four golden signals"), traces, and access logs for all mesh traffic. These metrics will be scraped by our existing Prometheus setup and integrated with our Grafana dashboards and Jaeger tracing backend, providing a unified observability layer without requiring code changes in individual services.
+
+## Consequences
+
+### Positive
+
+*   **Improved Security:** Achieves a zero-trust network by default through automatic mTLS encryption for all internal traffic.
+*   **Increased Resilience:** Standardizes and centralizes resilience patterns, making the system more robust and predictable.
+*   **Simplified Application Code:** Developers are freed from implementing complex network logic (retries, timeouts, mTLS), allowing them to focus on core business logic. This aligns with our Hexagonal Architecture directive.
+*   **Enhanced Observability:** Provides a consistent, out-of-the-box layer of L7 telemetry for all services, improving our ability to monitor, debug, and understand system behavior.
+*   **Advanced Deployment Capabilities:** Unlocks powerful, infrastructure-managed deployment strategies like canary releases and A/B testing, reducing the risk of new deployments.
+
+### Negative
+
+*   **Increased Operational Complexity:** Introduces a new, critical piece of infrastructure (the Istio control plane) that must be managed, monitored, and understood by the platform team.
+*   **Resource Overhead:** The sidecar proxy in each pod will consume additional CPU and memory resources, increasing overall cluster costs.
+*   **Potential Latency Impact:** The extra network hop through the sidecar proxies for every request introduces a small amount of latency. This must be benchmarked and monitored to ensure it meets performance requirements.
+*   **Learning Curve:** The team will need to invest time in learning Istio's concepts, configuration (YAML resources), and debugging tools.

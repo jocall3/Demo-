@@ -1,0 +1,52 @@
+Title: 0002: Decompose Monolithic Frontend into a Federated Micro-Frontend Architecture
+
+Status: Accepted
+
+Context:
+
+The current frontend application is a large React monolith. As the number of features and development teams has grown, this architecture has led to significant challenges that impede development velocity and increase operational risk. Key problems include:
+
+- **Coupled Deployments:** A change in any single feature, no matter how small, requires a full regression test and deployment of the entire application. This slows down the release cycle and increases the risk of unintended side effects.
+- **Cognitive Overload:** The large, single codebase is becoming increasingly difficult for developers to understand and navigate, leading to longer onboarding times and a higher likelihood of bugs.
+- **Team Scaling Issues:** Multiple teams working in the same codebase result in frequent merge conflicts, coordination overhead, and blurred lines of ownership.
+- **Technology Lock-in:** The entire application is tied to a single version of React and its associated libraries. Upgrading dependencies becomes a large, high-risk project, preventing teams from adopting new technologies or best practices incrementally.
+- **Slow Build Times:** The CI/CD pipeline for the monolithic application is becoming progressively slower, creating a bottleneck for releases.
+
+Decision:
+
+We will re-architect the frontend by decomposing the monolith into a constellation of independently deployable Micro-Frontends (MFEs) using Webpack Module Federation.
+
+1.  **Architecture Pattern:** We will adopt a **Shell + MFE** model.
+
+2.  **Shell Application:** A new, lightweight "Shell" application will be created. Its sole responsibilities are:
+    - Rendering the primary application layout (e.g., Header, Sidebar).
+    - Handling global concerns like authentication state and top-level routing.
+    - Dynamically loading and orchestrating the remote MFE applications at runtime based on the current route.
+
+3.  **Micro-Frontends (MFEs):** Core business domains (e.g., Dashboard, Transactions, Investments, AI Advisor) will be extracted into their own separate, standalone React applications. Each MFE will:
+    - Have its own dedicated repository and CI/CD pipeline.
+    - Be independently deployable and versioned.
+    - Expose itself as a remote module via Webpack Module Federation.
+
+4.  **Shared UI Library:** All shared UI components (e.g., `Card.tsx`, `Button.tsx`), hooks, utilities, and TypeScript types (`types.ts`) will be extracted into a separate, versioned UI component library. This library will be published to a private NPM registry and consumed as a standard dependency by the Shell and all MFEs to ensure UI/UX consistency.
+
+5.  **Communication:** Inter-MFE communication will be minimized. When necessary, it will be handled either through a custom client-side event bus or via state passed through URL routing parameters managed by the Shell. Direct coupling between MFEs is forbidden.
+
+Consequences:
+
+**Positive:**
+
+- **Team Autonomy:** Teams will gain end-to-end ownership of their features, allowing them to develop, test, and deploy independently, significantly increasing delivery speed.
+- **Improved Scalability:** The architecture will scale more effectively, both in terms of team organization and application complexity.
+- **Decoupled Codebases:** Smaller, focused codebases for each MFE will reduce cognitive load, making them easier to maintain, test, and onboard new developers.
+- **Technology Flexibility:** Teams can make technology choices (e.g., state management libraries, testing frameworks) within their MFE's domain. Upgrading shared dependencies like React becomes a more manageable, incremental process.
+- **Faster CI/CD:** Build and deployment pipelines for individual MFEs will be significantly faster and more efficient than the monolithic pipeline.
+- **Increased Resilience:** A runtime error or deployment failure in one MFE is less likely to impact the entire application. The Shell can be designed to gracefully handle loading failures for a given MFE.
+
+**Negative:**
+
+- **Operational Complexity:** The overall system becomes more complex to manage, requiring orchestration of multiple repositories, build pipelines, and deployments.
+- **Shared Dependency Management:** Careful governance is required to manage versions of shared dependencies (especially React and the shared UI library) to avoid runtime conflicts. While Module Federation helps, it does not eliminate this challenge.
+- **Performance Considerations:** There may be a slight performance overhead from fetching remote MFE bundles at runtime. This will require monitoring and optimization strategies (e.g., caching, pre-fetching).
+- **Local Development Experience:** The local development setup becomes more complex, requiring a strategy to run the Shell and multiple MFEs concurrently.
+- **Potential for Inconsistency:** Strict adherence to the shared design system and component library is crucial to prevent UI/UX fragmentation across different MFEs.
