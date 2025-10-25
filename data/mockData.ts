@@ -1,35 +1,35 @@
 import type { 
-    Transaction, Asset, BudgetCategory, Subscription, CreditScore, 
+    Asset, BudgetCategory, Subscription, CreditScore, 
     UpcomingBill, SavingsGoal, MarketMover, FinancialGoal, CryptoAsset, 
     PaymentOperation, CorporateCard, CorporateTransaction, RewardPoints, 
     Notification, RewardItem, APIStatus, CreditFactor, NFTAsset,
     AdvancedAsset, AssetClass, MarketRegion, AnalystRating, 
-    HistoricalDataPoint, NewsArticle
+    HistoricalDataPoint, NewsArticle, Transaction
 } from '../types';
-import { View } from '../types';
+import { View, TransactionType, CreditRating, RewardType, APIProvider, APIStatusType } from '../types';
 
 export const MOCK_TRANSACTIONS: Transaction[] = [
   // July
-  { id: '1', type: 'expense', category: 'Dining', description: 'Coffee Shop', amount: 12.50, date: '2024-07-21', carbonFootprint: 1.2 },
-  { id: '2', type: 'income', category: 'Salary', description: 'Paycheck', amount: 2500.00, date: '2024-07-20' },
-  { id: '3', type: 'expense', category: 'Shopping', description: 'Online Store', amount: 89.99, date: '2024-07-19', carbonFootprint: 8.5 },
-  { id: '4', type: 'expense', category: 'Utilities', description: 'Electricity Bill', amount: 75.30, date: '2024-07-18', carbonFootprint: 15.3 },
-  { id: '5', type: 'expense', category: 'Transport', description: 'Gas Station', amount: 55.00, date: '2024-07-18', carbonFootprint: 25.1 },
-  { id: '6', type: 'income', category: 'Freelance', description: 'Project ABC', amount: 500.00, date: '2024-07-17' },
-  { id: '7', type: 'expense', category: 'Groceries', description: 'Supermarket', amount: 124.50, date: '2024-07-16', carbonFootprint: 12.8 },
-  { id: '8', type: 'expense', category: 'Entertainment', description: 'Movie Tickets', amount: 30.00, date: '2024-07-15', carbonFootprint: 3.5 },
+  { id: '1', type: TransactionType.EXPENSE, category: 'Dining', description: 'Coffee Shop', amount: 12.50, date: '2024-07-21', carbonFootprint: 1.2 },
+  { id: '2', type: TransactionType.INCOME, category: 'Salary', description: 'Paycheck', amount: 2500.00, date: '2024-07-20' },
+  { id: '3', type: TransactionType.EXPENSE, category: 'Shopping', description: 'Online Store', amount: 89.99, date: '2024-07-19', carbonFootprint: 8.5 },
+  { id: '4', type: TransactionType.EXPENSE, category: 'Utilities', description: 'Electricity Bill', amount: 75.30, date: '2024-07-18', carbonFootprint: 15.3 },
+  { id: '5', type: TransactionType.EXPENSE, category: 'Transport', description: 'Gas Station', amount: 55.00, date: '2024-07-18', carbonFootprint: 25.1 },
+  { id: '6', type: TransactionType.INCOME, category: 'Freelance', description: 'Project ABC', amount: 500.00, date: '2024-07-17' },
+  { id: '7', type: TransactionType.EXPENSE, category: 'Groceries', description: 'Supermarket', amount: 124.50, date: '2024-07-16', carbonFootprint: 12.8 },
+  { id: '8', type: TransactionType.EXPENSE, category: 'Entertainment', description: 'Movie Tickets', amount: 30.00, date: '2024-07-15', carbonFootprint: 3.5 },
   // June
-  { id: '9', type: 'income', category: 'Salary', description: 'Paycheck', amount: 2500.00, date: '2024-06-20' },
-  { id: '10', type: 'expense', category: 'Rent', description: 'Monthly Rent', amount: 1200.00, date: '2024-06-01', carbonFootprint: 5.0 },
-  { id: '11', type: 'expense', category: 'Shopping', description: 'New Tech Gadget', amount: 299.99, date: '2024-06-15', carbonFootprint: 14.2 },
-  { id: '12', type: 'expense', category: 'Dining', description: 'Fancy Dinner', amount: 150.00, date: '2024-06-10', carbonFootprint: 8.1 },
+  { id: '9', type: TransactionType.INCOME, category: 'Salary', description: 'Paycheck', amount: 2500.00, date: '2024-06-20' },
+  { id: '10', type: TransactionType.EXPENSE, category: 'Rent', description: 'Monthly Rent', amount: 1200.00, date: '2024-06-01', carbonFootprint: 5.0 },
+  { id: '11', type: TransactionType.EXPENSE, category: 'Shopping', description: 'New Tech Gadget', amount: 299.99, date: '2024-06-15', carbonFootprint: 14.2 },
+  { id: '12', type: TransactionType.EXPENSE, category: 'Dining', description: 'Fancy Dinner', amount: 150.00, date: '2024-06-10', carbonFootprint: 8.1 },
   // May
-  { id: '13', type: 'income', category: 'Salary', description: 'Paycheck', amount: 2500.00, date: '2024-05-20' },
-  { id: '14', type: 'expense', category: 'Travel', description: 'Flight Tickets', amount: 450.00, date: '2024-05-12', carbonFootprint: 200.5 },
-  { id: '15', type: 'expense', category: 'Rent', description: 'Monthly Rent', amount: 1200.00, date: '2024-05-01', carbonFootprint: 5.0 },
+  { id: '13', type: TransactionType.INCOME, category: 'Salary', description: 'Paycheck', amount: 2500.00, date: '2024-05-20' },
+  { id: '14', type: TransactionType.EXPENSE, category: 'Travel', description: 'Flight Tickets', amount: 450.00, date: '2024-05-12', carbonFootprint: 200.5 },
+  { id: '15', type: TransactionType.EXPENSE, category: 'Rent', description: 'Monthly Rent', amount: 1200.00, date: '2024-05-01', carbonFootprint: 5.0 },
   // April
-  { id: '16', type: 'income', category: 'Salary', description: 'Paycheck', amount: 2500.00, date: '2024-04-20' },
-  { id: '17', type: 'expense', category: 'Rent', description: 'Monthly Rent', amount: 1200.00, date: '2024-04-01', carbonFootprint: 5.0 },
+  { id: '16', type: TransactionType.INCOME, category: 'Salary', description: 'Paycheck', amount: 2500.00, date: '2024-04-20' },
+  { id: '17', type: TransactionType.EXPENSE, category: 'Rent', description: 'Monthly Rent', amount: 1200.00, date: '2024-04-01', carbonFootprint: 5.0 },
 ];
 
 export const MOCK_ASSETS: Asset[] = [
@@ -62,7 +62,7 @@ export const MOCK_SUBSCRIPTIONS: Subscription[] = [
 export const MOCK_CREDIT_SCORE: CreditScore = {
     score: 780,
     change: 5,
-    rating: 'Excellent',
+    rating: CreditRating.EXCELLENT,
 };
 
 export const MOCK_UPCOMING_BILLS: UpcomingBill[] = [
@@ -185,25 +185,25 @@ export const MOCK_NOTIFICATIONS: Notification[] = [
 ];
 
 export const MOCK_REWARD_ITEMS: RewardItem[] = [
-    { id: 'rew1', name: '$25 Statement Credit', cost: 25000, type: 'cashback', description: 'Redeem points for a direct credit to your account balance.', iconName: 'cash' },
-    { id: 'rew2', name: '$50 Tech Store Gift Card', cost: 45000, type: 'giftcard', description: 'Get a gift card for your favorite electronics retailer.', iconName: 'gift' },
-    { id: 'rew3', name: 'Plant 5 Trees', cost: 10000, type: 'impact', description: 'Use your points to make a positive environmental impact.', iconName: 'leaf' },
+    { id: 'rew1', name: '$25 Statement Credit', cost: 25000, type: RewardType.CASHBACK, description: 'Redeem points for a direct credit to your account balance.', iconName: 'cash' },
+    { id: 'rew2', name: '$50 Tech Store Gift Card', cost: 45000, type: RewardType.GIFTCARD, description: 'Get a gift card for your favorite electronics retailer.', iconName: 'gift' },
+    { id: 'rew3', name: 'Plant 5 Trees', cost: 10000, type: RewardType.IMPACT, description: 'Use your points to make a positive environmental impact.', iconName: 'leaf' },
 ];
 
 export const MOCK_API_STATUS: APIStatus[] = [
-    { provider: 'Plaid', status: 'Operational', responseTime: 120 },
-    { provider: 'Stripe', status: 'Operational', responseTime: 85 },
-    { provider: 'Marqeta', status: 'Operational', responseTime: 150 },
-    { provider: 'Modern Treasury', status: 'Operational', responseTime: 110 },
-    { provider: 'Google Gemini', status: 'Degraded Performance', responseTime: 450 },
+    { provider: APIProvider.Plaid, status: APIStatusType.Operational, responseTime: 120 },
+    { provider: APIProvider.Stripe, status: APIStatusType.Operational, responseTime: 85 },
+    { provider: APIProvider.Marqeta, status: APIStatusType.Operational, responseTime: 150 },
+    { provider: APIProvider.ModernTreasury, status: APIStatusType.Operational, responseTime: 110 },
+    { provider: APIProvider.GoogleGemini, status: APIStatusType.DegradedPerformance, responseTime: 450 },
 ];
 
 export const MOCK_CREDIT_FACTORS: CreditFactor[] = [
-    { name: 'Payment History', status: 'Excellent', description: 'You have no missed payments on record. Keep up the great work!' },
-    { name: 'Credit Utilization', status: 'Good', description: 'Your credit utilization is 22%, which is good. Aim to keep it below 30%.' },
-    { name: 'Credit Age', status: 'Good', description: 'Your average credit account age is 6 years. The longer, the better.' },
-    { name: 'New Credit', status: 'Excellent', description: 'You have not opened any new credit lines recently, which is positive.' },
-    { name: 'Credit Mix', status: 'Fair', description: 'Your credit mix could be improved with different types of loans, such as a mortgage.' },
+    { name: 'Payment History', status: CreditRating.EXCELLENT, description: 'You have no missed payments on record. Keep up the great work!' },
+    { name: 'Credit Utilization', status: CreditRating.GOOD, description: 'Your credit utilization is 22%, which is good. Aim to keep it below 30%.' },
+    { name: 'Credit Age', status: CreditRating.GOOD, description: 'Your average credit account age is 6 years. The longer, the better.' },
+    { name: 'New Credit', status: CreditRating.EXCELLENT, description: 'You have not opened any new credit lines recently, which is positive.' },
+    { name: 'Credit Mix', status: CreditRating.FAIR, description: 'Your credit mix could be improved with different types of loans, such as a mortgage.' },
 ];
 
 // Helpers and data previously in InvestmentsView.tsx, now centralized.
@@ -232,13 +232,13 @@ export const MOCK_ADVANCED_ASSETS: AdvancedAsset[] = [
         performanceYTD: 25.5,
         description: 'Leading technology conglomerate specializing in AI and cloud computing.',
         esgRating: 4,
-        assetClass: 'Stocks',
+        assetClass: 'Stocks' as AssetClass,
         ticker: 'TII',
         marketCap: 2.1e12,
         peRatio: 35.2,
         dividendYield: 0.8,
         beta: 1.2,
-        region: 'North America',
+        region: 'North America' as MarketRegion,
         historicalData: {
             '1D': generateHistoricalData(350, 1, 0.02),
             '1W': generateHistoricalData(340, 7, 0.05),
@@ -246,7 +246,7 @@ export const MOCK_ADVANCED_ASSETS: AdvancedAsset[] = [
             '1Y': generateHistoricalData(250, 365, 0.15),
             '5Y': generateHistoricalData(100, 365 * 5, 0.20),
         },
-        analystRatings: { rating: 'Strong Buy', targetPrice: 400, analystCount: 25 },
+        analystRatings: { rating: 'Strong Buy' as AnalystRating, targetPrice: 400, analystCount: 25 },
         news: [{ id: 'n1', source: 'FinNews', headline: 'TII announces breakthrough in quantum computing', summary: '...', url: '#', publishedAt: new Date().toISOString() }],
     },
     {
@@ -256,13 +256,13 @@ export const MOCK_ADVANCED_ASSETS: AdvancedAsset[] = [
         performanceYTD: 18.2,
         description: 'A fund focused on renewable energy sources like solar, wind, and hydro power.',
         esgRating: 5,
-        assetClass: 'Alternatives',
+        assetClass: 'Alternatives' as AssetClass,
         ticker: 'GEF',
         marketCap: 5e10,
         peRatio: null,
         dividendYield: 2.5,
         beta: 0.8,
-        region: 'Global',
+        region: 'Global' as MarketRegion,
         historicalData: {
             '1D': generateHistoricalData(120, 1, 0.015),
             '1W': generateHistoricalData(118, 7, 0.04),
@@ -270,7 +270,7 @@ export const MOCK_ADVANCED_ASSETS: AdvancedAsset[] = [
             '1Y': generateHistoricalData(95, 365, 0.12),
             '5Y': generateHistoricalData(50, 365 * 5, 0.18),
         },
-        analystRatings: { rating: 'Buy', targetPrice: 140, analystCount: 18 },
+        analystRatings: { rating: 'Buy' as AnalystRating, targetPrice: 140, analystCount: 18 },
         news: [{ id: 'n2', source: 'EcoInvest', headline: 'GEF portfolio companies report record energy production', summary: '...', url: '#', publishedAt: new Date().toISOString() }],
     },
     {
@@ -280,13 +280,13 @@ export const MOCK_ADVANCED_ASSETS: AdvancedAsset[] = [
         performanceYTD: 4.1,
         description: 'A diversified index of government and corporate bonds from around the world.',
         esgRating: 3,
-        assetClass: 'Bonds',
+        assetClass: 'Bonds' as AssetClass,
         ticker: 'GBI',
         marketCap: 1e13,
         peRatio: null,
         dividendYield: 3.1,
         beta: 0.2,
-        region: 'Global',
+        region: 'Global' as MarketRegion,
         historicalData: {
             '1D': generateHistoricalData(99, 1, 0.005),
             '1W': generateHistoricalData(99.5, 7, 0.01),
@@ -294,7 +294,7 @@ export const MOCK_ADVANCED_ASSETS: AdvancedAsset[] = [
             '1Y': generateHistoricalData(98, 365, 0.04),
             '5Y': generateHistoricalData(95, 365 * 5, 0.05),
         },
-        analystRatings: { rating: 'Hold', targetPrice: 102, analystCount: 30 },
+        analystRatings: { rating: 'Hold' as AnalystRating, targetPrice: 102, analystCount: 30 },
         news: [{ id: 'n3', source: 'MacroView', headline: 'Central banks signal steady interest rates, boosting bond markets.', summary: '...', url: '#', publishedAt: new Date().toISOString() }],
     },
     {
@@ -304,13 +304,13 @@ export const MOCK_ADVANCED_ASSETS: AdvancedAsset[] = [
         performanceYTD: 150.7,
         description: 'A high-risk, high-reward basket of leading cryptocurrencies.',
         esgRating: 1,
-        assetClass: 'Crypto',
+        assetClass: 'Crypto' as AssetClass,
         ticker: 'DCB',
         marketCap: 1.5e12,
         peRatio: null,
         dividendYield: null,
         beta: 2.5,
-        region: 'Global',
+        region: 'Global' as MarketRegion,
         historicalData: {
             '1D': generateHistoricalData(2500, 1, 0.05),
             '1W': generateHistoricalData(2300, 7, 0.12),
@@ -318,7 +318,7 @@ export const MOCK_ADVANCED_ASSETS: AdvancedAsset[] = [
             '1Y': generateHistoricalData(500, 365, 0.8),
             '5Y': generateHistoricalData(100, 365 * 5, 1.2),
         },
-        analystRatings: { rating: 'Hold', targetPrice: 3000, analystCount: 12 },
+        analystRatings: { rating: 'Hold' as AnalystRating, targetPrice: 3000, analystCount: 12 },
         news: [{ id: 'n4', source: 'CryptoWeekly', headline: 'DCB sees massive inflows amid institutional adoption.', summary: '...', url: '#', publishedAt: new Date().toISOString() }],
     },
     {
@@ -328,13 +328,13 @@ export const MOCK_ADVANCED_ASSETS: AdvancedAsset[] = [
         performanceYTD: 8.9,
         description: 'Real Estate Investment Trust focusing on commercial properties in major urban centers.',
         esgRating: 3,
-        assetClass: 'Real Estate',
+        assetClass: 'Real Estate' as AssetClass,
         ticker: 'UREIT',
         marketCap: 2e10,
         peRatio: 18.5,
         dividendYield: 4.2,
         beta: 0.7,
-        region: 'North America',
+        region: 'North America' as MarketRegion,
         historicalData: {
             '1D': generateHistoricalData(85, 1, 0.01),
             '1W': generateHistoricalData(84, 7, 0.03),
@@ -342,7 +342,7 @@ export const MOCK_ADVANCED_ASSETS: AdvancedAsset[] = [
             '1Y': generateHistoricalData(75, 365, 0.1),
             '5Y': generateHistoricalData(60, 365 * 5, 0.12),
         },
-        analystRatings: { rating: 'Buy', targetPrice: 95, analystCount: 15 },
+        analystRatings: { rating: 'Buy' as AnalystRating, targetPrice: 95, analystCount: 15 },
         news: [{ id: 'n5', source: 'Property Times', headline: 'UREIT reports high occupancy rates despite economic headwinds.', summary: '...', url: '#', publishedAt: new Date().toISOString() }],
     }
 ];
