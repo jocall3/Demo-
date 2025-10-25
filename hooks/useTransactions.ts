@@ -10,9 +10,10 @@ import type { Transaction } from '../types';
 const GQL_ENDPOINT = '/graphql'; // The single endpoint for the GraphQL supergraph
 
 /**
- * GraphQL query to fetch all user transactions via the `userData` root query.
+ * @description GraphQL query to fetch all user transactions via the `userData` root query.
  * This aligns with the architectural directive to fetch all data for a view
  * declaratively in a single network request.
+ * @kind JSDoc
  */
 const GET_TRANSACTIONS_QUERY = `
   query GetUserTransactions {
@@ -32,7 +33,9 @@ const GET_TRANSACTIONS_QUERY = `
 
 /**
  * Fetches all transactions from the BFF's GraphQL endpoint.
- * @returns A promise that resolves to an array of all user transactions.
+ * This function is designed to be used as a `queryFn` for TanStack Query.
+ * @returns {Promise<Transaction[]>} A promise that resolves to an array of all user transactions.
+ * @throws {Error} Throws an error if the network request or GraphQL execution fails.
  */
 const fetchTransactions = async (): Promise<Transaction[]> => {
   const response = await fetch(GQL_ENDPOINT, {
@@ -66,24 +69,27 @@ const fetchTransactions = async (): Promise<Transaction[]> => {
 
 /**
  * Custom hook to fetch financial transactions for the current user.
- * It leverages React Query to handle caching, background refetching, and server state management,
- * abstracting all data-fetching logic away from the UI components.
+ * It leverages TanStack Query (@tanstack/react-query) to handle caching, background refetching,
+ * and server state management, abstracting all data-fetching logic away from the UI components.
+ * This aligns with the architectural directive to separate server state from client state.
  *
  * NOTE: The previous filtering by `accountId` has been removed as it is not
  * supported by the new `userData` GraphQL query. The schema would need to be updated
  * to re-introduce server-side filtering capabilities.
  * 
- * @returns An object containing the transaction data, loading states, and error information from React Query.
+ * @returns An object containing the transaction data, loading states, and error information from TanStack Query.
+ *          It also includes a convenient `transactions` property which is a guaranteed empty array during loading,
+ *          simplifying component rendering logic.
  */
 export const useTransactions = () => {
-  // The query key uniquely identifies this query in the React Query cache.
+  // The query key uniquely identifies this query in the TanStack Query cache.
   const queryKey = ['transactions'];
 
   const query = useQuery<Transaction[], Error>({
     queryKey,
     queryFn: fetchTransactions,
     
-    // --- React Query Configuration ---
+    // --- TanStack Query Configuration ---
     // Configure the behavior of this query to optimize user experience for financial data.
     staleTime: 1000 * 60 * 5, // Data is considered fresh for 5 minutes, preventing unnecessary refetches.
     refetchOnWindowFocus: true, // Automatically refetch when the user returns to the app.
@@ -92,8 +98,8 @@ export const useTransactions = () => {
 
   return {
     ...query,
-    // Provide a convenient, non-nullable alias for the data, which is useful for components
-    // to avoid checking for `undefined` before mapping over the array.
+    // Provide a convenient, non-nullable alias for the data.
+    // This is useful for components to avoid checking for `undefined` before mapping over the array.
     transactions: query.data ?? [],
   };
 };

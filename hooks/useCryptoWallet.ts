@@ -46,6 +46,10 @@ const BUY_CRYPTO_MUTATION = `
 // Type Definitions for GraphQL Payloads
 // ====================================================================================
 
+/**
+ * @interface CryptoPortfolioData
+ * @description Defines the expected structure of the data returned by the `GET_CRYPTO_PORTFOLIO_QUERY`.
+ */
 interface CryptoPortfolioData {
   userData: {
     cryptoPortfolio: {
@@ -55,6 +59,10 @@ interface CryptoPortfolioData {
   };
 }
 
+/**
+ * @interface BuyCryptoResponse
+ * @description Defines the expected structure of the data returned by the `BUY_CRYPTO_MUTATION`.
+ */
 interface BuyCryptoResponse {
   buyCrypto: {
     success: boolean;
@@ -67,6 +75,10 @@ interface BuyCryptoResponse {
   };
 }
 
+/**
+ * @interface BuyCryptoVariables
+ * @description Defines the variables required for the `BUY_CRYPTO_MUTATION`.
+ */
 interface BuyCryptoVariables {
   ticker: string;
   usdAmount: number;
@@ -79,14 +91,17 @@ interface BuyCryptoVariables {
 
 /**
  * A generic fetcher for making GraphQL requests to the API gateway.
- * @param query The GraphQL query string.
- * @param variables Optional variables for the query or mutation.
- * @returns The data from the GraphQL response.
+ *
+ * @template T The expected type of the data returned by the GraphQL query.
+ * @param {string} query The GraphQL query or mutation string.
+ * @param {Record<string, any>} [variables] Optional variables for the operation.
+ * @returns {Promise<T>} The data from the GraphQL response.
+ * @throws {Error} If the network request fails or the GraphQL API returns errors.
  */
 async function fetchGraphQL<T>(query: string, variables?: Record<string, any>): Promise<T> {
-  const response = await fetch('/graphql', {
+  const response = await fetch('/graphql', { // The API Gateway endpoint
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' }, // In a real app, an Authorization header would be added here
     body: JSON.stringify({ query, variables }),
   });
 
@@ -159,19 +174,27 @@ export const useCryptoWallet = () => {
   const combinedError = error || buyAssetError;
 
   return {
+    /** @property The raw portfolio object containing both assets and NFTs. */
     portfolio,
+    /** @property An array of fungible crypto assets in the user's portfolio. Defaults to an empty array. */
     assets: portfolio?.assets ?? [],
+    /** @property An array of non-fungible tokens (NFTs) in the user's portfolio. Defaults to an empty array. */
     nfts: portfolio?.nfts ?? [],
+    /** @property A boolean indicating if the initial portfolio data is being fetched. */
     isLoading,
+    /** @property A boolean indicating if there was an error during fetching or mutation. */
     isError: isError || !!buyAssetError,
+    /** @property The error object if an error occurred. */
     error: combinedError,
     
-    // Actions
+    /** @function buyAsset - A function to initiate a crypto purchase. Takes an object with `ticker` and `usdAmount`. */
     buyAsset,
+    /** @function buyAssetAsync - An async version of `buyAsset` that returns a promise. */
     buyAssetAsync,
+    /** @property A boolean indicating if a crypto purchase mutation is in progress. */
     isBuyingAsset,
     
-    // Manual refetching
+    /** @function refetchPortfolio - A function to manually refetch the crypto portfolio data. */
     refetchPortfolio: refetch,
   };
 };
