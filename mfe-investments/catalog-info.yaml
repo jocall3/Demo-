@@ -1,0 +1,23 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: mfe-investments
+  description: Micro-frontend application for managing user investments and portfolio within the Demo Bank platform.
+  annotations:
+    # Links to relevant dashboards, documentation, or deployed instances
+    backstage.io/source-location: url:https://github.com/demobank/demobank-frontend/tree/main/mfe-investments
+    backstage.io/techdocs-ref: url:https://github.com/demobank/demobank-frontend/tree/main/docs/mfe-investments
+    backstage.io/kubernetes-id: mfe-investments
+  tags:
+    - microfrontend
+    - frontend
+    - react
+    - investments
+    - module-federation
+spec:
+  type: website
+  lifecycle: production
+  owner: team-investments # Assign to a dedicated team responsible for this micro-frontend
+  system: demobank-frontend # The overarching micro-frontend system
+  dependsOn:
+    - component:api-gateway # Micro-frontends typically depend on the main API Gateway
