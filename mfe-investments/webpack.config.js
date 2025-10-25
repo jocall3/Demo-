@@ -1,108 +1,97 @@
-const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const { ModuleFederationPlugin } = require('webpack').container;
+const Dotenv = require('dotenv-webpack');
+const path = require('path');
+const deps = require('./package.json').dependencies;
 
 module.exports = (env, argv) => {
   const isProduction = argv.mode === 'production';
 
   return {
-    entry: './src/index.ts',
+    entry: './src/index.ts', // Entry point for standalone development
+    mode: isProduction ? 'production' : 'development',
+    devtool: isProduction ? 'source-map' : 'eval-source-map',
     output: {
       path: path.resolve(__dirname, 'dist'),
       filename: '[name].[contenthash].js',
+      publicPath: 'auto', // Use 'auto' for flexible deployments
       clean: true,
-      // The publicPath is crucial for Module Federation to correctly load remote modules.
-      // It should be dynamic based on the deployment environment or explicit env var.
-      publicPath: isProduction 
-        ? 'https://your-production-cdn.com/mfe-investments/' 
-        : 'http://localhost:3002/',
     },
-    mode: isProduction ? 'production' : 'development',
-    devtool: isProduction ? 'source-map' : 'eval-source-map',
     resolve: {
       extensions: ['.tsx', '.ts', '.jsx', '.js', '.json'],
     },
     module: {
       rules: [
         {
-          test: /\.(ts|tsx)$/,
+          test: /\.m?js/,
+          resolve: {
+            fullySpecified: false,
+          },
+        },
+        {
+          test: /\.(ts|tsx|js|jsx)$/,
           exclude: /node_modules/,
           use: {
             loader: 'babel-loader',
             options: {
               presets: ['@babel/preset-react', '@babel/preset-typescript'],
-              plugins: [
-                // Add any necessary Babel plugins, e.g., for decorators if using NestJS in frontend
-                // ['@babel/plugin-proposal-decorators', { 'legacy': true }],
-                // ['@babel/plugin-proposal-class-properties', { 'loose': true }],
-              ],
             },
           },
         },
         {
-          test: /\.(js|jsx)$/,
-          exclude: /node_modules/,
-          use: {
-            loader: 'babel-loader',
-            options: {
-              presets: ['@babel/preset-react'],
-            },
-          },
+          test: /\.css$/i,
+          use: ['style-loader', 'css-loader', 'postcss-loader'], // For Tailwind CSS
         },
         {
-          test: /\.(css|sass|scss)$/,
-          use: ['style-loader', 'css-loader', 'sass-loader'],
-        },
-        {
-          test: /\.(png|svg|jpg|jpeg|gif|webp)$/i,
+          test: /\.(png|jpe?g|gif|webp|svg)$/i,
           type: 'asset/resource',
         },
       ],
     },
     plugins: [
-      new HtmlWebpackPlugin({
-        template: './public/index.html',
-        filename: 'index.html',
-      }),
+      new Dotenv(),
       new ModuleFederationPlugin({
-        name: 'investments',
-        filename: 'remoteEntry.js',
+        name: 'investments', // Unique name for this MFE
+        filename: 'remoteEntry.js', // Standard filename for the remote entry
         exposes: {
-          // Expose the main component of this micro-frontend
-          './InvestmentsView': './src/InvestmentsApp.tsx',
+          // Expose the main component for the Shell to consume
+          './InvestmentsView': './src/InvestmentsView.tsx',
         },
         shared: {
-          // Share common dependencies to avoid duplication and ensure singletons
+          ...deps,
           react: {
-            singleton: true, 
-            requiredVersion: '^18.2.0', // Ensure compatibility with host app
-            eager: true, // Eagerly load for immediate use
+            singleton: true,
+            requiredVersion: deps.react,
           },
           'react-dom': {
-            singleton: true, 
-            requiredVersion: '^18.2.0',
-            eager: true,
+            singleton: true,
+            requiredVersion: deps['react-dom'],
+          },
+          // Even if not a direct dependency, share core libraries provided by the shell
+          'react-router-dom': {
+            singleton: true,
+            requiredVersion: deps['react-router-dom'],
           },
           '@apollo/client': {
             singleton: true,
-            requiredVersion: '^3.7.1',
-            eager: true,
+            requiredVersion: deps['@apollo/client'],
           },
-          // Add other shared libraries as needed by the overall micro-frontend architecture
-          // For example, if using Redux globally:
-          // '@reduxjs/toolkit': { singleton: true, requiredVersion: '^1.9.0', eager: true },
-          // 'react-redux': { singleton: true, requiredVersion: '^8.0.5', eager: true },
+          '@tanstack/react-query': {
+            singleton: true,
+            requiredVersion: deps['@tanstack/react-query'],
+          },
+          'recharts': {
+            singleton: true,
+            requiredVersion: deps.recharts,
+          },
         },
       }),
-      // Define environment variables to be available in the client-side code
-      new (require('webpack').DefinePlugin)({
-        'process.env.NODE_ENV': JSON.stringify(isProduction ? 'production' : 'development'),
-        // Add other environment variables here, e.g., for API endpoints
-        // 'process.env.VITE_GRAPHQL_GATEWAY_URL': JSON.stringify(process.env.VITE_GRAPHQL_GATEWAY_URL),
+      new HtmlWebpackPlugin({
+        template: './public/index.html', // Template for standalone development
       }),
     ],
     devServer: {
-      port: 3002, // This MFE will run on port 3002 during local development
+      port: 8083, // Unique port for this MFE, as defined in shell's webpack config
       historyApiFallback: true,
       headers: {
         'Access-Control-Allow-Origin': '*',

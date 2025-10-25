@@ -1,1 +1,112 @@
-const HtmlWebpackPlugin = require('html-webpack-plugin');const { ModuleFederationPlugin } = require('webpack').container;const ExternalTemplateRemotesPlugin = require('external-template-remotes-plugin');const Dotenv = require('dotenv-webpack');const path = require('path');const webpack = require('webpack');module.exports = (env, argv) => {  const isProduction = argv.mode === 'production';  return {    entry: './src/index.tsx',    output: {      path: path.resolve(__dirname, 'dist'),      filename: '[name].[contenthash].js',      publicPath: 'auto',    },    resolve: {      extensions: ['.tsx', '.ts', '.jsx', '.js', '.json'],    },    module: {      rules: [        {          test: /(data:|blob:)/i,          type: 'asset/resource',          generator: {            filename: 'assets/[name].[contenthash][ext]',          },        },        {          test: /\.m?js/,          resolve: {            fullySpecified: false,          },        },        {          test: /\.(ts|tsx)$/,          exclude: /node_modules/,          use: {            loader: 'babel-loader',            options: {              presets: ['@babel/preset-react', '@babel/preset-typescript'],            },          },        },        {          test: /\.(js|jsx)$/,          exclude: /node_modules/,          use: {            loader: 'babel-loader',            options: {              presets: ['@babel/preset-react'],            },          },        },        {          test: /\.(css|scss)$/,          use: ['style-loader', 'css-loader', 'postcss-loader', 'sass-loader'],        },        {          test: /\.(png|jpe?g|gif|webp|svg)$/i,          type: 'asset/resource',          generator: {            filename: 'images/[name].[contenthash][ext]',          },        },      ],    },    plugins: [      new Dotenv({        path: './.env',      }),      new ModuleFederationPlugin({        name: 'dashboard',        filename: 'remoteEntry.js',        exposes: {          './DashboardApp': './src/bootstrap', // Expose the root component of the dashboard MFE        },        shared: {          react: {            singleton: true,            requiredVersion: require('./package.json').dependencies.react,          },          'react-dom': {            singleton: true,            requiredVersion: require('./package.json').dependencies['react-dom'],          },          'react-router-dom': {            singleton: true,            requiredVersion: require('./package.json').dependencies['react-router-dom'],          },          '@reduxjs/toolkit': {            singleton: true,            requiredVersion: require('./package.json').dependencies['@reduxjs/toolkit'],          },          'react-redux': {            singleton: true,            requiredVersion: require('./package.json').dependencies['react-redux'],          },          '@apollo/client': {            singleton: true,            requiredVersion: require('./package.json').dependencies['@apollo/client'],          },          '@tanstack/react-query': {            singleton: true,            requiredVersion: require('./package.json').dependencies['@tanstack/react-query'],          },          'recharts': {            singleton: true,            requiredVersion: require('./package.json').dependencies.recharts,          }        },      }),      new ExternalTemplateRemotesPlugin(),      new HtmlWebpackPlugin({        template: './public/index.html',        favicon: './public/favicon.ico',      }),      new webpack.DefinePlugin({        'process.env.NODE_ENV': JSON.stringify(isProduction ? 'production' : 'development'),      }),    ],    devtool: isProduction ? 'source-map' : 'eval-source-map',    devServer: {      port: 8081, // Port for the dashboard MFE in standalone mode      historyApiFallback: true,      headers: {        'Access-Control-Allow-Origin': '*',        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',        'Access-Control-Allow-Headers': 'X-Requested-With, content-type, Authorization',      },    },    optimization: {      runtimeChunk: 'single',      splitChunks: {        chunks: 'all',        maxInitialRequests: Infinity,        minSize: 0,        cacheGroups: {          vendor: {            test: /[\/]node_modules[\/]/,            name(module) {              const packageName = module.context.match(/[\/]node_modules[\/](.*?)([\/]|$)/)[1];              return `npm.${packageName.replace('@', '')}`;            },          },        },      },    },  };};
+const HtmlWebpackPlugin = require('html-webpack-plugin');
+const { ModuleFederationPlugin } = require('webpack').container;
+const path = require('path');
+const deps = require('./package.json').dependencies;
+
+module.exports = (env, argv) => {
+  const isProduction = argv.mode === 'production';
+  const port = 8081; // Port for this MFE in standalone mode
+
+  return {
+    entry: './src/index', // Entry point for standalone development
+    mode: isProduction ? 'production' : 'development',
+
+    devServer: {
+      static: {
+        directory: path.join(__dirname, 'dist'),
+      },
+      port: port,
+      historyApiFallback: true,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+        'Access-Control-Allow-Headers': 'X-Requested-With, content-type, Authorization',
+      },
+    },
+
+    output: {
+      // 'auto' is the recommended public path for Module Federation to allow dynamic path resolution.
+      publicPath: 'auto',
+      // Clean the output directory before each build.
+      clean: true,
+    },
+
+    resolve: {
+      extensions: ['.tsx', '.ts', '.jsx', '.js', '.json'],
+    },
+
+    module: {
+      rules: [
+        {
+          test: /\.(ts|tsx|js|jsx)$/,
+          exclude: /node_modules/,
+          use: {
+            loader: 'babel-loader',
+            options: {
+              presets: ['@babel/preset-env', '@babel/preset-react', '@babel/preset-typescript'],
+            },
+          },
+        },
+        {
+          test: /\.css$/i,
+          use: ['style-loader', 'css-loader', 'postcss-loader'], // Assumes TailwindCSS is in use
+        },
+        {
+          test: /\.(png|svg|jpg|jpeg|gif|webp)$/i,
+          type: 'asset/resource',
+        },
+      ],
+    },
+
+    plugins: [
+      new ModuleFederationPlugin({
+        // The name of the remote application. This must be unique.
+        name: 'dashboard',
+        // The name of the remote entry file that the host application will load.
+        filename: 'remoteEntry.js',
+        // Modules that this remote application exposes to the host.
+        exposes: {
+          // Exposes the main application bootstrap logic. The shell will import this as 'dashboard/DashboardApp'.
+          './DashboardApp': './src/bootstrap.tsx',
+        },
+        // Defines shared dependencies to avoid duplication across the federated application.
+        shared: {
+          ...deps,
+          // Enforce single instances of critical libraries to prevent version conflicts and state issues.
+          react: {
+            singleton: true,
+            requiredVersion: deps.react,
+          },
+          'react-dom': {
+            singleton: true,
+            requiredVersion: deps['react-dom'],
+          },
+          'react-router-dom': {
+            singleton: true,
+            requiredVersion: deps['react-router-dom'],
+          },
+          '@apollo/client': {
+            singleton: true,
+            requiredVersion: deps['@apollo/client'],
+          },
+          '@tanstack/react-query': {
+            singleton: true,
+            requiredVersion: deps['@tanstack/react-query'],
+          },
+          // As per the architectural directive, a shared UI library would also be shared here
+          // if it were a dependency in package.json. e.g.:
+          // '@demobank/ui-lib': {
+          //   singleton: true,
+          //   requiredVersion: deps['@demobank/ui-lib'],
+          // },
+        },
+      }),
+      // This plugin generates an HTML file to serve the MFE in standalone mode for development and testing.
+      new HtmlWebpackPlugin({
+        template: './public/index.html',
+      }),
+    ],
+
+    devtool: isProduction ? 'source-map' : 'cheap-module-source-map',
+  };
+};
