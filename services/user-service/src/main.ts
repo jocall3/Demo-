@@ -11,24 +11,20 @@ import { diag, DiagConsoleLogger, DiagLogLevel, trace, context } from '@opentele
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
 const SERVICE_NAME = 'user-service';
+const PROMETHEUS_PORT = parseInt(process.env.PROMETHEUS_PORT || '9465', 10);
 
 const otelSDK = new NodeSDK({
-  // The service name is a required attribute for all telemetry data.
   resource: new Resource({
     [SemanticResourceAttributes.SERVICE_NAME]: SERVICE_NAME,
   }),
-  // OTLPTraceExporter will send traces to an OTel Collector.
-  // The endpoint is configurable via the OTEL_EXPORTER_OTLP_ENDPOINT env var.
   traceExporter: new OTLPTraceExporter(),
-  // PrometheusExporter exposes a /metrics endpoint for Prometheus to scrape.
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.METRICS_PROMETHEUS_PORT || '9465', 10),
+    port: PROMETHEUS_PORT,
   }),
-  // Auto-instrument popular libraries (e.g., @nestjs/core, http, graphql)
   instrumentations: [getNodeAutoInstrumentations()],
 });
 
-// Gracefully shut down the SDK on process exit to flush telemetry
+// Gracefully shut down the SDK on process exit to flush telemetry data.
 process.on('SIGTERM', () => {
   otelSDK
     .shutdown()
@@ -37,7 +33,6 @@ process.on('SIGTERM', () => {
     .finally(() => process.exit(0));
 });
 
-// Start the OpenTelemetry SDK
 otelSDK.start();
 
 // --- 2. NestJS Application Imports (after OTel setup) ---
@@ -45,8 +40,8 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import pino from 'pino';
 import { Transport } from '@nestjs/microservices';
+import pino from 'pino';
 
 // --- 3. Structured Logging with OpenTelemetry Context ---
 /**
@@ -55,7 +50,6 @@ import { Transport } from '@nestjs/microservices';
  */
 class StructuredLogger implements LoggerService {
   private readonly pino: pino.Logger;
-  private readonly serviceName = SERVICE_NAME;
 
   constructor() {
     this.pino = pino({
@@ -66,7 +60,7 @@ class StructuredLogger implements LoggerService {
           const span = trace.getSpan(context.active());
           const logObject: { [key: string]: any } = {
             ...object,
-            service: this.serviceName,
+            service: SERVICE_NAME,
           };
           if (span) {
             const spanContext = span.spanContext();
@@ -119,24 +113,28 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   // Connect the application to the Kafka message bus as a consumer.
-  // This allows the UserController to listen for events.
+  // This allows the UserController to listen for events like 'auth.user.created'.
   app.connectMicroservice({
     transport: Transport.KAFKA,
     options: {
       client: {
-        brokers: configService.get<string>('KAFKA_BROKERS').split(','),
+        clientId: configService.get<string>('KAFKA_CLIENT_ID', SERVICE_NAME),
+        brokers: configService.getOrThrow<string>('KAFKA_BROKERS').split(','),
       },
       consumer: {
-        groupId: configService.get<string>('KAFKA_GROUP_ID'),
+        groupId: configService.getOrThrow<string>('KAFKA_GROUP_ID'),
       },
     },
   });
 
-  // Enable CORS - useful for allowing Apollo Studio to introspect the subgraph in development
-  app.enableCors();
-  logger.log('CORS has been enabled.');
+  await app.startAllMicroservices();
+  logger.log('Kafka microservice consumers started and listening for events.');
 
-  // Global pipes for validation and transformation of DTOs
+  // Enable CORS - useful for allowing Apollo Studio to introspect the subgraph in development.
+  app.enableCors();
+  logger.log('CORS has been enabled for all origins.');
+
+  // Apply global pipes for validation and transformation of DTOs/Inputs.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true, // Strip properties that do not have any decorators
@@ -147,22 +145,15 @@ async function bootstrap() {
       },
     }),
   );
-  logger.log('Global ValidationPipe configured.');
+  logger.log('Global ValidationPipe configured for GraphQL inputs.');
 
-  // Start all microservice listeners
-  await app.startAllMicroservices();
-  logger.log('Kafka microservice consumers started.');
-
-  // Get port from environment variables, with a fallback
+  // Get port from environment variables, with a fallback.
   const port = configService.get<number>('PORT') || 4001;
 
   await app.listen(port);
 
-  logger.log(`User subgraph is running on: http://localhost:${port}`);
-  logger.log(`GraphQL endpoint available at: http://localhost:${port}/graphql`);
-  logger.log(
-    `Prometheus metrics available on port ${process.env.METRICS_PROMETHEUS_PORT || '9465'}`, 
-  );
+  logger.log(`🚀 User subgraph (GraphQL API) is running on: http://localhost:${port}/graphql`);
+  logger.log(`Prometheus metrics available on port ${PROMETHEUS_PORT}`);
 }
 
 bootstrap();

@@ -1,5 +1,5 @@
 import { join } from 'path';
-import { Module, Injectable, UnauthorizedException, ExecutionContext } from '@nestjs/common';
+import { Module, Injectable, UnauthorizedException, ExecutionContext, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GraphQLModule, GqlExecutionContext } from '@nestjs/graphql';
 import {
@@ -21,10 +21,6 @@ import { EventBusModule } from './event-bus/event-bus.module';
 // =============================================================================
 // INLINE AUTHENTICATION COMPONENTS
 // =============================================================================
-// In a typical NestJS application, these classes would be in their own files
-// (e.g., src/auth/jwt.strategy.ts, src/auth/jwt-auth.guard.ts).
-// They are defined here to satisfy the single-file modification constraint.
-//
 // This setup implements JWT validation based on an OIDC-compliant Identity Provider
 // using a JWKS (JSON Web Key Set) endpoint to fetch public keys for signature verification.
 
@@ -43,20 +39,19 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      // The secretOrKeyProvider is the recommended method for using jwks-rsa with passport-jwt.
-      // It dynamically fetches the correct public key from the JWKS endpoint based on the
-      // key ID ('kid') in the incoming JWT's header.
+      // The secretOrKeyProvider dynamically fetches the correct public key from the JWKS endpoint
+      // based on the key ID ('kid') in the incoming JWT's header.
       secretOrKeyProvider: jwksRsa.passportJwtSecret({
         cache: true,
         rateLimit: true,
         jwksRequestsPerMinute: 5,
-        jwksUri: `${authServerUrl}/protocol/openid-connect/certs`, // Derived from AUTH_SERVER_URL
+        jwksUri: `${authServerUrl}/protocol/openid-connect/certs`,
       }),
       // These options ensure that the token was intended for this service (audience)
       // and was issued by the trusted identity provider (issuer).
       audience: jwtAudience,
-      issuer: authServerUrl, // Issuer is typically the base URL of the auth server
-      algorithms: ['RS256'], // Algorithm used by most OIDC providers like Keycloak, Auth0.
+      issuer: authServerUrl,
+      algorithms: ['RS256'], // Standard algorithm used by OIDC providers like Keycloak
     });
   }
 
@@ -66,13 +61,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    * @param payload The decoded JWT payload.
    */
   async validate(payload: any) {
-    // The payload is already validated at this point (signature, expiration, audience, issuer).
     if (!payload.sub) {
       throw new UnauthorizedException(
         'Invalid token: Subject (sub) claim is missing.',
       );
     }
-    // We return an object that will be available in the GraphQL context.
+    // Return an object that will be available in the GraphQL context.
     return { userId: payload.sub, claims: payload };
   }
 }
