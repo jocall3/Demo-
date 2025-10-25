@@ -16,7 +16,7 @@ import { Transport } from '@nestjs/microservices';
 import pino from 'pino';
 import { NativeConnection, Worker } from '@temporalio/worker';
 import { TransactionService } from './transaction/transaction.service';
-import * as activities from './transaction/activities';
+import * as activities from './temporal/activities'; // Corrected import path for activities
 
 // --- 3. OpenTelemetry Initialization ---
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
@@ -120,7 +120,7 @@ async function bootstrap() {
       connection,
       namespace: configService.get<string>('TEMPORAL_NAMESPACE', 'default'),
       taskQueue,
-      workflowsPath: require.resolve('./workflows'), // Assumes workflows are in ./src/workflows/index.ts
+      workflowsPath: require.resolve('./temporal/workflows'), // Assumes workflows are in ./src/temporal/workflows/index.ts
       activities: activities.createActivities(transactionService), // Create activities with DI
     });
 
@@ -160,7 +160,7 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      forbidNonWhitelisted: true,
+      forbidNonWhiteListed: true,
       transform: true,
       transformOptions: { enableImplicitConversion: true },
     }),
@@ -172,8 +172,12 @@ async function bootstrap() {
   await app.listen(port);
   
   const prometheusPort = process.env.METRICS_PROMETHEUS_PORT || '9464';
-  logger.log(`🚀 Transactions subgraph is running on: http://localhost:${port}/graphql`);
+  logger.log(`ðŸš€ Transactions subgraph is running on: http://localhost:${port}/graphql`);
   logger.log(`Prometheus metrics available on port ${prometheusPort}`);
 }
 
-bootstrap();
+bootstrap()
+  .catch((err) => {
+    console.error('Application bootstrap failed', err.stack);
+    process.exit(1);
+  });
