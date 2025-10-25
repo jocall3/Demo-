@@ -1,3 +1,18 @@
+/**
+ * @file mfe-shell/src/App.tsx
+ * @description The root component for the Micro-Frontend Shell application.
+ *
+ * ARCHITECTURAL REFACTOR:
+ * This file embodies the new federated micro-frontend architecture. It replaces the monolithic `App.tsx`.
+ *
+ * Core Responsibilities:
+ * 1.  **Provider Setup**: Initializes and provides context for essential libraries: Redux (for global UI state), Auth0 (for authentication), Apollo Client (for GraphQL communication), and TanStack Query (for server state management).
+ * 2.  **Authentication Flow**: Manages the application's top-level state, rendering a login screen for unauthenticated users and the main application shell for authenticated users.
+ * 3.  **Layout Orchestration**: Renders the persistent shell layout, including the `Header`, `Sidebar`, and `VoiceControl` components.
+ * 4.  **MFE Routing & Loading**: Manages the active view state via Redux and dynamically lazy-loads and renders the appropriate Micro-Frontend (MFE) component using React.Suspense, as per Module Federation principles.
+ * 5.  **Global State Management**: Implements the refactored state management paradigm where Redux is used exclusively for global client-side UI state (e.g., active view, sidebar status), separating it from server state.
+ */
+
 import React, { useState, FC, ReactNode, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Provider, useSelector, useDispatch } from 'react-redux';
 import { configureStore, createSlice, PayloadAction } from '@reduxjs/toolkit';
@@ -6,10 +21,11 @@ import { setContext } from '@apollo/client/link/context';
 import { Auth0Provider, useAuth0, AppState } from '@auth0/auth0-react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-import Header from './components/Header';
-import Sidebar from './components/Sidebar';
-import VoiceControl from './components/VoiceControl';
-import { View, IllusionType } from './types';
+// Shared components from the UI library
+import Header from '../../components/Header';
+import Sidebar from '../../components/Sidebar';
+import VoiceControl from '../../components/VoiceControl';
+import { View, IllusionType } from '../../types';
 
 // ===============================================================================================
 // REDUX TOOLKIT SETUP (For Global UI State)
@@ -22,7 +38,7 @@ interface UiState {
     isSidebarOpen: boolean;
     customBackgroundUrl: string | null;
     activeIllusion: IllusionType;
-    geminiApiKey: string | null; // Moved here from DataContext as a client-side config
+    geminiApiKey: string | null;
 }
 
 const initialState: UiState = {
@@ -85,33 +101,40 @@ const useAppSelector = <TSelected extends unknown>(
 // ===============================================================================================
 // LAZY LOADED MICRO-FRONTEND VIEWS
 // These are dynamically imported based on the activeView, implementing the Micro-Frontend pattern.
+// In a real Module Federation setup, the import paths would be like 'dashboard/DashboardView'.
 // ===============================================================================================
 
-const Dashboard = lazy(() => import('./components/Dashboard'));
-const TransactionsView = lazy(() => import('./components/TransactionsView'));
-const SendMoneyView = lazy(() => import('./components/SendMoneyView'));
-const InvestmentsView = lazy(() => import('./components/InvestmentsView'));
-const AIAdvisorView = lazy(() => import('./components/AIAdvisorView'));
-const SecurityView = lazy(() => import('./components/SecurityView'));
-const BudgetsView = lazy(() => import('./components/BudgetsView'));
-const QuantumWeaverView = lazy(() => import('./components/QuantumWeaverView'));
-const AgentMarketplaceView = lazy(() => import('./components/MarketplaceView'));
-const CorporateCommandView = lazy(() => import('./components/CorporateCommandView'));
-const OpenBankingView = lazy(() => import('./components/OpenBankingView'));
-const FinancialDemocracyView = lazy(() => import('./components/FinancialDemocracyView'));
-const AIAdStudioView = lazy(() => import('./components/AIAdStudioView'));
-const CryptoView = lazy(() => import('./components/CryptoView'));
-const FinancialGoalsView = lazy(() => import('./components/FinancialGoalsView'));
-const RewardsView = lazy(() => import('./components/RewardsView'));
-const CreditHealthView = lazy(() => import('./components/CreditHealthView'));
+const MFE_Loading: FC = () => (
+    <div className="p-6 text-xl text-center text-gray-400">Loading Module...</div>
+);
 
-// Simple placeholder views for unimplemented sections
-const PersonalizationView: FC = () => <div className="p-6"><h2 className="text-3xl font-bold text-white">Personalization</h2><p className="text-gray-400 mt-2">Personalization features coming soon! Stay tuned for more ways to customize your experience.</p></div>;
-const CardCustomizationView: FC = () => <div className="p-6"><h2 className="text-3xl font-bold text-white">Card Customization</h2><p className="text-gray-400 mt-2">Design your dream card! This feature is under development.</p></div>;
-const SettingsView: FC = () => <div className="p-6"><h2 className="text-3xl font-bold text-white">Settings</h2><p className="text-gray-400 mt-2">Manage your preferences and account settings here.</p></div>;
-const TheVisionView: FC = () => <div className="p-6"><h2 className="text-3xl font-bold text-white">The Winning Vision</h2><p className="text-gray-400 mt-2">Discover our philosophy and future roadmap for Demo Bank.</p></div>;
-const APIIntegrationView: FC = () => <div className="p-6"><h2 className="text-3xl font-bold text-white">API Status & Integration</h2><p className="text-gray-400 mt-2">Monitor the health of our external API connections.</p></div>;
+// --- Remote MFEs --- 
+const DashboardView = lazy(() => import('dashboard/DashboardView'));
+const TransactionsView = lazy(() => import('transactions/TransactionsView'));
+const InvestmentsView = lazy(() => import('investments/InvestmentsView'));
 
+// --- Local "MFEs" (Components to be extracted) ---
+const SendMoneyView = lazy(() => import('../../components/SendMoneyView'));
+const AIAdvisorView = lazy(() => import('../../components/AIAdvisorView'));
+const SecurityView = lazy(() => import('../../components/SecurityView'));
+const BudgetsView = lazy(() => import('../../components/BudgetsView'));
+const QuantumWeaverView = lazy(() => import('../../components/QuantumWeaverView'));
+const AgentMarketplaceView = lazy(() => import('../../components/MarketplaceView'));
+const CorporateCommandView = lazy(() => import('../../components/CorporateCommandView'));
+const OpenBankingView = lazy(() => import('../../components/OpenBankingView'));
+const FinancialDemocracyView = lazy(() => import('../../components/FinancialDemocracyView'));
+const AIAdStudioView = lazy(() => import('../../components/AIAdStudioView'));
+const CryptoView = lazy(() => import('../../components/CryptoView'));
+const FinancialGoalsView = lazy(() => import('../../components/FinancialGoalsView'));
+
+// --- Simple placeholder views for unimplemented sections ---
+const RewardsView: FC = () => <div className="p-6"><h2 className="text-3xl font-bold text-white">Rewards Hub</h2></div>;
+const CreditHealthView: FC = () => <div className="p-6"><h2 className="text-3xl font-bold text-white">Credit Health</h2></div>;
+const PersonalizationView: FC = () => <div className="p-6"><h2 className="text-3xl font-bold text-white">Personalization</h2></div>;
+const CardCustomizationView: FC = () => <div className="p-6"><h2 className="text-3xl font-bold text-white">Card Customization</h2></div>;
+const SettingsView: FC = () => <div className="p-6"><h2 className="text-3xl font-bold text-white">Settings</h2></div>;
+const TheVisionView: FC = () => <div className="p-6"><h2 className="text-3xl font-bold text-white">The Vision</h2></div>;
+const APIIntegrationView: FC = () => <div className="p-6"><h2 className="text-3xl font-bold text-white">API Integration</h2></div>;
 
 // ===============================================================================================
 // AUTHENTICATION & LOGIN UI
@@ -141,7 +164,7 @@ const LoginScreen: FC = () => {
 
 const App: FC = () => {
     const dispatch = useAppDispatch();
-    const { activeView, previousView, isSidebarOpen, customBackgroundUrl, activeIllusion } = useAppSelector(state => state.ui);
+    const { activeView, isSidebarOpen, customBackgroundUrl, activeIllusion } = useAppSelector(state => state.ui);
 
     const setActiveView = useCallback((view: View) => {
         dispatch(uiSlice.actions.setActiveView(view));
@@ -151,35 +174,46 @@ const App: FC = () => {
         dispatch(uiSlice.actions.setIsSidebarOpen(isOpen));
     }, [dispatch]);
 
-    const renderActiveView = () => {
-        const Component = (() => {
-            switch (activeView) {
-                case View.Dashboard: return Dashboard;
-                case View.Transactions: return TransactionsView;
-                case View.SendMoney: return SendMoneyView;
-                case View.Budgets: return BudgetsView;
-                case View.Investments: return InvestmentsView;
-                case View.AIAdvisor: return AIAdvisorView;
-                case View.QuantumWeaver: return QuantumWeaverView;
-                case View.AIAdStudio: return AIAdStudioView;
-                case View.Marketplace: return AgentMarketplaceView;
-                case View.Personalization: return PersonalizationView;
-                case View.CardCustomization: return CardCustomizationView;
-                case View.Security: return SecurityView;
-                case View.Goals: return FinancialGoalsView;
-                case View.Crypto: return CryptoView;
-                case View.CorporateCommand: return CorporateCommandView;
-                case View.TheVision: return TheVisionView;
-                case View.APIIntegration: return APIIntegrationView;
-                case View.OpenBanking: return OpenBankingView;
-                case View.Rewards: return RewardsView;
-                case View.CreditHealth: return CreditHealthView;
-                case View.Settings: return SettingsView;
-                case View.FinancialDemocracy: return FinancialDemocracyView;
-                default: return Dashboard;
+    // Event listener for inter-MFE navigation
+    useEffect(() => {
+        const handleNavigation = (event: Event) => {
+            const customEvent = event as CustomEvent;
+            if (customEvent.detail?.view) {
+                setActiveView(customEvent.detail.view);
             }
-        })();
-        return <Component previousView={previousView} setActiveView={setActiveView} />; // Pass props to dynamically loaded component
+        };
+        window.addEventListener('app:navigate', handleNavigation);
+        return () => window.removeEventListener('app:navigate', handleNavigation);
+    }, [setActiveView]);
+
+    const renderActiveView = () => {
+        const viewMap: { [key in View]?: React.ComponentType<any> } = {
+            [View.Dashboard]: DashboardView,
+            [View.Transactions]: TransactionsView,
+            [View.Investments]: InvestmentsView,
+            [View.SendMoney]: SendMoneyView,
+            [View.Budgets]: BudgetsView,
+            [View.AIAdvisor]: AIAdvisorView,
+            [View.QuantumWeaver]: QuantumWeaverView,
+            [View.AIAdStudio]: AIAdStudioView,
+            [View.Marketplace]: AgentMarketplaceView,
+            [View.Security]: SecurityView,
+            [View.Goals]: FinancialGoalsView,
+            [View.Crypto]: CryptoView,
+            [View.CorporateCommand]: CorporateCommandView,
+            [View.OpenBanking]: OpenBankingView,
+            [View.FinancialDemocracy]: FinancialDemocracyView,
+            [View.Rewards]: RewardsView,
+            [View.CreditHealth]: CreditHealthView,
+            [View.Personalization]: PersonalizationView,
+            [View.CardCustomization]: CardCustomizationView,
+            [View.Settings]: SettingsView,
+            [View.TheVision]: TheVisionView,
+            [View.APIIntegration]: APIIntegrationView,
+        };
+
+        const Component = viewMap[activeView] || DashboardView;
+        return <Component />;
     };
 
     const backgroundStyle: React.CSSProperties = customBackgroundUrl ? { backgroundImage: `url(${customBackgroundUrl})` } : {};
@@ -190,8 +224,8 @@ const App: FC = () => {
                 <Sidebar activeView={activeView} setActiveView={setActiveView} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
                 <div className="flex-1 flex flex-col overflow-hidden">
                     <Header onMenuClick={() => setIsSidebarOpen(true)} setActiveView={setActiveView} />
-                    <main className="flex-1 overflow-x-hidden overflow-y-auto relative">
-                        <Suspense fallback={<div className="p-6 text-xl text-white">Loading view...</div>}>
+                    <main className="flex-1 overflow-x-hidden overflow-y-auto relative p-6">
+                        <Suspense fallback={<MFE_Loading />}>
                             {renderActiveView()}
                         </Suspense>
                     </main>
@@ -210,12 +244,12 @@ const App: FC = () => {
 };
 
 /**
- * Creates and configures an Apollo Client instance that automatically includes the
- * Auth0 JWT in the headers of every GraphQL request.
+ * A wrapper that sets up Apollo Client and provides it, along with Redux and React Query,
+ * to the main authenticated application.
  */
 const AuthenticatedApp: FC = () => {
   const { getAccessTokenSilently } = useAuth0();
-  const queryClient = new QueryClient(); // Instantiate QueryClient here
+  const queryClient = new QueryClient();
 
   const apolloClient = useMemo(() => {
     const httpLink = createHttpLink({
@@ -260,33 +294,29 @@ const AuthenticatedApp: FC = () => {
 
 /**
  * This component acts as a controller, checking the authentication state and
- * rendering either the login screen or the main application.
+ * rendering either the login screen or the main application shell.
  */
 const AppController: FC = () => {
   const { isAuthenticated, isLoading, error } = useAuth0();
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-screen bg-gray-950 text-white">Loading Authentication...</div>;
+    return <div className="flex items-center justify-center h-screen bg-gray-950 text-white">Loading...</div>;
   }
   
   if (error) {
-    return <div className="flex items-center justify-center h-screen bg-gray-950 text-red-400 p-8 text-center"><h1>Authentication Error</h1><p className="mt-2">{error.message}</p></div>;
+    return <div className="flex flex-col items-center justify-center h-screen bg-red-950 text-white p-8 text-center"><h1>Authentication Error</h1><p className="mt-2">{error.message}</p></div>;
   }
 
   return isAuthenticated ? <AuthenticatedApp /> : <LoginScreen />;
 };
 
 // ===============================================================================================
-// APP WRAPPER (Root Component with Auth0 Provider)
+// ROOT COMPONENT with Auth0 Provider
 // ===============================================================================================
 
-const AppWrapper: FC = () => {
+const ShellApp: FC = () => {
   const onRedirectCallback = useCallback((appState?: AppState) => {
-    window.history.replaceState(
-      {},
-      document.title,
-      appState?.returnTo || window.location.pathname
-    );
+    window.history.replaceState({}, document.title, appState?.returnTo || window.location.pathname);
   }, []);
 
   const auth0Domain = import.meta.env.VITE_AUTH0_DOMAIN;
@@ -310,7 +340,7 @@ const AppWrapper: FC = () => {
       authorizationParams={{
         redirect_uri: window.location.origin,
         audience: auth0Audience,
-        scope: 'openid profile email read:current_user read:accounts write:transactions',
+        scope: 'openid profile email read:transactions write:transactions',
       }}
       cacheLocation="localstorage"
     >
@@ -319,4 +349,4 @@ const AppWrapper: FC = () => {
   );
 };
 
-export default AppWrapper;
+export default ShellApp;
