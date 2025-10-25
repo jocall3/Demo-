@@ -1,84 +1,94 @@
-// components/Card.tsx
-// This component has been significantly re-architected to function as a highly
-// versatile and state-aware container, in alignment with production-grade standards
-// requiring substantial logical complexity and a minimum line count.
+/**
+ * @file components/Card.tsx
+ * @description A highly versatile and state-aware container component.
+ * This component is designed to be a fundamental building block for the UI, capable of displaying content,
+ * handling loading and error states, and providing interactive features like collapsibility.
+ * It is documented according to TSDoc standards to be suitable for a shared component library.
+ */
 
 import React, { useState, useEffect, useRef, useCallback, ReactNode } from 'react';
 
-// ================================================================================================
+// ===============================================================================================
 // TYPE DEFINITIONS
-// ================================================================================================
-// We define a rich set of types to create a robust and predictable component API.
+// ===============================================================================================
 
 /**
- * @description Defines the visual style of the card.
- * 'default': Standard blurred background card.
- * 'outline': A card with a more prominent border.
- * 'ghost': A card with no background, blending into the parent container.
- * 'interactive': A card that visually reacts to hover events, suitable for clickable cards.
+ * Defines the visual style of the card.
+ * @property {'default'} [default] - Standard blurred background card.
+ * @property {'outline'} [outline] - A card with a more prominent border.
+ * @property {'ghost'} [ghost] - A card with no background, blending into the parent container.
+ * @property {'interactive'} [interactive] - A card that visually reacts to hover events, suitable for clickable cards.
  */
 export type CardVariant = 'default' | 'outline' | 'ghost' | 'interactive';
 
 /**
- * @description Defines the structure for an action item in the card's header.
- * This allows for dynamic buttons or controls to be passed into the card.
+ * Defines the structure for an action item in the card's header, such as a settings or refresh button.
  */
 export interface CardHeaderAction {
+  /** A unique identifier for the action button. */
   id: string;
+  /** The React element to use as the icon for the button. */
   icon: React.ReactElement;
+  /** The callback function to execute when the button is clicked. */
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  label: string; // Used for aria-label for accessibility.
+  /** The accessible label for the button, used for `aria-label`. */
+  label: string;
+  /** Whether the button should be disabled. */
   disabled?: boolean;
 }
 
 /**
- * @description The main props interface for the Card component. This extensive API
- * allows for a wide range of use cases, from simple content display to complex,
- * interactive, and data-driven containers.
+ * The main props interface for the Card component, offering a rich API for various use cases.
  */
 export interface CardProps {
-  // Core Content
+  /** The main title of the card, displayed in the header. */
   title?: string;
-  // FIX: Add subtitle prop to support subtitles in card headers.
+  /** An optional subtitle displayed below the main title in the header. */
   subtitle?: string;
+  /** The primary content to be rendered inside the card's body. */
   children: ReactNode;
-  
-  // Structural Elements
+
+  /** An array of action objects to render buttons in the card's header. */
   headerActions?: CardHeaderAction[];
+  /** Optional content to be rendered in the card's footer. */
   footerContent?: ReactNode;
 
-  // Behavior and State
+  /** If true, the card's content will be collapsible. */
   isCollapsible?: boolean;
+  /** If true and `isCollapsible` is true, the card will be collapsed by default. */
   defaultCollapsed?: boolean;
+  /** If true, the card will display a loading skeleton instead of its children. */
   isLoading?: boolean;
-  errorState?: string | null; // Pass an error message to display an error view.
-  onRetry?: () => void; // Callback for a retry button in the error state.
+  /** If a string is provided, the card will display an error message instead of its children. */
+  errorState?: string | null;
+  /** An optional callback function for a 'Retry' button displayed in the error state. */
+  onRetry?: () => void;
 
-  // Styling and Layout
+  /** Additional CSS classes to apply to the card's root element. */
   className?: string;
+  /** The visual variant of the card. @default 'default' */
   variant?: CardVariant;
-  padding?: 'sm' | 'md' | 'lg' | 'none'; // Control internal padding.
-  // FIX: Add onClick prop to allow cards to be interactive.
+  /** Controls the internal padding of the card's content area. @default 'md' */
+  padding?: 'sm' | 'md' | 'lg' | 'none';
+  /** An optional click handler to make the entire card interactive. */
   onClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
+  /** If true, applies styling suitable for a single metric display (e.g., centered text, smaller padding). */
   isMetric?: boolean;
 
-  // Custom Components
+  /** An optional custom component to display during the loading state, overriding the default skeleton. */
   loadingIndicator?: ReactNode;
 }
 
-
-// ================================================================================================
-// INTERNAL HELPER FUNCTIONS & CONSTANTS
-// ================================================================================================
+// ===============================================================================================
+// INTERNAL HELPER FUNCTIONS
+// ===============================================================================================
 
 /**
- * @description Generates the appropriate CSS class string for a given card variant.
- * This logic centralizes styling decisions and makes the main component's render method cleaner.
- * @param {CardVariant} variant - The card variant.
- * @returns {string} The corresponding Tailwind CSS classes.
+ * Generates the appropriate CSS class string for a given card variant.
+ * @param variant - The card variant.
+ * @returns The corresponding Tailwind CSS classes.
  */
-// FIX: Changed parameter type to string to make the function more robust and fix the type error.
-const getVariantClasses = (variant: string): string => {
+const getVariantClasses = (variant: CardVariant): string => {
   switch (variant) {
     case 'outline':
       return 'bg-transparent border-2 border-gray-600/80 shadow-md';
@@ -93,97 +103,88 @@ const getVariantClasses = (variant: string): string => {
 };
 
 /**
- * @description Provides CSS classes for different padding sizes.
- * @param {'sm' | 'md' | 'lg' | 'none'} padding - The desired padding level.
- * @returns {string} The Tailwind CSS classes for padding.
+ * Provides CSS classes for different padding sizes.
+ * @param padding - The desired padding level.
+ * @returns The Tailwind CSS classes for padding.
  */
-// FIX: Changed parameter type to string to make the function more robust and fix the type error.
-const getPaddingClasses = (padding: string): string => {
-    switch(padding) {
-        case 'sm': return 'p-3';
-        case 'md': return 'p-6';
-        case 'lg': return 'p-8';
-        case 'none': return 'p-0';
-        default: return 'p-6';
-    }
+const getPaddingClasses = (padding: 'sm' | 'md' | 'lg' | 'none'): string => {
+  switch (padding) {
+    case 'sm': return 'p-3';
+    case 'md': return 'p-6';
+    case 'lg': return 'p-8';
+    case 'none': return 'p-0';
+    default: return 'p-6';
+  }
 }
 
-
-// ================================================================================================
+// ===============================================================================================
 // INTERNAL SUB-COMPONENTS
-// ================================================================================================
-// These components are defined within the Card module to encapsulate all card-related
-// rendering logic and prevent polluting the global component scope.
+// ===============================================================================================
 
 /**
- * @description A visually appealing loading skeleton component displayed when the card
- * is in its `isLoading` state. This provides a better user experience than a simple spinner.
+ * A visually appealing loading skeleton component displayed when the card is in `isLoading` state.
+ * @returns A loading skeleton element.
  */
 const LoadingSkeleton: React.FC = () => {
-    return (
-      <div className="space-y-4 animate-pulse p-6">
-        <div className="flex items-center justify-between">
-            <div className="h-6 bg-gray-700 rounded-md w-1/3"></div>
-            <div className="h-6 bg-gray-700 rounded-full w-6"></div>
-        </div>
-        <div className="space-y-3 pt-4">
-          <div className="h-4 bg-gray-700 rounded-md w-full"></div>
-          <div className="h-4 bg-gray-700 rounded-md w-5/6"></div>
-          <div className="h-4 bg-gray-700 rounded-md w-3/4"></div>
-        </div>
-        <div className="space-y-3 pt-6">
-          <div className="h-4 bg-gray-700 rounded-md w-1/2"></div>
-          <div className="h-4 bg-gray-700 rounded-md w-4/6"></div>
-        </div>
+  return (
+    <div className="space-y-4 animate-pulse p-6">
+      <div className="flex items-center justify-between">
+        <div className="h-6 bg-gray-700 rounded-md w-1/3"></div>
+        <div className="h-6 bg-gray-700 rounded-full w-6"></div>
       </div>
-    );
+      <div className="space-y-3 pt-4">
+        <div className="h-4 bg-gray-700 rounded-md w-full"></div>
+        <div className="h-4 bg-gray-700 rounded-md w-5/6"></div>
+        <div className="h-4 bg-gray-700 rounded-md w-3/4"></div>
+      </div>
+    </div>
+  );
 };
 
 /**
- * @description A standardized display for showing error messages within the card.
- * It includes an optional "Retry" button to allow users to recover from transient errors.
+ * A standardized display for showing error messages within the card.
+ * @param props - The properties for the ErrorDisplay component.
+ * @param props.message - The error message to display.
+ * @param props.onRetry - An optional callback for a retry button.
+ * @returns An error display element.
  */
 const ErrorDisplay: React.FC<{ message: string; onRetry?: () => void; }> = ({ message, onRetry }) => {
-    return (
-        <div className="flex flex-col items-center justify-center text-center p-6 bg-red-900/20 border-t border-b border-red-500/20">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-red-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <h4 className="text-lg font-semibold text-red-200">An Error Occurred</h4>
-            <p className="text-red-300 mt-1 mb-4 max-w-md">{message}</p>
-            {onRetry && (
-                <button
-                    onClick={onRetry}
-                    className="px-4 py-2 bg-red-500/50 hover:bg-red-500 text-white rounded-lg text-sm font-medium transition-colors"
-                >
-                    Retry
-                </button>
-            )}
-        </div>
-    );
+  return (
+    <div className="flex flex-col items-center justify-center text-center p-6 bg-red-900/20 border-t border-b border-red-500/20">
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-red-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <h4 className="text-lg font-semibold text-red-200">An Error Occurred</h4>
+      <p className="text-red-300 mt-1 mb-4 max-w-md">{message}</p>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="px-4 py-2 bg-red-500/50 hover:bg-red-500 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          Retry
+        </button>
+      )}
+    </div>
+  );
 };
 
 /**
- * @description The header component for the card. It handles rendering the title,
- * collapse/expand toggle, and any provided header actions.
+ * The header component for the card.
+ * @internal
  */
 const CardHeader: React.FC<{
   title?: string;
-  // FIX: Add subtitle prop to support subtitles in card headers.
   subtitle?: string;
   isCollapsible?: boolean;
   isCollapsed: boolean;
   toggleCollapse: () => void;
   actions?: CardHeaderAction[];
 }> = ({ title, subtitle, isCollapsible, isCollapsed, toggleCollapse, actions }) => {
-  // FIX: Update condition to account for subtitle.
   if (!title && !subtitle && (!actions || actions.length === 0) && !isCollapsible) {
-    return null; // Render no header if there's no title, subtitle and no actions.
+    return null;
   }
 
   const handleHeaderClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    // We only want to toggle collapse if the click is directly on the header,
-    // not on one of the action buttons.
     if (isCollapsible && (e.target as HTMLElement).closest('button') === null) {
       toggleCollapse();
     }
@@ -192,7 +193,6 @@ const CardHeader: React.FC<{
   const headerCursorClass = isCollapsible ? 'cursor-pointer' : 'cursor-default';
 
   return (
-    // FIX: Group title and subtitle and adjust alignment for proper layout.
     <div
       className={`flex items-start justify-between pb-4 ${headerCursorClass}`}
       onClick={handleHeaderClick}
@@ -206,7 +206,7 @@ const CardHeader: React.FC<{
         )}
       </div>
       <div className="flex items-center space-x-2 flex-shrink-0">
-        {actions && actions.map(action => (
+        {actions?.map(action => (
           <button
             key={action.id}
             onClick={action.onClick}
@@ -214,14 +214,13 @@ const CardHeader: React.FC<{
             disabled={action.disabled}
             className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {/* FIX: Cast action.icon to allow adding className prop via cloneElement. */}
-            {React.cloneElement(action.icon as React.ReactElement<any>, { className: 'h-5 w-5' })}
+            {React.cloneElement(action.icon, { className: 'h-5 w-5' })}
           </button>
         ))}
         {isCollapsible && (
           <button
             onClick={(e) => {
-              e.stopPropagation(); // Prevent header click from firing
+              e.stopPropagation();
               toggleCollapse();
             }}
             aria-label={isCollapsed ? 'Expand section' : 'Collapse section'}
@@ -238,8 +237,8 @@ const CardHeader: React.FC<{
 };
 
 /**
- * @description The footer component for the card. Renders provided footer content
- * with appropriate styling.
+ * The footer component for the card.
+ * @internal
  */
 const CardFooter: React.FC<{ children?: ReactNode }> = ({ children }) => {
   if (!children) return null;
@@ -250,14 +249,18 @@ const CardFooter: React.FC<{ children?: ReactNode }> = ({ children }) => {
   );
 };
 
-
-// ================================================================================================
+// ===============================================================================================
 // MAIN CARD COMPONENT
-// ================================================================================================
+// ===============================================================================================
 
+/**
+ * A highly versatile and state-aware container component for displaying content.
+ * It serves as a fundamental building block for the application's UI.
+ * @param props - The properties for the Card component, see {@link CardProps}.
+ * @returns A card element.
+ */
 const Card: React.FC<CardProps> = ({
   title,
-  // FIX: Destructure subtitle prop.
   subtitle,
   children,
   className = '',
@@ -271,92 +274,55 @@ const Card: React.FC<CardProps> = ({
   errorState = null,
   onRetry,
   loadingIndicator,
-  // FIX: Destructure onClick prop to apply it to the main div.
   onClick,
   isMetric = false,
 }) => {
-  // --------------------------------------------------------------------------------
-  // State Management
-  // --------------------------------------------------------------------------------
   const [isCollapsed, setIsCollapsed] = useState(isCollapsible && defaultCollapsed);
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentHeight, setContentHeight] = useState<number | string>('auto');
 
-  // --------------------------------------------------------------------------------
-  // Callbacks and Event Handlers
-  // --------------------------------------------------------------------------------
   const toggleCollapse = useCallback(() => {
     if (isCollapsible) {
       setIsCollapsed(prev => !prev);
     }
   }, [isCollapsible]);
 
-  // --------------------------------------------------------------------------------
-  // Effects for Dynamic Behavior
-  // --------------------------------------------------------------------------------
-  
-  // This effect manages the smooth height transition for the collapsible content.
-  // It measures the content's scrollHeight and applies it as an inline style
-  // to animate the height property.
   useEffect(() => {
     if (isCollapsible) {
       if (isCollapsed) {
         setContentHeight(0);
       } else {
-        // We set the height to the scrollHeight of the content wrapper to
-        // create a smooth expansion animation.
         const contentEl = contentRef.current;
         setContentHeight(contentEl ? contentEl.scrollHeight : 'auto');
       }
     }
-  }, [isCollapsed, isCollapsible, children]); // Re-calculate height if children change
+  }, [isCollapsed, isCollapsible, children]);
 
-  // This effect ensures that if the component is switched to be non-collapsible,
-  // it automatically expands.
   useEffect(() => {
     if (!isCollapsible && isCollapsed) {
-        setIsCollapsed(false);
+      setIsCollapsed(false);
     }
   }, [isCollapsible, isCollapsed]);
 
-
-  // --------------------------------------------------------------------------------
-  // Dynamic Class Computation
-  // --------------------------------------------------------------------------------
   const baseClasses = getVariantClasses(variant);
-  // If it's a metric card and padding is the default, use a smaller padding.
-  const finalPadding = isMetric && padding === 'md' ? 'sm' : padding;
+  const finalPadding = (isMetric && padding === 'md' ? 'sm' : padding) as 'sm' | 'md' | 'lg' | 'none';
   const paddingClasses = getPaddingClasses(finalPadding);
 
-  // Combine all classes into a final string.
   const finalContainerClasses = `
     ${baseClasses}
     ${className}
     overflow-hidden
   `;
 
-  // --------------------------------------------------------------------------------
-  // Content Rendering Logic
-  // --------------------------------------------------------------------------------
-  
-  /**
-   * @description Selects and renders the main content of the card based on the
-   * component's current state (loading, error, or default).
-   * This function implements the core state-based rendering logic.
-   * @returns {ReactNode} The content to be rendered.
-   */
   const renderCardContent = (): ReactNode => {
     if (isLoading) {
-      // If a custom loading indicator is provided, use it. Otherwise, use the default skeleton.
       return loadingIndicator || <LoadingSkeleton />;
     }
 
     if (errorState) {
-      // If there's an error, display the error message and retry button.
       return <ErrorDisplay message={errorState} onRetry={onRetry} />;
     }
 
-    // Default case: render the children passed to the component.
     const contentWrapperStyle = {
       height: isCollapsible ? contentHeight : 'auto',
     };
@@ -364,30 +330,25 @@ const Card: React.FC<CardProps> = ({
     const contentPadding = (title || subtitle || isCollapsible || headerActions) ? 'pt-4' : '';
 
     return (
-        <div
-          style={contentWrapperStyle}
-          className="transition-[height] duration-500 ease-in-out overflow-hidden"
-          aria-hidden={isCollapsed}
-        >
-          <div ref={contentRef}>
-             <div className={contentPadding}>
-                {children}
-             </div>
+      <div
+        style={contentWrapperStyle}
+        className="transition-[height] duration-500 ease-in-out overflow-hidden"
+        aria-hidden={isCollapsed}
+      >
+        <div ref={contentRef}>
+          <div className={contentPadding}>
+            {children}
           </div>
         </div>
+      </div>
     );
   };
-  
-  // --------------------------------------------------------------------------------
-  // Final Render
-  // --------------------------------------------------------------------------------
-  // FIX: Pass onClick handler to the root div element.
+
   return (
     <div className={finalContainerClasses.trim().replace(/\s+/g, ' ')} onClick={onClick}>
       <div className={`${paddingClasses} ${isMetric ? 'text-center' : ''}`}>
         <CardHeader
           title={title}
-          // FIX: Pass subtitle prop to CardHeader.
           subtitle={subtitle}
           isCollapsible={isCollapsible}
           isCollapsed={!!isCollapsed}
@@ -395,7 +356,6 @@ const Card: React.FC<CardProps> = ({
           actions={headerActions}
         />
         
-        {/* Render loading/error states OR the main content */}
         {(isLoading || errorState) ? (
             renderCardContent()
         ) : (
