@@ -27,7 +27,7 @@ const ImpactTracker: React.FC<ImpactTrackerProps> = ({ treesPlanted, progress })
         <div className="w-full bg-gray-700 rounded-full h-2.5 mt-6">
             <div className="bg-gradient-to-r from-green-400 to-cyan-500 h-2.5 rounded-full" style={{ width: `${progress}%` }}></div>
         </div>
-        <p className="text-xs text-gray-500 mt-2">{progress}% to the next tree</p>
+        <p className="text-xs text-gray-500 mt-2">{progress.toFixed(0)}% to the next tree</p>
       </div>
     </Card>
   );

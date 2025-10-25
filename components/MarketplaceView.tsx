@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useReducer, useCallback, useMemo, FC, ChangeEvent, FormEvent, ReactNode } from 'react';
 import Card from './Card';
+import { gql, useQuery } from '@apollo/client';
 
 //================================================================================================
 // TYPE DEFINITIONS
@@ -29,7 +30,7 @@ export interface AgentReview {
     };
     rating: number; // 1-5
     comment: string;
-    createdAt: Date;
+    createdAt: string; // Changed to string for GraphQL ISO Date
     helpfulVotes: number;
 }
 
@@ -47,7 +48,7 @@ export interface AgentPricing {
  */
 export interface AgentSpecs {
     version: string;
-    releaseDate: Date;
+    releaseDate: string; // Changed to string for GraphQL ISO Date
     requiredApiVersion: string;
     dependencies: string[];
     supportedLanguages: string[];
@@ -63,7 +64,7 @@ export interface AgentSpecs {
  */
 export interface AgentChangelogEntry {
     version: string;
-    releaseDate: Date;
+    releaseDate: string; // Changed to string for GraphQL ISO Date
     changes: string[];
 }
 
@@ -86,15 +87,15 @@ export interface Agent {
     specs: AgentSpecs;
     changelog: AgentChangelogEntry[];
     downloads: number;
-    createdAt: Date;
-    updatedAt: Date;
+    createdAt: string; // Changed to string for GraphQL ISO Date
+    updatedAt: string; // Changed to string for GraphQL ISO Date
     featured: boolean;
     documentationUrl: string;
     demoUrl?: string;
 }
 
 //================================================================================================
-// MOCK DATA GENERATION
+// MOCK DATA GENERATION (Adjusted for ISO Date strings)
 // This section simulates a real-world backend by providing extensive mock data.
 //================================================================================================
 
@@ -139,7 +140,7 @@ export const generateMockAgents = (count: number): Agent[] => {
             author: { name: `User ${k + 1}`, avatarUrl: `https://i.pravatar.cc/40?u=reviewuser${i}_${k}` },
             rating: Math.floor(Math.random() * 3) + 3, // 3, 4, or 5
             comment: MOCK_COMMENTS[Math.floor(Math.random() * MOCK_COMMENTS.length)],
-            createdAt: new Date(createdAt.getTime() + Math.random() * (Date.now() - createdAt.getTime())),
+            createdAt: new Date(createdAt.getTime() + Math.random() * (Date.now() - createdAt.getTime())).toISOString(),
             helpfulVotes: Math.floor(Math.random() * 100),
         }));
 
@@ -154,9 +155,9 @@ export const generateMockAgents = (count: number): Agent[] => {
         };
         
         const changelog: AgentChangelogEntry[] = [
-            { version: '1.2.0', releaseDate: new Date(), changes: ['Added new API integration.', 'Improved performance by 20%.', 'Fixed minor UI bugs.'] },
-            { version: '1.1.0', releaseDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000), changes: ['Initial support for multi-language output.', 'Refactored core logic.'] },
-            { version: '1.0.0', releaseDate: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000), changes: ['Initial public release.'] },
+            { version: '1.2.0', releaseDate: new Date().toISOString(), changes: ['Added new API integration.', 'Improved performance by 20%.', 'Fixed minor UI bugs.'] },
+            { version: '1.1.0', releaseDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(), changes: ['Initial support for multi-language output.', 'Refactored core logic.'] },
+            { version: '1.0.0', releaseDate: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString(), changes: ['Initial public release.'] },
         ];
 
         agents.push({
@@ -174,7 +175,7 @@ export const generateMockAgents = (count: number): Agent[] => {
             pricing,
             specs: {
                 version: '1.2.0',
-                releaseDate: new Date(),
+                releaseDate: new Date().toISOString(),
                 requiredApiVersion: 'v2.1',
                 dependencies: ['Node.js v18+', 'Python 3.9+', 'Docker'],
                 supportedLanguages: ['English', 'Spanish', 'German'],
@@ -186,8 +187,8 @@ export const generateMockAgents = (count: number): Agent[] => {
             },
             changelog,
             downloads: Math.floor(Math.random() * 10000) + 500,
-            createdAt,
-            updatedAt: new Date(createdAt.getTime() + Math.random() * (Date.now() - createdAt.getTime())),
+            createdAt: createdAt.toISOString(),
+            updatedAt: new Date(createdAt.getTime() + Math.random() * (Date.now() - createdAt.getTime())).toISOString(),
             featured: i % 10 === 0,
             documentationUrl: '#',
             demoUrl: i % 5 === 0 ? '#' : undefined,
@@ -579,398 +580,4 @@ export const AgentCard: FC<{ agent: Agent; onSelect: (agent: Agent) => void }> =
                 <span className="text-sm text-gray-400">{agent.author.name}</span>
                 {agent.author.verified && (
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-cyan-500 ml-1" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44-1.22a.75.75 0 00-1.06 0L8.25 6.19 6.31 4.25a.75.75 0 00-1.06 1.06l2.5 2.5a.75.75 0 001.06 0l4.5-4.5a.75.75 0 000-1.06z" clipRule="evenodd" />
-                    </svg>
-                )}
-            </div>
-            <p className="text-sm text-gray-400 mt-2 flex-grow">{agent.shortDescription}</p>
-            <div className="mt-4 pt-4 border-t border-gray-700 flex justify-between items-center">
-                <div className="flex items-center">
-                    <StarRating rating={agent.rating} />
-                    <span className="text-xs text-gray-500 ml-2">({agent.reviewCount})</span>
-                </div>
-                <div className="flex items-center text-xs text-gray-500">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M8.707 7.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l2-2a1 1 0 00-1.414-1.414L11 8.586V3a1 1 0 10-2 0v5.586L8.707 7.293zM3 11a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
-                    </svg>
-                    {agent.downloads.toLocaleString()}
-                </div>
-            </div>
-        </div>
-    </div>
-);
-
-/**
- * The pagination controls for the agent grid.
- */
-export const Pagination: FC<{ currentPage: number; maxPage: number; onJump: (page: number) => void }> = ({ currentPage, maxPage, onJump }) => {
-    if (maxPage <= 1) return null;
-
-    const pageNumbers: (number | '...')[] = [];
-    if (maxPage <= 7) {
-        for (let i = 1; i <= maxPage; i++) {
-            pageNumbers.push(i);
-        }
-    } else {
-        pageNumbers.push(1);
-        if (currentPage > 3) {
-            pageNumbers.push('...');
-        }
-        if (currentPage > 2) {
-            pageNumbers.push(currentPage - 1);
-        }
-        if (currentPage > 1 && currentPage < maxPage) {
-            pageNumbers.push(currentPage);
-        }
-        if (currentPage < maxPage - 1) {
-            pageNumbers.push(currentPage + 1);
-        }
-        if (currentPage < maxPage - 2) {
-            pageNumbers.push('...');
-        }
-        pageNumbers.push(maxPage);
-    }
-
-    return (
-        <nav className="flex items-center justify-between py-3 text-white" aria-label="Pagination">
-            <div className="hidden sm:block">
-                <p className="text-sm text-gray-400">
-                    Showing page <span className="font-medium">{currentPage}</span> of <span className="font-medium">{maxPage}</span>
-                </p>
-            </div>
-            <div className="flex-1 flex justify-between sm:justify-end">
-                <button
-                    onClick={() => onJump(currentPage - 1)}
-                    disabled={currentPage === 1}
-                    className="relative inline-flex items-center px-4 py-2 border border-gray-600 text-sm font-medium rounded-md text-gray-300 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    Previous
-                </button>
-                <div className="hidden md:flex items-center mx-2">
-                    {pageNumbers.map((page, index) =>
-                        page === '...' ? (
-                            <span key={index} className="px-4 py-2 text-sm">...</span>
-                        ) : (
-                            <button
-                                key={index}
-                                onClick={() => onJump(page as number)}
-                                className={`px-4 py-2 border border-gray-600 text-sm font-medium rounded-md mx-1 ${currentPage === page ? 'bg-cyan-600 text-white' : 'bg-gray-800 hover:bg-gray-700'}`}
-                            >
-                                {page}
-                            </button>
-                        )
-                    )}
-                </div>
-                <button
-                    onClick={() => onJump(currentPage + 1)}
-                    disabled={currentPage === maxPage}
-                    className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-600 text-sm font-medium rounded-md text-gray-300 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    Next
-                </button>
-            </div>
-        </nav>
-    );
-};
-
-/**
- * A detailed view of a single agent, shown in a modal.
- */
-export const AgentDetailModal: FC<{ agent: Agent | null; onClose: () => void }> = ({ agent, onClose }) => {
-    const [activeTab, setActiveTab] = useState<'overview' | 'specs' | 'reviews' | 'changelog'>('overview');
-
-    if (!agent) return null;
-
-    const renderTabContent = () => {
-        switch(activeTab) {
-            case 'specs': return (
-                <div className="space-y-4 text-gray-300">
-                    <h4 className="text-lg font-semibold text-white">Technical Specifications</h4>
-                    <ul className="list-disc list-inside bg-gray-800/50 p-4 rounded-md">
-                        <li><strong>Version:</strong> {agent.specs.version} (Released on {agent.specs.releaseDate.toLocaleDateString()})</li>
-                        <li><strong>Required API Version:</strong> {agent.specs.requiredApiVersion}</li>
-                        <li><strong>Supported Languages:</strong> {agent.specs.supportedLanguages.join(', ')}</li>
-                    </ul>
-                    <h4 className="text-lg font-semibold text-white mt-4">Dependencies</h4>
-                     <ul className="list-disc list-inside bg-gray-800/50 p-4 rounded-md">
-                        {agent.specs.dependencies.map(dep => <li key={dep}>{dep}</li>)}
-                    </ul>
-                    <h4 className="text-lg font-semibold text-white mt-4">Compute Requirements</h4>
-                     <ul className="list-disc list-inside bg-gray-800/50 p-4 rounded-md">
-                        <li><strong>CPU:</strong> {agent.specs.computeRequirements.cpu}</li>
-                        <li><strong>RAM:</strong> {agent.specs.computeRequirements.ram}</li>
-                        {agent.specs.computeRequirements.gpu && <li><strong>GPU:</strong> {agent.specs.computeRequirements.gpu}</li>}
-                    </ul>
-                </div>
-            );
-            case 'reviews': return (
-                <div>
-                     <h4 className="text-lg font-semibold text-white mb-4">User Reviews ({agent.reviewCount})</h4>
-                     <div className="space-y-6">
-                        {agent.reviews.slice(0, 5).map(review => (
-                            <div key={review.id} className="border-b border-gray-700 pb-4">
-                                <div className="flex items-center mb-2">
-                                    <img src={review.author.avatarUrl} alt={review.author.name} className="h-8 w-8 rounded-full mr-3" />
-                                    <div>
-                                        <p className="font-semibold text-white">{review.author.name}</p>
-                                        <p className="text-xs text-gray-500">{review.createdAt.toLocaleDateString()}</p>
-                                    </div>
-                                    <div className="ml-auto">
-                                        <StarRating rating={review.rating} />
-                                    </div>
-                                </div>
-                                <p className="text-gray-400">{review.comment}</p>
-                                <p className="text-xs text-gray-500 mt-2">{review.helpfulVotes} people found this helpful.</p>
-                            </div>
-                        ))}
-                     </div>
-                </div>
-            );
-            case 'changelog': return (
-                <div>
-                    <h4 className="text-lg font-semibold text-white mb-4">Version History</h4>
-                    <div className="space-y-6">
-                        {agent.changelog.map(entry => (
-                            <div key={entry.version}>
-                                <h5 className="font-semibold text-gray-200">Version {entry.version} <span className="text-sm font-normal text-gray-500">- {entry.releaseDate.toLocaleDateString()}</span></h5>
-                                <ul className="list-disc list-inside text-gray-400 mt-2 pl-4">
-                                    {entry.changes.map((change, i) => <li key={i}>{change}</li>)}
-                                </ul>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            );
-            case 'overview':
-            default:
-                 return <p className="text-gray-300 whitespace-pre-wrap">{agent.longDescription}</p>;
-        }
-    };
-    
-    const tabs = [
-        { id: 'overview', label: 'Overview' },
-        { id: 'specs', label: 'Specifications' },
-        { id: 'reviews', label: `Reviews (${agent.reviewCount})` },
-        { id: 'changelog', label: 'Changelog' },
-    ] as const;
-
-
-    return (
-        <Modal isOpen={!!agent} onClose={onClose} title={agent.name}>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Left Column */}
-                <div className="md:col-span-2">
-                    <img src={agent.imageUrl} alt={agent.name} className="w-full h-64 object-cover rounded-lg bg-gray-700 mb-4" />
-                    
-                    {/* Tabs */}
-                    <div className="border-b border-gray-700 mb-4">
-                        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                            {tabs.map(tab => (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setActiveTab(tab.id)}
-                                    className={`${
-                                        activeTab === tab.id
-                                            ? 'border-cyan-500 text-cyan-400'
-                                            : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'
-                                    } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
-                                >
-                                    {tab.label}
-                                </button>
-                            ))}
-                        </nav>
-                    </div>
-
-                    {/* Tab Content */}
-                    <div>
-                        {renderTabContent()}
-                    </div>
-                </div>
-
-                {/* Right Column */}
-                <div className="md:col-span-1 space-y-4">
-                    <div className="bg-gray-800 p-4 rounded-lg">
-                        <div className="text-3xl font-bold text-green-400 mb-4">
-                            {agent.pricing.type === 'free' ? 'Free' : `$${agent.pricing.amount}`}
-                            {agent.pricing.type === 'subscription' && <span className="text-base text-gray-400">/{agent.pricing.subscriptionInterval === 'monthly' ? 'mo' : 'yr'}</span>}
-                        </div>
-                        <button className="w-full bg-cyan-600 text-white font-bold py-2 px-4 rounded hover:bg-cyan-700 transition duration-300">
-                           {agent.pricing.type === 'free' ? 'Download' : 'Purchase Agent'}
-                        </button>
-                    </div>
-
-                    <div className="bg-gray-800 p-4 rounded-lg text-sm text-gray-300 space-y-2">
-                        <div className="flex justify-between"><span>Version:</span> <span className="font-mono">{agent.specs.version}</span></div>
-                        <div className="flex justify-between"><span>Updated:</span> <span>{agent.updatedAt.toLocaleDateString()}</span></div>
-                        <div className="flex justify-between"><span>Category:</span> <span className="text-cyan-400">{agent.category}</span></div>
-                        <div className="flex justify-between"><span>Downloads:</span> <span>{agent.downloads.toLocaleString()}</span></div>
-                    </div>
-                    
-                    <div className="bg-gray-800 p-4 rounded-lg">
-                        <h4 className="font-semibold text-white mb-2">Author</h4>
-                        <div className="flex items-center">
-                            <img src={agent.author.avatarUrl} alt={agent.author.name} className="h-10 w-10 rounded-full mr-3" />
-                            <div>
-                               <div className="flex items-center">
-                                    <p className="font-semibold text-white">{agent.author.name}</p>
-                                     {agent.author.verified && (
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-cyan-500 ml-1" viewBox="0 0 20 20" fill="currentColor">
-                                           <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44-1.22a.75.75 0 00-1.06 0L8.25 6.19 6.31 4.25a.75.75 0 00-1.06 1.06l2.5 2.5a.75.75 0 001.06 0l4.5-4.5a.75.75 0 000-1.06z" clipRule="evenodd" />
-                                       </svg>
-                                    )}
-                               </div>
-                                <a href={agent.author.profileUrl} className="text-xs text-cyan-400 hover:underline">View Profile</a>
-                            </div>
-                        </div>
-                         <p className="text-xs text-gray-400 mt-2">{agent.author.bio}</p>
-                    </div>
-
-                    <div className="bg-gray-800 p-4 rounded-lg">
-                        <h4 className="font-semibold text-white mb-2">Tags</h4>
-                        <div className="flex flex-wrap gap-2">
-                            {agent.tags.map(tag => (
-                                <span key={tag} className="px-2 py-1 bg-gray-700 text-xs text-gray-300 rounded-full">{tag}</span>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </Modal>
-    );
-};
-
-
-//================================================================================================
-// MAIN COMPONENT
-//================================================================================================
-
-const AgentMarketplaceView: React.FC = () => {
-    const [allAgents, setAllAgents] = useState<Agent[]>([]);
-    const [isLoading, setIsLoading] = useState<boolean>(true);
-    const [error, setError] = useState<string | null>(null);
-    const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
-    const [filterState, dispatch] = useReducer(filterReducer, initialFilterState);
-
-    const [sortBy, setSortBy] = useState<'rating' | 'newest' | 'downloads' | 'featured'>('featured');
-
-    // Simulate fetching data from an API
-    useEffect(() => {
-        setIsLoading(true);
-        setError(null);
-        // Simulate a network delay
-        const timer = setTimeout(() => {
-            try {
-                const generatedAgents = generateMockAgents(150);
-                setAllAgents(generatedAgents);
-            } catch (e) {
-                setError("Failed to load agent data.");
-                console.error(e);
-            } finally {
-                setIsLoading(false);
-            }
-        }, 1500);
-
-        return () => clearTimeout(timer);
-    }, []);
-    
-    // Filtering and Sorting Logic
-    const filteredAndSortedAgents = useMemo(() => {
-        let processedAgents = allAgents.filter(agent => {
-            const searchLower = filterState.searchQuery.toLowerCase();
-            const nameMatch = agent.name.toLowerCase().includes(searchLower);
-            const descMatch = agent.shortDescription.toLowerCase().includes(searchLower);
-            const tagMatch = agent.tags.some(t => t.toLowerCase().includes(searchLower));
-            const categoryMatch = filterState.categories.size === 0 || filterState.categories.has(agent.category);
-            const ratingMatch = agent.rating >= filterState.minRating;
-            const priceMatch = (agent.pricing.type === 'free' && filterState.maxPrice >= 0) || (agent.pricing.type !== 'free' && agent.pricing.amount <= filterState.maxPrice);
-            const pricingTypeMatch = filterState.pricingTypes.size === 0 || filterState.pricingTypes.has(agent.pricing.type);
-            const tagFilterMatch = filterState.tags.size === 0 || agent.tags.some(t => filterState.tags.has(t));
-            const authorMatch = !filterState.verifiedAuthor || agent.author.verified;
-            
-            return (nameMatch || descMatch || tagMatch) && categoryMatch && ratingMatch && priceMatch && pricingTypeMatch && tagFilterMatch && authorMatch;
-        });
-
-        // Sorting
-        switch (sortBy) {
-            case 'featured':
-                processedAgents.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0) || b.rating - a.rating);
-                break;
-            case 'rating':
-                processedAgents.sort((a, b) => b.rating - a.rating);
-                break;
-            case 'newest':
-                processedAgents.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-                break;
-            case 'downloads':
-                processedAgents.sort((a, b) => b.downloads - a.downloads);
-                break;
-        }
-
-        return processedAgents;
-    }, [allAgents, filterState, sortBy]);
-
-    const { currentData, currentPage, maxPage, jump } = usePagination(filteredAndSortedAgents, 12);
-
-    const handleSearch = useCallback((query: string) => {
-        dispatch({ type: 'SET_SEARCH_QUERY', payload: query });
-        jump(1);
-    }, [jump]);
-
-    const handleResetFilters = useCallback(() => {
-        dispatch({ type: 'RESET_FILTERS' });
-        jump(1);
-    }, [jump]);
-
-    return (
-        <div className="space-y-6">
-            <Card title="AI Agent Marketplace" padding="none">
-                <div className="p-6 border-b border-gray-700">
-                     <p className="text-gray-400 mb-4">Discover, purchase, and deploy autonomous AI agents for various financial and business tasks.</p>
-                     <SearchBar query={filterState.searchQuery} onSearch={handleSearch} />
-                </div>
-                <div className="flex flex-col lg:flex-row">
-                    <FilterSidebar state={filterState} dispatch={dispatch} />
-                    <main className="w-full lg:w-3/4 xl:w-4/5 p-4">
-                        <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
-                            <p className="text-gray-400">Showing {filteredAndSortedAgents.length} agents</p>
-                            <div className="flex items-center space-x-2">
-                                <span className="text-sm text-gray-300">Sort by:</span>
-                                <select 
-                                    value={sortBy}
-                                    onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                                    className="bg-gray-700 border border-gray-600 rounded-md py-1 px-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500"
-                                >
-                                    <option value="featured">Featured</option>
-                                    <option value="rating">Highest Rated</option>
-                                    <option value="newest">Newest</option>
-                                    <option value="downloads">Most Popular</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        {isLoading ? (
-                           <LoadingSpinner />
-                        ) : error ? (
-                            <div className="text-center text-red-400 bg-red-900/50 p-4 rounded-lg">{error}</div>
-                        ) : currentData.length > 0 ? (
-                            <>
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                                    {currentData.map(agent => (
-                                        <AgentCard key={agent.id} agent={agent} onSelect={setSelectedAgent} />
-                                    ))}
-                                </div>
-                                <Pagination currentPage={currentPage} maxPage={maxPage} onJump={jump} />
-                            </>
-                        ) : (
-                            <NoResults onReset={handleResetFilters} />
-                        )}
-                    </main>
-                </div>
-            </Card>
-
-            <AgentDetailModal agent={selectedAgent} onClose={() => setSelectedAgent(null)} />
-        </div>
-    );
-};
-
-export default AgentMarketplaceView;
+                        <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44-1.22a.75.75 0 00-1.06 0L8.25 6.19 6.31 4.25a.75.75 0 00-1.06 1.06l2.5 2.5a.75.75 0 001.06 0l4.5-4.5a.75.75 0 000-1.06z

@@ -329,7 +329,7 @@ const InvestmentsView: React.FC = () => {
     }
 
     if (error) {
-        return <Card title="Error"><p className="text-red-400">Could not load your investment portfolio: {error.message}</p></Card>;
+        return <Card title="Error"><p className="text-red-400">Could not load your investment portfolio: ${error.message}</p></Card>;
     }
 
     return (

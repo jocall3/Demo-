@@ -1,70 +1,36 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Notification } from '../types';
+import { useAuth0 } from '@auth0/auth0-react';
+import { gql, useQuery, useMutation } from '@apollo/client';
 
-// --- Mock Authentication Hook (Placeholder for real OAuth/OIDC implementation) ---
-/**
- * @description A mock authentication hook to simulate a real auth context (e.g., from Auth0, Keycloak, or OIDC-Client).
- * In a real application, this would be replaced with the provider's hook, e.g., `useAuth0()`.
- * It provides the user's profile, authentication status, and login/logout functions.
- */
-const useAuth = () => {
-    // Simulate user state. In a real app, this would come from the auth provider's context.
-    const [isAuthenticated, setIsAuthenticated] = useState(true); // Default to logged in for the demo
-    const [user, setUser] = useState<any | null>({
-        name: 'The Visionary',
-        email: 'visionary@demobank.com',
-        picture: 'https://i.pravatar.cc/80?u=visionary',
-    });
-    const [isLoading, setIsLoading] = useState(false);
+// ===============================================================================================
+// GRAPHQL QUERIES & MUTATIONS
+// These are typically defined in a centralized API/GraphQL directory in a larger project.
+// For this refactor, they are co-located here for simplicity.
+// ===============================================================================================
 
-    const login = useCallback(() => {
-        setIsLoading(true);
-        setTimeout(() => {
-            setIsAuthenticated(true);
-            setUser({
-                name: 'The Visionary',
-                email: 'visionary@demobank.com',
-                picture: 'https://i.pravatar.cc/80?u=visionary',
-            });
-            setIsLoading(false);
-        }, 1000);
-    }, []);
+// Query to fetch shared data like notifications, API status, etc.
+// This is a common pattern in micro-frontends/shells to get global data.
+const GET_HEADER_DATA = gql`
+  query GetHeaderData {
+    userData {
+      notifications {
+        id
+        message
+        timestamp
+        read
+        view
+      }
+    }
+  }
+`;
 
-    const logout = useCallback(() => {
-        setIsLoading(true);
-        setTimeout(() => {
-            setIsAuthenticated(false);
-            setUser(null);
-            setIsLoading(false);
-        }, 500);
-    }, []);
-
-    return { user, isAuthenticated, isLoading, login, logout };
-};
-
-// --- Mock Notifications Hook (Placeholder for real implementation) ---
-/**
- * @description A mock hook for notifications. In a real app, this would use React Query
- * to fetch notifications from the GraphQL gateway.
- */
-const useNotifications = () => {
-    const [notifications, setNotifications] = useState<Notification[]>([
-        { id: '1', message: 'Your credit score has increased by 5 points!', timestamp: '2h ago', read: false, view: View.CreditHealth },
-        { id: '2', message: 'A large purchase of $299.99 at "New Tech Gadget" was detected.', timestamp: '1d ago', read: false, view: View.Transactions },
-        { id: '3', message: 'You have earned 150 reward points from your recent spending.', timestamp: '3d ago', read: true, view: View.Rewards },
-    ]);
-    
-    const unreadCount = notifications.filter(n => !n.read).length;
-    
-    // Mock mutation to mark as read
-    const markAsRead = {
-        mutate: (id: string) => {
-            setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-        }
-    };
-    
-    return { notifications, unreadCount, markAsRead };
-};
+// Mutation to mark a notification as read on the backend.
+const MARK_NOTIFICATION_AS_READ_MUTATION = gql`
+  mutation MarkNotificationAsRead($notificationId: ID!) {
+    markNotificationAsRead(id: $notificationId)
+  }
+`;
 
 // --- Helper Hook: useClickOutside ---
 /**
@@ -142,23 +108,36 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, setActiveView }) => {
     useClickOutside(notificationsRef, () => setIsNotificationsOpen(false));
     useClickOutside(profileRef, () => setIsProfileOpen(false));
 
-    const { user, isAuthenticated, isLoading, login, logout } = useAuth();
-    const { notifications, unreadCount, markAsRead } = useNotifications();
+    // --- AUTH0 INTEGRATION ---
+    // Consuming the real Auth0 context for authentication status and user data.
+    const { user, isAuthenticated, isLoading, loginWithRedirect, logout } = useAuth0();
 
-    const handleNotificationClick = (notification: Notification) => {
+    // --- APOLLO CLIENT FOR NOTIFICATIONS ---
+    // Fetching notifications from the GraphQL gateway.
+    const { data, loading: notificationsLoading, error: notificationsError } = useQuery(GET_HEADER_DATA);
+    const notifications = data?.userData?.notifications || [];
+    const unreadCount = notifications.filter((n: Notification) => !n.read).length;
+
+    // Mutation to mark a notification as read.
+    const [markAsReadMutation] = useMutation(MARK_NOTIFICATION_AS_READ_MUTATION, {
+        refetchQueries: [{ query: GET_HEADER_DATA }], // Refetch notifications after marking one as read.
+    });
+
+    const handleNotificationClick = useCallback((notification: Notification) => {
         if (notification.view) {
+            // The 'view' field from the GraphQL API should map directly to our client-side View enum.
             setActiveView(notification.view as View);
         }
         if (!notification.read) {
-            markAsRead.mutate(notification.id);
+            markAsReadMutation({ variables: { notificationId: notification.id } });
         }
         setIsNotificationsOpen(false);
-    };
+    }, [setActiveView, markAsReadMutation]);
 
-    const handleLogout = () => {
-        logout();
+    const handleLogout = useCallback(() => {
+        logout({ logoutParams: { returnTo: window.location.origin } });
         setIsProfileOpen(false);
-    };
+    }, [logout]);
     
     const renderProfileSection = () => {
         if (isLoading) {
@@ -174,8 +153,8 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, setActiveView }) => {
             return (
                 <div className="relative" ref={profileRef}>
                     <button onClick={() => setIsProfileOpen(prev => !prev)} className="flex items-center space-x-3">
-                        <img src={user.picture} alt={user.name} className="w-10 h-10 rounded-full border-2 border-cyan-400 object-cover" />
-                        <span className="hidden sm:block font-medium text-white">{user.name}</span>
+                        <img src={user.picture || `https://i.pravatar.cc/80?u=${user.email}`} alt={user.name || 'User'} className="w-10 h-10 rounded-full border-2 border-cyan-400 object-cover" />
+                        <span className="hidden sm:block font-medium text-white">{user.name || user.email}</span>
                     </button>
                     {isProfileOpen && (
                         <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50">
@@ -189,7 +168,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, setActiveView }) => {
         
         return (
             <button
-                onClick={() => login()}
+                onClick={() => loginWithRedirect()}
                 className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-lg text-sm transition-colors"
             >
                 Log In
@@ -223,19 +202,25 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, setActiveView }) => {
                         {isNotificationsOpen && (
                             <div className="absolute right-0 mt-2 w-80 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50">
                                 <div className="p-3 font-semibold text-white border-b border-gray-700">Notifications</div>
-                                <div className="max-h-96 overflow-y-auto">
-                                    {notifications && notifications.length > 0 ? notifications.map(notification => (
-                                        <div key={notification.id} onClick={() => handleNotificationClick(notification)} className={`p-3 text-sm flex items-start border-b border-gray-700/50 cursor-pointer ${notification.read ? 'opacity-60 hover:bg-gray-700/50' : 'bg-cyan-500/10 hover:bg-cyan-500/20'}`}>
-                                            {!notification.read && <div className="w-2 h-2 rounded-full bg-cyan-400 mt-1.5 flex-shrink-0"></div>}
-                                            <div className="ml-2">
-                                                <p className="text-gray-200">{notification.message}</p>
-                                                <p className="text-xs text-gray-400 mt-1">{notification.timestamp}</p>
+                                {notificationsLoading ? (
+                                    <p className="p-4 text-sm text-gray-500">Loading notifications...</p>
+                                ) : notificationsError ? (
+                                    <p className="p-4 text-sm text-red-400">Error loading notifications: {notificationsError.message}</p>
+                                ) : notifications.length > 0 ? (
+                                    <div className="max-h-96 overflow-y-auto">
+                                        {notifications.map((notification: Notification) => (
+                                            <div key={notification.id} onClick={() => handleNotificationClick(notification)} className={`p-3 text-sm flex items-start border-b border-gray-700/50 cursor-pointer ${notification.read ? 'opacity-60 hover:bg-gray-700/50' : 'bg-cyan-500/10 hover:bg-cyan-500/20'}`}>
+                                                {!notification.read && <div className="w-2 h-2 rounded-full bg-cyan-400 mt-1.5 flex-shrink-0"></div>}
+                                                <div className="ml-2">
+                                                    <p className="text-gray-200">{notification.message}</p>
+                                                    <p className="text-xs text-gray-400 mt-1">{notification.timestamp}</p>
+                                                </div>
                                             </div>
-                                        </div>
-                                    )) : (
-                                        <p className="p-4 text-sm text-gray-500">No new notifications.</p>
-                                    )}
-                                </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="p-4 text-sm text-gray-500">No new notifications.</p>
+                                )}
                             </div>
                         )}
                     </div>
