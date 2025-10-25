@@ -6,9 +6,11 @@ import { View } from '../types';
 
 // ================================================================================================
 // GRAPHQL & SERVICE LAYER (NEW ARCHITECTURE)
+// This section defines the interaction with the backend, now aligned with CQRS and Temporal workflows.
+// The frontend initiates a command by calling a GraphQL mutation, which in turn starts a durable workflow.
 // ================================================================================================
 
-// In a real application, this would be in a dedicated features/transactions folder.
+// The GraphQL mutation to send money. It triggers a Temporal workflow in the transactions-service.
 const SEND_MONEY_MUTATION = `
   mutation SendMoney($input: SendMoneyInput!) {
     sendMoney(input: $input) {
@@ -17,6 +19,10 @@ const SEND_MONEY_MUTATION = `
     }
   }
 `;
+
+// Type definitions for the mutation variables and response.
+
+type PaymentRail = 'quantumpay' | 'cashapp' | 'swift_global' | 'blockchain_dlt' | 'interstellar_p2p' | 'neuro_link' | 'ai_contract_escrow';
 
 interface SendMoneyInput {
   recipientId: string;
@@ -35,12 +41,12 @@ interface SendMoneyResponse {
 
 /**
  * API function to call the GraphQL gateway for sending money.
- * This triggers a durable workflow on the backend.
+ * This function encapsulates the network request logic.
  */
 const sendMoneyApi = async (input: SendMoneyInput): Promise<SendMoneyResponse> => {
   const response = await fetch('/graphql', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }, // Auth headers would be added here
+    headers: { 'Content-Type': 'application/json' }, // In a real app, auth headers would be added here
     body: JSON.stringify({
       query: SEND_MONEY_MUTATION,
       variables: { input },
@@ -61,7 +67,8 @@ const sendMoneyApi = async (input: SendMoneyInput): Promise<SendMoneyResponse> =
 };
 
 /**
- * Custom hook to encapsulate the send money mutation logic.
+ * Custom hook using TanStack Query to encapsulate the send money mutation logic.
+ * It handles the mutation's state (loading, error, success) and invalidates relevant queries on success.
  */
 const useSendMoney = () => {
   const queryClient = useQueryClient();
@@ -84,11 +91,8 @@ const useSendMoney = () => {
 
 
 // ================================================================================================
-// REMITRAX PLATFORM WIDE TYPE DEFINITIONS
-// These types reflect the highly advanced, multi-dimensional nature of its operations.
+// TYPE DEFINITIONS & UI COMPONENTS
 // ================================================================================================
-
-export type PaymentRail = 'quantumpay' | 'cashapp' | 'swift_global' | 'blockchain_dlt' | 'interstellar_p2p' | 'neuro_link' | 'ai_contract_escrow';
 
 export interface RemitraxRecipientProfile {
   id: string;
@@ -101,10 +105,6 @@ export interface RemitraxRecipientProfile {
 interface SendMoneyViewProps {
   setActiveView: (view: View) => void;
 }
-
-// ================================================================================================
-// ANIMATED UI SUB-COMPONENTS
-// ================================================================================================
 
 export const AnimatedCheckmarkIcon: React.FC = () => (
     <>
@@ -169,40 +169,40 @@ export const QuantumLedgerAnimation: React.FC = () => (
     </>
 );
 
-// The main component, Remitrax.
-export const SendMoneyView: React.FC<SendMoneyViewProps> = ({ setActiveView }) => {
+// ================================================================================================
+// MAIN COMPONENT
+// ================================================================================================
+
+const SendMoneyView: React.FC<SendMoneyViewProps> = ({ setActiveView }) => {
     const [amount, setAmount] = useState('');
     const [recipient, setRecipient] = useState<RemitraxRecipientProfile | null>(null);
-    const [isSuccess, setIsSuccess] = useState(false);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    
+    // State is now managed by the react-query mutation hook.
+    const { mutate: sendMoney, isPending: isProcessing, isSuccess, error } = useSendMoney();
+    
+    // Handle successful mutation: redirect after a delay to show the success animation.
+    useEffect(() => {
+        if (isSuccess) {
+            const timer = setTimeout(() => {
+                setAmount('');
+                setRecipient(null);
+                setActiveView(View.Dashboard);
+            }, 3500);
+            return () => clearTimeout(timer);
+        }
+    }, [isSuccess, setActiveView]);
 
-    const { mutate: sendMoney, isPending: isProcessing } = useSendMoney();
-
-    const handleSend = () => {
+    const handleSend = useCallback(() => {
         if (!amount || !recipient || parseFloat(amount) <= 0) return;
-        setErrorMessage(null);
-
+        
         sendMoney({
             recipientId: recipient.id,
             recipientName: recipient.name,
             amount: parseFloat(amount),
             currency: 'USD',
-            rail: 'quantumpay' // Default rail
-        }, {
-            onSuccess: () => {
-                setIsSuccess(true);
-                setTimeout(() => {
-                    setIsSuccess(false);
-                    setAmount('');
-                    setRecipient(null);
-                    setActiveView(View.Dashboard);
-                }, 3500); // Allow time for success animation
-            },
-            onError: (error) => {
-                setErrorMessage(error.message || 'An unexpected error occurred during the transaction.');
-            }
+            rail: 'quantumpay' // Default payment rail for this demo
         });
-    };
+    }, [amount, recipient, sendMoney]);
 
     if (isProcessing) {
         return (
@@ -232,7 +232,7 @@ export const SendMoneyView: React.FC<SendMoneyViewProps> = ({ setActiveView }) =
 
     // Mock recipient for demo
     const mockRecipient: RemitraxRecipientProfile = {
-        id: 'rec_1',
+        id: 'rec_alex_ray_01',
         name: 'Alex Ray',
         quantumTag: '@alexray',
         avatarUrl: 'https://i.pravatar.cc/80?u=alexray'
@@ -266,14 +266,14 @@ export const SendMoneyView: React.FC<SendMoneyViewProps> = ({ setActiveView }) =
                             placeholder="0.00"
                             className="w-full text-4xl bg-transparent border-b-2 border-gray-600 focus:border-cyan-500 text-white outline-none pb-2 transition-colors"
                         />
-                        {errorMessage && (
+                        {error && (
                             <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-lg">
-                                <strong>Payment Failed:</strong> {errorMessage}
+                                <strong>Payment Failed:</strong> {error.message}
                             </div>
                         )}
                          <button
                             onClick={handleSend}
-                            disabled={!amount || !recipient || parseFloat(amount) <= 0 || isProcessing}
+                            disabled={!amount || !recipient || parseFloat(amount) <= 0}
                             className="w-full mt-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                             Send ${amount || '0.00'}

@@ -9,8 +9,13 @@ import { gql } from 'graphql-request'; // Assumes a GraphQL client library is ad
 // In a real application, this would be in dedicated files (e.g., `lib/graphql.ts`, `features/transactions/queries.ts`)
 // ================================================================================================
 
-// A lightweight GraphQL client function to demonstrate the pattern.
-// Assumes the BFF exposes a /graphql endpoint.
+/**
+ * A lightweight GraphQL client function to demonstrate the pattern.
+ * Assumes the BFF exposes a /graphql endpoint.
+ * @param query The GraphQL query string.
+ * @param variables The variables for the query.
+ * @returns A promise that resolves with the data from the GraphQL response.
+ */
 const graphqlRequest = async <T, V>(query: string, variables?: V): Promise<T> => {
     const response = await fetch('/graphql', { // The BFF's GraphQL endpoint
         method: 'POST',
@@ -63,6 +68,7 @@ const ASK_AI_ADVISOR_MUTATION = gql`
 
 /**
  * Fetches all transactions from the GraphQL Supergraph.
+ * @returns {import('@tanstack/react-query').UseQueryResult<Transaction[], Error>} The result of the query.
  */
 const useTransactions = () => {
     return useQuery<Transaction[], Error>({
@@ -78,6 +84,9 @@ const useTransactions = () => {
 
 /**
  * Hook to generate an AI insight for transactions via a GraphQL mutation.
+ * @param {string} insightType - The type of insight to request.
+ * @param {Transaction[]} [transactions] - The transactions to analyze (optional, for context).
+ * @returns {import('@tanstack/react-query').UseMutationResult<any, Error, void, unknown>} The mutation object.
  */
 const useTransactionInsight = (insightType: string, transactions?: Transaction[]) => {
     return useMutation<{ askAIAdvisor: { messages: any[] } }, Error>({
@@ -100,6 +109,11 @@ const useTransactionInsight = (insightType: string, transactions?: Transaction[]
 // UI COMPONENTS
 // ================================================================================================
 
+/**
+ * A modal to display detailed information about a single transaction.
+ * @param {{ transaction: Transaction | null; onClose: () => void; }} props - The props for the component.
+ * @returns {React.ReactElement | null} The rendered modal or null.
+ */
 const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClose: () => void }> = ({ transaction, onClose }) => {
     if (!transaction) return null;
 
@@ -116,7 +130,7 @@ const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClos
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Date:</span> <span className="text-white">{transaction.date}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Category:</span> <span className="text-white">{transaction.category}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Transaction ID:</span> <span className="text-white font-mono text-xs">{transaction.id}</span></div>
-                    {transaction.carbonFootprint && <div className="flex justify-between text-sm"><span className="text-gray-400">Carbon Footprint:</span> <span className="text-green-300">{transaction.carbonFootprint.toFixed(1)} kg COâ‚‚</span></div>}
+                    {transaction.carbonFootprint && <div className="flex justify-between text-sm"><span className="text-gray-400">Carbon Footprint:</span> <span className="text-green-300">{transaction.carbonFootprint.toFixed(1)} kg CO&acirc;&sbquo;&acirc;</span></div>}
                 </div>
             </div>
         </div>
@@ -126,9 +140,14 @@ const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClos
 interface AITransactionWidgetProps {
     title: string;
     mutation: UseMutationResult<any, Error, void, unknown>;
-    children?: (result: any) => React.ReactNode;
+    children?: (result: string) => React.ReactNode;
 }
 
+/**
+ * A widget that triggers an AI mutation and displays the result.
+ * @param {AITransactionWidgetProps} props - The props for the component.
+ * @returns {React.ReactElement} The rendered widget.
+ */
 const AITransactionWidget: React.FC<AITransactionWidgetProps> = ({ title, mutation, children }) => {
     const { mutate, data, isPending: isLoading, error } = mutation;
     
@@ -159,6 +178,10 @@ const AITransactionWidget: React.FC<AITransactionWidgetProps> = ({ title, mutati
     );
 };
 
+/**
+ * A skeleton loader for the transaction table.
+ * @returns {React.ReactElement} The skeleton table body.
+ */
 const TransactionTableSkeleton: React.FC = () => (
     <tbody>
         {Array.from({ length: 5 }).map((_, i) => (
@@ -172,6 +195,10 @@ const TransactionTableSkeleton: React.FC = () => (
     </tbody>
 );
 
+/**
+ * The main view for displaying and managing all user transactions.
+ * @returns {React.ReactElement} The rendered TransactionsView component.
+ */
 const TransactionsView: React.FC = () => {
     const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
     const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
@@ -276,9 +303,14 @@ const TransactionsView: React.FC = () => {
 
 // To use this component in the main app, it must be wrapped in a QueryClientProvider.
 // This is typically done at the root of the application (e.g., in App.tsx).
-// For isolated demonstration, we can wrap it here.
+// For isolated demonstration or as an MFE, we can wrap it here.
 const queryClient = new QueryClient();
 
+/**
+ * A wrapper component that provides a TanStack Query client to the TransactionsView.
+ * This makes the component self-contained regarding its server state management.
+ * @returns {React.ReactElement} The TransactionsView component wrapped with its data provider.
+ */
 const TransactionsViewWithProvider: React.FC = () => (
     <QueryClientProvider client={queryClient}>
         <TransactionsView />

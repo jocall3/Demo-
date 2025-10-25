@@ -40,6 +40,12 @@ const GET_RECENT_TRANSACTIONS = gql`
 // UI Sub-components (Largely unchanged, as they are presentational)
 // ===================================================================================
 
+/**
+ * Renders a category-specific icon for a transaction.
+ * @param {object} props - The component props.
+ * @param {string} props.category - The category of the transaction.
+ * @returns {React.ReactElement} A scalable vector graphic icon.
+ */
 const TransactionIcon: React.FC<{ category: string }> = ({ category }) => {
     let iconPath;
     switch (category) {
@@ -79,6 +85,12 @@ const TransactionIcon: React.FC<{ category: string }> = ({ category }) => {
     );
 };
 
+/**
+ * Displays a small badge with the estimated carbon footprint of a transaction.
+ * @param {object} props - The component props.
+ * @param {number} props.footprint - The carbon footprint in kg CO2.
+ * @returns {React.ReactElement} A styled badge component.
+ */
 const CarbonFootprintBadge: React.FC<{ footprint: number }> = ({ footprint }) => {
     const getBadgeStyle = () => {
         if (footprint < 2) return 'text-green-400';
@@ -96,6 +108,13 @@ const CarbonFootprintBadge: React.FC<{ footprint: number }> = ({ footprint }) =>
     );
 };
 
+/**
+ * A modal component to display detailed information about a selected transaction.
+ * @param {object} props - The component props.
+ * @param {Transaction | null} props.transaction - The transaction to display, or null.
+ * @param {() => void} props.onClose - Function to call when the modal should be closed.
+ * @returns {React.ReactElement | null} The modal element or null if no transaction is selected.
+ */
 const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClose: () => void }> = ({ transaction, onClose }) => {
     if (!transaction) return null;
 
@@ -124,10 +143,21 @@ const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClos
 // Main Component
 // ===================================================================================
 
+/**
+ * Props for the RecentTransactions component.
+ * @property {(view: View) => void} setActiveView - A callback function to change the main application view.
+ */
 interface RecentTransactionsProps {
   setActiveView: (view: View) => void;
 }
 
+/**
+ * Displays a list of the 5 most recent transactions for the user.
+ * This component fetches its own data using Apollo Client's `useQuery` hook,
+ * aligning with the new federated data architecture and separation of concerns.
+ * @param {RecentTransactionsProps} props - The component props.
+ * @returns {React.ReactElement} The rendered RecentTransactions component.
+ */
 const RecentTransactions: React.FC<RecentTransactionsProps> = ({ setActiveView }) => {
   // Fetch data using Apollo Client's useQuery hook.
   const { data, loading, error } = useQuery(GET_RECENT_TRANSACTIONS);
@@ -140,7 +170,7 @@ const RecentTransactions: React.FC<RecentTransactionsProps> = ({ setActiveView }
   // Sort and slice the transactions once the data is available.
   const transactions = data?.userData?.transactions
     ?.slice() // Create a shallow copy to avoid mutating the cache
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .sort((a: Transaction, b: Transaction) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 5);
 
   const renderContent = () => {
