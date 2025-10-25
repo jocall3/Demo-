@@ -1,0 +1,28 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: event-bus
+  description: A client-side event bus library for Micro-Frontend (MFE) communication, enabling decoupled interactions between the shell and remote modules.
+  tags:
+    - library
+    - event-bus
+    - mfe
+    - frontend
+    - typescript
+  annotations:
+    # This annotation tells Backstage where to find the source code for this component.
+    # In a real setup, this would point to the specific location within the mono-repository.
+    backstage.io/source-location: dir:packages/event-bus
+    # This annotation tells the TechDocs plugin where to find the documentation markdown files.
+    # 'dir:.' assumes the docs are co-located in the same directory as this file.
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: library
+  lifecycle: production
+  # This component is owned by the Frontend Platform team, which manages shared infrastructure.
+  owner: team-frontend-platform
+  # It is part of the overarching system of micro-frontends.
+  system: demobank-frontend
+  # This library provides a client-side API for eventing.
+  providesApis:
+    - event-bus-client-api
