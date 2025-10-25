@@ -1,106 +1,176 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { Client as TemporalClient } from '@temporalio/client';
-import { ClientKafka } from '@nestjs/microservices';
 import { v4 as uuidv4 } from 'uuid';
 
-import { InitiatePaymentDto } from './dto/initiate-payment.dto';
-import { paymentWorkflow } from '../temporal/workflows/payment.workflow';
+import { Transaction } from './entities/transaction.entity';
+import { TransactionFilterInput, InitiatePaymentInput } from './dto/transaction.inputs';
+import { NewTransactionsPayload } from './dto/new-transactions.payload';
+import { paymentWorkflow } from '../temporal/workflows';
 import { TEMPORAL_CLIENT } from '../temporal/temporal.constants';
 import { KAFKA_PRODUCER_CLIENT } from '../event-bus/event-bus.module';
-
-// =============================================================================
-// Domain Events (Conceptual - These would typically be in a shared 'events' library)
-// These define the structure of events published to Kafka.
-// =============================================================================
+import { ClientKafka } from '@nestjs/microservices';
 
 /**
- * @description Event emitted when a payment request is initiated and accepted by the system.
- */
-interface PaymentInitiatedEvent {
-  transactionId: string; // Corresponds to the workflow ID
-  userId: string;
-  fromAccountId: string;
-  toAccountId: string;
-  amount: number;
-  currency: string;
-  timestamp: string;
-  status: 'PENDING';
-}
-
-// =============================================================================
-// Transaction Service
-// =============================================================================
-
-/**
- * @Injectable
- * Service responsible for handling commands related to financial transactions.
+ * @class TransactionService
+ * @description This service class adheres to CQRS principles within a Hexagonal Architecture.
+ * It is the primary application service for the Transaction bounded context.
  *
- * This service implements the command-side of the CQRS pattern. It does NOT
- * directly interact with a database for state modification. Instead, it:
- * 1. Validates incoming commands.
- * 2. Publishes immutable domain events to an event store (Kafka) representing
- *    the intent and outcome of an operation.
- * 3. Initiates durable workflows (Temporal) for complex, long-running business processes (Sagas).
+ * Command-Side Responsibilities:
+ * - Handles incoming commands (e.g., `initiatePayment`).
+ * - Does NOT mutate state directly. Instead, it initiates durable workflows (Sagas)
+ *   via a workflow orchestration engine (Temporal) for complex, multi-step business processes.
+ * - For simpler state changes, it would publish domain events to an event store (Kafka).
  *
- * Query-side responsibilities (fetching transaction lists or details) are handled by
- * separate read models, which are built asynchronously by consuming events from Kafka.
+ * Query-Side Responsibilities:
+ * - Provides methods to query a denormalized, optimized read model (e.g., `findById`, `findAllByUserId`).
+ * - The read model is populated asynchronously by separate event handlers (projectors).
+ *
+ * Read Model Projection Responsibilities:
+ * - Includes methods (`updateReadModel...`, `deleteTransactionsFromReadModel`) that are invoked
+ *   by event handlers (in `transaction.controller.ts`) to maintain the read model's consistency with the event stream.
  */
 @Injectable()
 export class TransactionService {
   private readonly logger = new Logger(TransactionService.name);
 
+  /**
+   * @constructor
+   * @param {TemporalClient} temporalClient - The client for interacting with the Temporal workflow engine. This is an injected port.
+   * @param {ClientKafka} eventPublisher - The client for publishing events to the Kafka message bus. This is an injected port.
+   * @param {Repository<Transaction>} transactionRepository - The repository for the Transaction read model. This is an injected adapter.
+   */
   constructor(
     @Inject(TEMPORAL_CLIENT) private readonly temporalClient: TemporalClient,
     @Inject(KAFKA_PRODUCER_CLIENT) private readonly eventPublisher: ClientKafka,
+    @InjectRepository(Transaction)
+    private readonly transactionRepository: Repository<Transaction>,
   ) {}
 
-  /**
-   * Initiates a multi-step payment process as a durable, stateful workflow.
-   * This method acts as a command handler, publishing a `PaymentInitiatedEvent`
-   * and starting a Temporal workflow to orchestrate the payment saga.
-   *
-   * @param paymentDetails The details of the payment command.
-   * @returns A promise that resolves with the unique workflow ID for tracking.
-   */
-  async initiatePayment(paymentDetails: InitiatePaymentDto): Promise<string> {
-    const { fromAccountId, toAccountId, amount, currency, userId } = paymentDetails;
-    const workflowId = `payment-${uuidv4()}`; // Unique ID for the workflow and initial transaction
+  // =============================================================================
+  // COMMAND-SIDE METHODS
+  // These methods initiate state changes but do not directly mutate state.
+  // =============================================================================
 
+  /**
+   * Initiates a multi-step payment transfer as a durable, stateful workflow using Temporal.
+   * This method acts as a command handler for initiating a payment saga.
+   *
+   * @param {InitiatePaymentInput} paymentDetails - The details of the payment command from the GraphQL API.
+   * @returns {Promise<string>} A promise that resolves with the unique workflow ID for tracking the payment process.
+   */
+  async initiatePayment(paymentDetails: InitiatePaymentInput): Promise<string> {
+    const workflowId = `payment-${uuidv4()}`;
     this.logger.log(
-      `Received 'initiatePayment' command for user ${userId}. Starting workflow ${workflowId}.`,
+      `Initiating payment workflow ${workflowId} for user ${paymentDetails.userId}.`,
     );
 
-    // 1. Publish a PaymentInitiatedEvent to the event store (Kafka).
-    // This event signifies that the payment request has been accepted and processing has begun.
-    const paymentInitiatedEvent: PaymentInitiatedEvent = {
-      transactionId: workflowId,
-      userId: userId,
-      fromAccountId: fromAccountId,
-      toAccountId: toAccountId,
-      amount: amount,
-      currency: currency,
-      timestamp: new Date().toISOString(),
-      status: 'PENDING',
-    };
-
-    // `emit` returns an Observable, we need to convert it to a Promise for async/await.
-    await this.eventPublisher.emit('payment.initiated', JSON.stringify(paymentInitiatedEvent)).toPromise();
-    this.logger.log(`Published 'payment.initiated' event for workflow ${workflowId} to Kafka.`);
-
-    // 2. Start the Temporal workflow execution.
-    // The workflow will coordinate the actual debit, credit, and subsequent event publishing.
-    const handle = await this.temporalClient.workflow.start(paymentWorkflow, {
-      taskQueue: 'payments-task-queue', // This should match the task queue the worker is listening on
+    // The workflow itself will emit granular events (debited, credited, failed).
+    // This initial command starts that process.
+    await this.temporalClient.workflow.start(paymentWorkflow, {
+      taskQueue: 'transactions-queue',
       workflowId: workflowId,
-      args: [paymentDetails],
-      // Options like workflow execution timeout, retry policies can be defined here.
-      // workflowExecutionTimeout: '5 minutes',
-      // retry: { ... }
+      args: [{ ...paymentDetails, transactionId: workflowId }], // Pass the generated ID to the workflow
     });
 
-    this.logger.log(`Temporal workflow ${handle.workflowId} started successfully.`);
+    this.logger.log(`Payment workflow ${workflowId} started successfully.`);
+    return workflowId;
+  }
 
-    // 3. Return the workflowId to the caller for tracking.
-    return handle.workflowId;
+  // =============================================================================
+  // QUERY-SIDE METHODS
+  // These methods query the denormalized read model for efficient data retrieval.
+  // =============================================================================
+
+  /**
+   * Finds a single transaction by its unique ID from the read model.
+   *
+   * @param {string} id - The unique identifier of the transaction.
+   * @returns {Promise<Transaction | null>} The found transaction or null if it doesn't exist.
+   */
+  async findById(id: string): Promise<Transaction | null> {
+    this.logger.debug(`Querying read model for transaction with ID: ${id}`);
+    return this.transactionRepository.findOneBy({ id });
+  }
+
+  /**
+   * Finds all transactions for a given user, with optional filtering, from the read model.
+   *
+   * @param {string} userId - The ID of the user whose transactions are being queried.
+   * @param {TransactionFilterInput} [filter] - Optional filters for pagination and date range.
+   * @returns {Promise<Transaction[]>} An array of transactions matching the query.
+   */
+  async findAllByUserId(userId: string, filter?: TransactionFilterInput): Promise<Transaction[]> {
+    this.logger.debug(`Querying read model for transactions of user: ${userId}`);
+    const queryBuilder = this.transactionRepository.createQueryBuilder('transaction');
+
+    queryBuilder.where('"transaction"."userId" = :userId', { userId });
+
+    if (filter?.accountId) {
+      queryBuilder.andWhere('"transaction"."accountId" = :accountId', { accountId: filter.accountId });
+    }
+    if (filter?.startDate) {
+      queryBuilder.andWhere('"transaction"."date" >= :startDate', { startDate: filter.startDate });
+    }
+    if (filter?.endDate) {
+      queryBuilder.andWhere('"transaction"."date" <= :endDate', { endDate: filter.endDate });
+    }
+
+    return queryBuilder
+      .orderBy('"transaction"."date"', 'DESC')
+      .skip(filter?.offset ?? 0)
+      .take(filter?.limit ?? 100)
+      .getMany();
+  }
+
+  // =============================================================================
+  // READ MODEL PROJECTION METHODS
+  // These methods are called by event handlers to update the read model.
+  // =============================================================================
+
+  /**
+   * Updates the transaction read model with new transactions from an external source.
+   * This method is called by the `handleTransactionsSynced` event handler.
+   *
+   * @param {NewTransactionsPayload} payload - The payload containing new transactions.
+   * @returns {Promise<void>}
+   */
+  async updateReadModelWithNewTransactions(payload: NewTransactionsPayload): Promise<void> {
+    const transactionEntities = payload.transactions.map((tx) =>
+      this.transactionRepository.create({
+        id: tx.transaction_id,
+        userId: payload.userId,
+        accountId: tx.account_id,
+        amount: tx.amount,
+        category: tx.category?.[0] ?? 'Uncategorized',
+        categoryHierarchy: tx.category ?? [],
+        date: tx.date,
+        description: tx.name,
+        merchantName: tx.merchant_name,
+        isoCurrencyCode: tx.iso_currency_code,
+        pending: tx.pending,
+        type: tx.amount >= 0 ? 'INCOME' : 'EXPENSE',
+      }),
+    );
+
+    // Use `save` with `chunk` option for better performance with large arrays.
+    await this.transactionRepository.save(transactionEntities, { chunk: 100 });
+    this.logger.log(`Upserted ${transactionEntities.length} transactions into the read model for user ${payload.userId}.`);
+  }
+
+  /**
+   * Deletes all transactions associated with a specific account from the read model.
+   * This is typically triggered when an account is unlinked.
+   *
+   * @param {string} userId - The ID of the user who owns the account.
+   * @param {string} accountId - The ID of the account whose transactions should be deleted.
+   * @returns {Promise<void>}
+   */
+  async deleteTransactionsFromReadModel(userId: string, accountId: string): Promise<void> {
+    const deleteResult = await this.transactionRepository.delete({ userId, accountId });
+    this.logger.log(
+      `Deleted ${deleteResult.affected ?? 0} transactions from read model for account ${accountId}.`,
+    );
   }
 }
