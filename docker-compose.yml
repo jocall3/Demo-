@@ -13,6 +13,10 @@ volumes:
   kafka_data: {}
   es_data: {}
   temporal_db_data: {}
+  user_db_data: {}
+  accounts_db_data: {}
+  transactions_db_data: {}
+  plaid_db_data: {}
 
 services:
   # --------------------------------------------------------------------------
@@ -48,7 +52,54 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
 
   # --------------------------------------------------------------------------
-  # Security Services (New Architecture)
+  # Dedicated Databases for Microservices (Data Mesh Principle)
+  # --------------------------------------------------------------------------
+  user-db:
+    image: postgres:15-alpine
+    container_name: user-db
+    networks: [app-net]
+    volumes:
+      - user_db_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: user_db
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+
+  accounts-db:
+    image: postgres:15-alpine
+    container_name: accounts-db
+    networks: [app-net]
+    volumes:
+      - accounts_db_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: accounts_db
+      POSTGRES_USER: accounts
+      POSTGRES_PASSWORD: password
+
+  transactions-db:
+    image: postgres:15-alpine
+    container_name: transactions-db
+    networks: [app-net]
+    volumes:
+      - transactions_db_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: transactions_db
+      POSTGRES_USER: transactions
+      POSTGRES_PASSWORD: password
+
+  plaid-integration-db:
+    image: postgres:15-alpine
+    container_name: plaid-integration-db
+    networks: [app-net]
+    volumes:
+      - plaid_db_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: plaid_db
+      POSTGRES_USER: plaid
+      POSTGRES_PASSWORD: password
+
+  # --------------------------------------------------------------------------
+  # Security Services
   # --------------------------------------------------------------------------
   vault:
     image: hashicorp/vault:1.15
@@ -139,13 +190,19 @@ services:
       KONG_PROXY_ERROR_LOG: /dev/stderr
       KONG_ADMIN_ERROR_LOG: /dev/stderr
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
-      KONG_PLUGINS: "bundled,oidc"
+      KONG_PLUGINS: "bundled,oidc" # Ensure OIDC plugin is enabled
+      # These are for the Kong OIDC plugin to connect to Keycloak
+      OIDC_DISCOVERY_ENDPOINT: http://keycloak:8080/realms/demobank
+      OIDC_CLIENT_ID: demobank-frontend
+      # KONG_SESSION_SECRET is essential for OIDC sessions in Kong
+      KONG_SESSION_SECRET: a_very_long_and_secret_string_for_kong_sessions
     ports:
       - "8000:8000" # Proxy traffic
       - "8001:8001" # Admin API
     depends_on:
       - kong-migrations
-      - apollo-gateway
+      - apollo-gateway # Kong should start after the Apollo Gateway is ready
+      - keycloak # Kong needs Keycloak for OIDC
 
   # --------------------------------------------------------------------------
   # Workflow Orchestration Engine (Temporal)
@@ -155,8 +212,7 @@ services:
     container_name: temporal-db
     networks:
       - app-net
-    ports:
-      - "5433:5432"
+    # No direct host port exposure, only internal to `app-net`
     environment:
       - POSTGRES_USER=temporal
       - POSTGRES_PASSWORD=temporal
@@ -168,8 +224,8 @@ services:
     image: temporalio/auto-setup:1.22.3
     container_name: temporal
     ports:
-      - "7233:7233" # gRPC
-      - "8088:8088" # Web UI
+      - "7233:7233" # gRPC for client and worker connections
+      - "8088:8088" # Temporal Web UI
     networks:
       - app-net
     environment:
@@ -197,7 +253,7 @@ services:
   # --------------------------------------------------------------------------
   apollo-gateway:
     build:
-      context: ./api-gateway
+      context: ./api-gateway # Corresponds to the folder name in the repo structure
       dockerfile: Dockerfile
     container_name: apollo-gateway
     networks:
@@ -212,19 +268,25 @@ services:
       NODE_ENV: development
       OTEL_SERVICE_NAME: apollo-gateway
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      # Subgraph URLs point to internal Docker service names
       USERS_SERVICE_URL: http://user-service:4001/graphql
       ACCOUNTS_SERVICE_URL: http://accounts-service:4002/graphql
       TRANSACTIONS_SERVICE_URL: http://transactions-service:4003/graphql
       AI_AGENT_SERVICE_URL: http://ai-agent-service:4004/graphql
       PLAID_INTEGRATION_SERVICE_URL: http://plaid-integration-service:4005/graphql
       VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: root
+      VAULT_TOKEN: root # For development only, use AppRole in production
+      TEMPORAL_ADDRESS: temporal:7233 # Point to Temporal frontend for workflow client
+      TEMPORAL_NAMESPACE: default
     depends_on:
       - user-service
       - accounts-service
       - transactions-service
       - ai-agent-service
       - plaid-integration-service
+      - otel-collector
+      - vault
+      - temporal
 
   user-service:
     build: ./services/user-service
@@ -234,11 +296,24 @@ services:
     volumes: ['./services/user-service:/app', '/app/node_modules']
     environment:
       PORT: 4001
+      NODE_ENV: development
       OTEL_SERVICE_NAME: user-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      PROMETHEUS_PORT: 9465 # For Prometheus scraping
+      KAFKA_BROKERS: kafka:29092 # Internal Kafka listener
+      KAFKA_GROUP_ID: user-service-group
+      DB_HOST: user-db
+      DB_PORT: 5432
+      DB_USERNAME: user
+      DB_PASSWORD: password
+      DB_DATABASE: user_db
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
-    depends_on: [otel-collector, vault, kafka]
+    depends_on:
+      - user-db
+      - otel-collector
+      - vault
+      - kafka
 
   accounts-service:
     build: ./services/accounts-service
@@ -248,12 +323,27 @@ services:
     volumes: ['./services/accounts-service:/app', '/app/node_modules']
     environment:
       PORT: 4002
+      NODE_ENV: development
       OTEL_SERVICE_NAME: accounts-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      PROMETHEUS_PORT: 9466 # For Prometheus scraping
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_GROUP_ID: accounts-consumer
+      ACCOUNTS_DB_HOST: accounts-db # Corrected to use internal DB service name
+      ACCOUNTS_DB_PORT: 5432
+      ACCOUNTS_DB_USER: accounts
+      ACCOUNTS_DB_PASS: password
+      ACCOUNTS_DB_NAME: accounts_db
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
       TEMPORAL_ADDRESS: temporal:7233
-    depends_on: [otel-collector, vault, kafka, temporal]
+      TEMPORAL_NAMESPACE: default
+    depends_on:
+      - accounts-db
+      - otel-collector
+      - vault
+      - kafka
+      - temporal
 
   transactions-service:
     build: ./services/transactions-service
@@ -263,12 +353,28 @@ services:
     volumes: ['./services/transactions-service:/app', '/app/node_modules']
     environment:
       PORT: 4003
+      NODE_ENV: development
       OTEL_SERVICE_NAME: transactions-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      PROMETHEUS_PORT: 9468 # For Prometheus scraping
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_GROUP_ID: transactions-group
+      DATABASE_HOST: transactions-db # Corrected to use internal DB service name
+      DATABASE_PORT: 5432
+      DATABASE_USER: transactions
+      DATABASE_PASSWORD: password
+      DATABASE_NAME: transactions_db
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
       TEMPORAL_ADDRESS: temporal:7233
-    depends_on: [otel-collector, vault, kafka, temporal]
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TRANSACTIONS_TASK_QUEUE: transactions-queue
+    depends_on:
+      - transactions-db
+      - otel-collector
+      - vault
+      - kafka
+      - temporal
 
   ai-agent-service:
     build: ./services/ai-agent-service
@@ -278,12 +384,21 @@ services:
     volumes: ['./services/ai-agent-service:/app', '/app/node_modules']
     environment:
       PORT: 4004
+      NODE_ENV: development
       OTEL_SERVICE_NAME: ai-agent-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      PROMETHEUS_PORT: 9467 # For Prometheus scraping
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_GROUP_ID: ai-agent-consumer
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
       TEMPORAL_ADDRESS: temporal:7233
-    depends_on: [otel-collector, vault, kafka, temporal]
+      TEMPORAL_NAMESPACE: default
+    depends_on:
+      - otel-collector
+      - vault
+      - kafka
+      - temporal
 
   plaid-integration-service:
     build: ./services/plaid-integration-service
@@ -293,14 +408,24 @@ services:
     volumes: ['./services/plaid-integration-service:/app', '/app/node_modules']
     environment:
       PORT: 4005
+      NODE_ENV: development
       OTEL_SERVICE_NAME: plaid-integration-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      PROMETHEUS_PORT: 9469 # For Prometheus scraping
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_GROUP_ID: plaid-integration-group
+      DATABASE_URL: postgresql://plaid:password@plaid-integration-db:5432/plaid_db
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
-    depends_on: [otel-collector, vault, kafka]
+      # PLAID_CLIENT_ID and PLAID_SECRET will be fetched from Vault at startup
+    depends_on:
+      - plaid-integration-db
+      - otel-collector
+      - vault
+      - kafka
 
   # --------------------------------------------------------------------------
-  # Frontend
+  # Frontend (Micro-Frontend Shell)
   # --------------------------------------------------------------------------
   frontend:
     container_name: frontend
@@ -316,11 +441,15 @@ services:
       - /app/node_modules
     environment:
       NODE_ENV: development
-      VITE_GRAPHQL_GATEWAY_URL: http://localhost:8000/graphql # Points to Kong
-      VITE_OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318/v1/traces
+      VITE_GRAPHQL_GATEWAY_URL: http://kong-gateway:8000/graphql # Frontend points to Kong
+      VITE_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
       VITE_OTEL_SERVICE_NAME: 'frontend-client'
+      VITE_AUTH0_DOMAIN: http://keycloak:8180/realms/demobank # Keycloak domain
+      VITE_AUTH0_CLIENT_ID: demobank-frontend
+      VITE_AUTH0_AUDIENCE: apollo-gateway # Audience that the frontend requests a token for
     depends_on:
       - kong-gateway
+      - otel-collector # Frontend also sends telemetry
 
   # --------------------------------------------------------------------------
   # Observability Stack
@@ -332,9 +461,9 @@ services:
     volumes:
       - ./observability/otel-collector-config.yml:/etc/otelcol-contrib/config.yaml
     ports:
-      - "4317:4317" # gRPC
-      - "4318:4318" # HTTP
-      - "8889:8889" # Prometheus
+      - "4317:4317" # OTLP gRPC receiver
+      - "4318:4318" # OTLP HTTP receiver
+      - "8889:8889" # Prometheus exporter for collector's own metrics
     networks:
       - app-net
 
@@ -351,7 +480,7 @@ services:
     networks:
       - app-net
     depends_on:
-      - otel-collector
+      - otel-collector # Prometheus scrapes the OTel Collector
 
   grafana:
     image: grafana/grafana:10.4.1
@@ -361,6 +490,9 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/etc/grafana/dashboards/business # Mount dashboards
+      - ./grafana/dashboards:/etc/grafana/dashboards/platform
+      - ./grafana/dashboards:/etc/grafana/dashboards/workflows
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
@@ -375,19 +507,21 @@ services:
     container_name: jaeger
     ports:
       - "16686:16686"
+      - "14250:14250" # gRPC collector port
+      - "14268:14268" # HTTP collector port
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     networks:
       - app-net
     depends_on:
-      - otel-collector
+      - otel-collector # Jaeger receives traces from OTel Collector
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.2
     container_name: elasticsearch
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false
+      - xpack.security.enabled=false # Disable security for dev
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     ulimits:
       memlock:
