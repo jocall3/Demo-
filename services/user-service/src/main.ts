@@ -7,11 +7,10 @@ import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { diag, DiagConsoleLogger, DiagLogLevel, trace, context } from '@opentelemetry/api';
 
+const SERVICE_NAME = 'user-service';
+
 // For troubleshooting OpenTelemetry, set the log level to DiagLogLevel.DEBUG
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
-
-const SERVICE_NAME = 'user-service';
-const PROMETHEUS_PORT = parseInt(process.env.PROMETHEUS_PORT || '9465', 10);
 
 const otelSDK = new NodeSDK({
   resource: new Resource({
@@ -19,7 +18,7 @@ const otelSDK = new NodeSDK({
   }),
   traceExporter: new OTLPTraceExporter(),
   metricReader: new PrometheusExporter({
-    port: PROMETHEUS_PORT,
+    port: parseInt(process.env.PROMETHEUS_PORT || '9465', 10),
   }),
   instrumentations: [getNodeAutoInstrumentations()],
 });
@@ -104,7 +103,6 @@ class StructuredLogger implements LoggerService {
 
 // --- 4. Application Bootstrap ---
 async function bootstrap() {
-  // Use the custom structured logger for the entire application.
   const app = await NestFactory.create(AppModule, {
     logger: new StructuredLogger(),
   });
@@ -112,8 +110,8 @@ async function bootstrap() {
   const logger = app.get(StructuredLogger);
   const configService = app.get(ConfigService);
 
-  // Connect the application to the Kafka message bus as a consumer.
-  // This allows the UserController to listen for events like 'auth.user.created'.
+  // Connect the Kafka microservice for consuming events (e.g., from an auth provider)
+  // This is essential for the event-driven architecture.
   app.connectMicroservice({
     transport: Transport.KAFKA,
     options: {
@@ -130,16 +128,14 @@ async function bootstrap() {
   await app.startAllMicroservices();
   logger.log('Kafka microservice consumers started and listening for events.');
 
-  // Enable CORS - useful for allowing Apollo Studio to introspect the subgraph in development.
   app.enableCors();
   logger.log('CORS has been enabled for all origins.');
 
-  // Apply global pipes for validation and transformation of DTOs/Inputs.
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true, // Strip properties that do not have any decorators
-      forbidNonWhitelisted: true, // Throw an error if non-whitelisted values are provided
-      transform: true, // Automatically transform payloads to be objects typed according to their DTO classes
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
       transformOptions: {
         enableImplicitConversion: true,
       },
@@ -147,13 +143,13 @@ async function bootstrap() {
   );
   logger.log('Global ValidationPipe configured for GraphQL inputs.');
 
-  // Get port from environment variables, with a fallback.
   const port = configService.get<number>('PORT') || 4001;
+  const prometheusPort = process.env.PROMETHEUS_PORT || '9465';
 
   await app.listen(port);
 
   logger.log(`🚀 User subgraph (GraphQL API) is running on: http://localhost:${port}/graphql`);
-  logger.log(`Prometheus metrics available on port ${PROMETHEUS_PORT}`);
+  logger.log(`Prometheus metrics available on port ${prometheusPort}`);
 }
 
 bootstrap();
