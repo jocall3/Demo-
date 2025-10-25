@@ -1,0 +1,496 @@
+/**
+ * @file packages/ui-library/src/types/index.ts
+ * @description Single source of truth for all shared frontend data types.
+ *
+ * @architecturalNote
+ * This file contains the type definitions for data structures used across the MFE Shell
+ * and all Micro-Frontends (MFEs). These types are designed to align with the federated
+ * GraphQL supergraph schema.
+ *
+ * In a production CI/CD pipeline, these types would be automatically generated from the
+ * GraphQL schema using a tool like GraphQL Code Generator. This ensures type safety and
+ * consistency between the frontend applications and the API gateway.
+ * This library is versioned and published to a private NPM registry.
+ */
+
+// ================================================================================================
+// CORE ENUMS & CLIENT-SIDE STATE
+// ================================================================================================
+
+/**
+ * @enum View
+ * @description Defines all primary views/pages within the application for client-side navigation and routing.
+ * This is a client-side concern and is not part of the GraphQL schema.
+ */
+export enum View {
+  Dashboard = 'dashboard',
+  Transactions = 'transactions',
+  SendMoney = 'send-money',
+  Budgets = 'budgets',
+  Investments = 'investments',
+  AIAdvisor = 'ai-advisor',
+  QuantumWeaver = 'quantum-weaver',
+  AIAdStudio = 'ai-ad-studio',
+  Crypto = 'crypto',
+  Goals = 'goals',
+  Marketplace = 'marketplace',
+  Security = 'security',
+  Personalization = 'personalization',
+  CardCustomization = 'card-customization',
+  OpenBanking = 'open-banking',
+  CorporateCommand = 'corporate-command',
+  APIIntegration = 'api-integration',
+  Rewards = 'rewards',
+  CreditHealth = 'credit-health',
+  Settings = 'settings',
+  FinancialDemocracy = 'financial-democracy',
+  TheVision = 'the-vision',
+}
+
+/**
+ * @description Defines the types of dynamic background illusions available for personalization.
+ * This is a client-side UI state type.
+ */
+export type IllusionType = 'none' | 'aurora';
+
+// ================================================================================================
+// GRAPHQL SCHEMA ENUMS
+// These enums mirror the enums defined in the GraphQL schema.
+// ================================================================================================
+
+/**
+ * @enum TransactionType
+ * @description The business type of a financial transaction.
+ */
+export enum TransactionType {
+  INCOME = 'INCOME',
+  EXPENSE = 'EXPENSE',
+}
+
+/**
+ * @enum RewardType
+ * @description The type of reward that can be redeemed.
+ */
+export enum RewardType {
+  CASHBACK = 'CASHBACK',
+  GIFTCARD = 'GIFTCARD',
+  IMPACT = 'IMPACT',
+}
+
+/**
+ * @enum CreditRating
+ * @description A rating for credit-related metrics.
+ */
+export enum CreditRating {
+  EXCELLENT = 'EXCELLENT',
+  GOOD = 'GOOD',
+  FAIR = 'FAIR',
+  POOR = 'POOR',
+}
+
+/**
+ * @enum APIProvider
+ * @description An enumeration of all external API providers integrated with the system.
+ */
+export enum APIProvider {
+  Plaid = 'Plaid',
+  Stripe = 'Stripe',
+  Marqeta = 'Marqeta',
+  ModernTreasury = 'ModernTreasury',
+  GoogleGemini = 'GoogleGemini',
+}
+
+/**
+ * @enum APIStatusType
+ * @description The operational status of an API provider.
+ */
+export enum APIStatusType {
+  Operational = 'Operational',
+  DegradedPerformance = 'DegradedPerformance',
+  PartialOutage = 'PartialOutage',
+  MajorOutage = 'MajorOutage',
+}
+
+/**
+ * @enum WeaverStage
+ * @description The different stages of the Quantum Weaver business plan analysis process.
+ */
+export enum WeaverStage {
+  Pitch = 'Pitch',
+  Analysis = 'Analysis',
+  Test = 'Test',
+  FinalReview = 'FinalReview',
+  Approved = 'Approved',
+  Error = 'Error',
+}
+
+// ================================================================================================
+// GRAPHQL SUPERGRAPH TYPES
+// These interfaces represent the shape of data queried from the federated GraphQL endpoint.
+// ================================================================================================
+
+/**
+ * @interface Transaction
+ * @description Represents a single financial event, such as a purchase or deposit.
+ */
+export interface Transaction {
+  __typename?: 'Transaction';
+  id: string;
+  type: TransactionType;
+  category: string;
+  description: string;
+  amount: number;
+  date: string;
+  carbonFootprint?: number | null;
+}
+
+/**
+ * @interface Asset
+ * @description Represents a single asset within an investment portfolio.
+ */
+export interface Asset {
+  __typename?: 'Asset';
+  name: string;
+  value: number;
+  color: string;
+  esgRating?: number | null;
+  description?: string | null;
+  performanceYTD?: number | null;
+}
+
+/**
+ * @interface AIInsightChartData
+ * @description Represents a single data point for a chart within an AI insight.
+ */
+export interface AIInsightChartData {
+  __typename?: 'AIInsightChartData';
+  name: string;
+  value: number;
+}
+
+/**
+ * @interface AIInsight
+ * @description Represents a single piece of proactive advice or observation generated by the AI.
+ */
+export interface AIInsight {
+  __typename?: 'AIInsight';
+  id: string;
+  title: string;
+  description: string;
+  urgency: string;
+  chartData?: (AIInsightChartData | null)[] | null;
+}
+
+/**
+ * @interface BudgetCategory
+ * @description Represents a user-defined budget for a specific spending category.
+ */
+export interface BudgetCategory {
+  __typename?: 'BudgetCategory';
+  id: string;
+  name: string;
+  limit: number;
+  spent: number;
+  color: string;
+}
+
+/**
+ * @interface GamificationState
+ * @description Represents the user's progress in the gamified financial health system.
+ */
+export interface GamificationState {
+  __typename?: 'GamificationState';
+  score: number;
+  level: number;
+  levelName: string;
+  progress: number;
+  credits: number;
+}
+
+/**
+ * @interface Subscription
+ * @description Represents a recurring subscription identified from the user's transactions.
+ */
+export interface Subscription {
+  __typename?: 'Subscription';
+  id: string;
+  name: string;
+  amount: number;
+  nextPayment: string;
+  iconName: string;
+}
+
+/**
+ * @interface CreditScore
+ * @description Represents the user's credit score at a point in time.
+ */
+export interface CreditScore {
+  __typename?: 'CreditScore';
+  score: number;
+  change: number;
+  rating: CreditRating;
+}
+
+/**
+ * @interface CreditFactor
+ * @description Represents a single factor contributing to a user's credit score.
+ */
+export interface CreditFactor {
+  __typename?: 'CreditFactor';
+  name: string;
+  status: CreditRating;
+  description: string;
+}
+
+/**
+ * @interface CreditHealth
+ * @description A composite type containing all information related to a user's credit health.
+ */
+export interface CreditHealth {
+  __typename?: 'CreditHealth';
+  score: CreditScore;
+  factors: CreditFactor[];
+  aiTip?: string | null;
+}
+
+/**
+ * @interface UpcomingBill
+ * @description Represents a single upcoming bill payment.
+ */
+export interface UpcomingBill {
+  __typename?: 'UpcomingBill';
+  id: string;
+  name: string;
+  amount: number;
+  dueDate: string;
+}
+
+/**
+ * @interface AIGoalPlanStep
+ * @description Represents a single actionable step within an AI-generated financial plan.
+ */
+export interface AIGoalPlanStep {
+  __typename?: 'AIGoalPlanStep';
+  title: string;
+  description: string;
+  category: string;
+  timeline?: string;
+}
+
+/**
+ * @interface AIGoalPlan
+ * @description Represents an AI-generated plan to achieve a financial goal.
+ */
+export interface AIGoalPlan {
+  __typename?: 'AIGoalPlan';
+  feasibilitySummary: string;
+  monthlyContribution: number;
+  steps: AIGoalPlanStep[];
+}
+
+/**
+ * @interface Contribution
+ * @description Represents a single contribution made towards a financial goal.
+ */
+export interface Contribution {
+  __typename?: 'Contribution';
+  id: string;
+  amount: number;
+  date: string;
+  type: string;
+}
+
+/**
+ * @interface FinancialGoal
+ * @description Represents a user-defined financial savings or investment goal.
+ */
+export interface FinancialGoal {
+  __typename?: 'FinancialGoal';
+  id: string;
+  name: string;
+  targetAmount: number;
+  targetDate: string;
+  currentAmount: number;
+  iconName: string;
+  plan?: AIGoalPlan | null;
+  contributions?: (Contribution | null)[] | null;
+}
+
+/**
+ * @interface CryptoAsset
+ * @description Represents a single cryptocurrency asset in the user's portfolio.
+ */
+export interface CryptoAsset {
+  __typename?: 'CryptoAsset';
+  ticker: string;
+  name: string;
+  value: number;
+  amount: number;
+  color: string;
+}
+
+/**
+ * @interface NFTAsset
+ * @description Represents a single Non-Fungible Token (NFT) in the user's collection.
+ */
+export interface NFTAsset {
+  __typename?: 'NFTAsset';
+  id: string;
+  name: string;
+  imageUrl: string;
+  contractAddress: string;
+}
+
+/**
+ * @interface CryptoPortfolio
+ * @description A composite type containing all crypto-related assets for a user.
+ */
+export interface CryptoPortfolio {
+  __typename?: 'CryptoPortfolio';
+  assets: CryptoAsset[];
+  nfts: NFTAsset[];
+}
+
+/**
+ * @interface CorporateCardControls
+ * @description Represents the configurable controls and limits for a corporate card.
+ */
+export interface CorporateCardControls {
+  __typename?: 'CorporateCardControls';
+  atm: boolean;
+  contactless: boolean;
+  online: boolean;
+  monthlyLimit: number;
+}
+
+/**
+ * @interface CorporateCard
+ * @description Represents a single corporate credit or debit card.
+ */
+export interface CorporateCard {
+  __typename?: 'CorporateCard';
+  id: string;
+  holderName: string;
+  cardNumberMask: string;
+  status: string;
+  frozen: boolean;
+  controls: CorporateCardControls;
+}
+
+/**
+ * @interface CorporateTransaction
+ * @description Represents a single transaction made with a corporate card.
+ */
+export interface CorporateTransaction {
+  __typename?: 'CorporateTransaction';
+  id: string;
+  cardId: string;
+  holderName: string;
+  merchant: string;
+  amount: number;
+  status: string;
+  timestamp: string;
+}
+
+/**
+ * @interface CorporateData
+ * @description A composite type for all corporate banking information.
+ */
+export interface CorporateData {
+  __typename?: 'CorporateData';
+  cards: CorporateCard[];
+  transactions: CorporateTransaction[];
+  aiAnomalyInsight?: string | null;
+}
+
+/**
+ * @interface RewardPoints
+ * @description Represents the user's balance in the rewards program.
+ */
+export interface RewardPoints {
+  __typename?: 'RewardPoints';
+  balance: number;
+  currency: string;
+}
+
+/**
+ * @interface RewardItem
+ * @description Represents a single item available for redemption in the rewards marketplace.
+ */
+export interface RewardItem {
+  __typename?: 'RewardItem';
+  id: string;
+  name: string;
+  cost: number;
+  type: RewardType;
+  description: string;
+  iconName: string;
+}
+
+/**
+ * @interface Rewards
+ * @description A composite type for all rewards-related data.
+ */
+export interface Rewards {
+  __typename?: 'Rewards';
+  points: RewardPoints;
+  items: RewardItem[];
+}
+
+/**
+ * @interface Notification
+ * @description Represents a single notification for the user.
+ */
+export interface Notification {
+  __typename?: 'Notification';
+  id: string;
+  message: string;
+  timestamp: string;
+  read: boolean;
+  view?: string | null;
+}
+
+/**
+ * @interface APIStatus
+ * @description Represents the real-time operational status of a single downstream API provider.
+ */
+export interface APIStatus {
+  __typename?: 'APIStatus';
+  provider: APIProvider;
+  status: APIStatusType;
+  responseTime: number;
+}
+
+/**
+ * @interface AIQuestion
+ * @description Represents a single question generated by the AI during the Quantum Weaver process.
+ */
+export interface AIQuestion {
+  __typename?: 'AIQuestion';
+  id: string;
+  question: string;
+  category: string;
+}
+
+/**
+ * @interface UserData
+ * @description Represents the main data payload for the dashboard, combining multiple data sources.
+ * This is the primary query for hydrating the application's main view.
+ */
+export interface UserData {
+  __typename?: 'UserData';
+  transactions: Transaction[];
+  assets: Asset[];
+  aiInsights: AIInsight[];
+  budgets: BudgetCategory[];
+  gamification: GamificationState;
+  subscriptions: Subscription[];
+  upcomingBills: UpcomingBill[];
+  financialGoals: FinancialGoal[];
+  cryptoPortfolio: CryptoPortfolio;
+  corporateData: CorporateData;
+  creditHealth: CreditHealth;
+  rewards: Rewards;
+  notifications: Notification[];
+  apiStatus: APIStatus[];
+}
