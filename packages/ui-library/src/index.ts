@@ -10,8 +10,8 @@
  * ecosystem, reduce code duplication, and facilitate independent development and deployment,
  * aligning with the "Decompose Monolithic Frontend" architectural directive.
  *
- * @see /docs/adr/ADR-001-micro-frontend-decomposition.md
- * @see /docs/adr/ADR-008-jsdoc-tsdoc-and-adr.md
+ * @see /docs/adr/0002-micro-frontend-architecture.txt
+ * @see /docs/adr/0009-frontend-state-management.txt
  */
 
 // ===================================================================================
@@ -29,7 +29,7 @@ export * from './types';
 // SHARED COMPONENTS
 // ===================================================================================
 
-// --- Core UI Primitives ---
+// --- Core Layout & Interactive Components ---
 
 /**
  * @component Card
@@ -40,6 +40,20 @@ export * from './types';
 export { default as Card, type CardProps } from './components/Card';
 
 /**
+ * @component Header
+ * @description The main application header, designed to be used in the MFE Shell.
+ * It's a presentational component that receives user data and notifications via props.
+ */
+export { default as Header, type HeaderProps } from './components/Header';
+
+/**
+ * @component Sidebar
+ * @description The main application navigation sidebar, designed for the MFE Shell.
+ * It is a controlled component that receives navigation items and active state via props.
+ */
+export { default as Sidebar, type SidebarProps } from './components/Sidebar';
+
+/**
  * @component PlaidLinkButton
  * @description A specialized button component that encapsulates the logic for initiating the
  * Plaid Link flow. It provides a consistent and reusable way to connect bank accounts.
@@ -47,7 +61,7 @@ export { default as Card, type CardProps } from './components/Card';
 export { default as PlaidLinkButton, type PlaidLinkButtonProps } from './components/PlaidLinkButton';
 
 
-// --- Shared Dashboard Widgets ---
+// --- Reusable Dashboard Widgets ---
 // These are higher-order components, often composed of smaller primitives, that are
 // reused across different dashboards or MFEs.
 
