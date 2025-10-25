@@ -7,10 +7,10 @@ import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { diag, DiagConsoleLogger, DiagLogLevel, trace, context } from '@opentelemetry/api';
 
+const SERVICE_NAME = 'plaid-integration-service';
+
 // For troubleshooting OpenTelemetry, set the log level to DiagLogLevel.DEBUG
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
-
-const SERVICE_NAME = 'plaid-integration-service';
 
 const otelSDK = new NodeSDK({
   resource: new Resource({
@@ -18,34 +18,79 @@ const otelSDK = new NodeSDK({
   }),
   traceExporter: new OTLPTraceExporter(),
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.PROMETHEUS_PORT || '9468', 10),
+    port: parseInt(process.env.PROMETHEUS_PORT || '9469', 10),
   }),
   instrumentations: [getNodeAutoInstrumentations()],
 });
 
-// Gracefully shut down the SDK on process exit
+// Gracefully shut down the SDK on process exit.
 process.on('SIGTERM', () => {
   otelSDK
     .shutdown()
     .then(() => console.log(`OpenTelemetry SDK for ${SERVICE_NAME} shut down successfully.`))
-    .catch((error) => console.log(`Error shutting down OpenTelemetry SDK for ${SERVICE_NAME}.`, error))
+    .catch((error) => console.log('Error shutting down OpenTelemetry SDK.', error))
     .finally(() => process.exit(0));
 });
 
 otelSDK.start();
 
-// --- 2. NestJS Application Imports (after OTel setup) ---
+// --- 2. Application Imports (after OTel setup) ---
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, LoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import pino from 'pino';
 import { Transport } from '@nestjs/microservices';
+import pino from 'pino';
+import vault from 'node-vault';
 
-// --- 3. Structured Logging with OpenTelemetry Context ---
+// --- 3. Vault Secret Fetching ---
+const preBootstrapLogger = pino({ level: process.env.LOG_LEVEL || 'info' });
+
+async function fetchSecretsFromVault() {
+  try {
+    const vaultAddr = process.env.VAULT_ADDR;
+    const roleId = process.env.VAULT_ROLE_ID;
+    const secretId = process.env.VAULT_SECRET_ID;
+
+    if (!vaultAddr || !roleId || !secretId) {
+      preBootstrapLogger.warn('Vault AppRole environment variables not set. Skipping secret fetching. This is not suitable for production.');
+      return;
+    }
+
+    const vaultClient = vault({ apiVersion: 'v1', endpoint: vaultAddr });
+
+    preBootstrapLogger.info('Authenticating to Vault with AppRole...');
+    const result = await vaultClient.approleLogin({ role_id: roleId, secret_id: secretId });
+    vaultClient.token = result.auth.client_token;
+    preBootstrapLogger.info('Successfully authenticated to Vault.');
+
+    const secretPath = process.env.VAULT_KV_PATH;
+    if (!secretPath) {
+        throw new Error('VAULT_KV_PATH environment variable not set.');
+    }
+
+    preBootstrapLogger.info(`Fetching secrets from Vault at path: ${secretPath}`);
+    const secrets = await vaultClient.read(secretPath);
+
+    if (!secrets?.data?.data) {
+      throw new Error(`Secrets not found in Vault at path '${secretPath}' or data is empty.`);
+    }
+
+    // Set Plaid and Encryption secrets as environment variables for ConfigService to pick up
+    process.env.PLAID_CLIENT_ID = secrets.data.data.PLAID_CLIENT_ID;
+    process.env.PLAID_SECRET = secrets.data.data.PLAID_SECRET;
+    process.env.DATA_ENCRYPTION_KEY = secrets.data.data.DATA_ENCRYPTION_KEY;
+
+    preBootstrapLogger.info('Successfully fetched and configured secrets from Vault.');
+  } catch (error) {
+    preBootstrapLogger.error({ err: error }, 'Failed to fetch secrets from Vault. Application will exit.');
+    process.exit(1);
+  }
+}
+
+// --- 4. Structured Logging with OpenTelemetry Context ---
 class StructuredLogger implements LoggerService {
   private readonly pino: pino.Logger;
-  private readonly serviceName = SERVICE_NAME;
 
   constructor() {
     this.pino = pino({
@@ -53,7 +98,7 @@ class StructuredLogger implements LoggerService {
       formatters: {
         log: (object) => {
           const span = trace.getSpan(context.active());
-          const logObject: { [key: string]: any } = { ...object, service: this.serviceName };
+          const logObject: { [key: string]: any } = { ...object, service: SERVICE_NAME };
           if (span) {
             const spanContext = span.spanContext();
             logObject.trace_id = spanContext.traceId;
@@ -79,8 +124,10 @@ class StructuredLogger implements LoggerService {
   verbose?(message: any, context?: string) { this.pino.trace({ context }, message); }
 }
 
-// --- 4. Application Bootstrap ---
+// --- 5. Application Bootstrap ---
 async function bootstrap() {
+  await fetchSecretsFromVault();
+
   const app = await NestFactory.create(AppModule, {
     logger: new StructuredLogger(),
   });
@@ -94,7 +141,7 @@ async function bootstrap() {
     options: {
       client: {
         brokers: configService.getOrThrow<string>('KAFKA_BROKERS').split(','),
-        clientId: configService.get<string>('KAFKA_CLIENT_ID', 'plaid-integration-service'),
+        clientId: SERVICE_NAME,
       },
       consumer: {
         groupId: configService.getOrThrow<string>('KAFKA_GROUP_ID'),
@@ -117,19 +164,22 @@ async function bootstrap() {
   );
   logger.log('Global ValidationPipe configured.');
 
-  // Start all microservice listeners
+  // Start all microservice listeners (e.g., the Kafka consumer)
   await app.startAllMicroservices();
-  logger.log('Kafka microservice listener started.');
+  logger.log('Kafka microservice consumer started.');
 
   // Get port from environment variables, with a fallback
   const port = configService.get<number>('PORT', 4005);
-  const prometheusPort = process.env.PROMETHEUS_PORT || '9468';
+  const prometheusPort = process.env.PROMETHEUS_PORT || '9469';
 
   // Start the HTTP server for the GraphQL subgraph
   await app.listen(port);
 
-  logger.log(`Plaid Integration subgraph is running on: http://localhost:${port}/graphql`);
+  logger.log(`🚀 Plaid Integration subgraph is running on: http://localhost:${port}/graphql`);
   logger.log(`Prometheus metrics available on port ${prometheusPort}`);
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  preBootstrapLogger.error('Application bootstrap failed', err.stack);
+  process.exit(1);
+});

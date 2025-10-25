@@ -1,0 +1,39 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: plaid-service
+  description: Plaid subgraph for the Demo Bank federated supergraph, responsible for Plaid API interactions and data synchronization.
+  tags:
+    - backend
+    - service
+    - graphql
+    - subgraph
+    - nestjs
+    - plaid
+  annotations:
+    # This annotation tells Backstage where to find the technical documentation for this component.
+    # 'dir:.' means it will look for a mkdocs.yml file and a /docs directory in the same folder.
+    backstage.io/techdocs-ref: dir:.
+    # This annotation is for Kubernetes plugins to find related pods.
+    backstage.io/kubernetes-label-selector: 'app=plaid-service'
+spec:
+  type: service
+  lifecycle: production
+  # The team that owns this service.
+  owner: team-banking-integrations
+  # The larger system this service is a part of.
+  system: core-backend
+  # Defines the APIs that this component provides to the system.
+  providesApis:
+    - plaid-graphql-subgraph
+  # Defines the APIs this component consumes.
+  consumesApis:
+    - plaid-external-api
+  # Defines the resources this component depends on to function.
+  dependsOn:
+    - resource:default/plaid-db
+    - component:default/api-gateway # Subgraphs are consumed by the gateway
+  links:
+    - url: http://localhost:4005/graphql
+      title: GraphQL Playground (Local)
+      icon: api
