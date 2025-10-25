@@ -1,14 +1,12 @@
-import { Args, Mutation, Resolver, InputType, Field, Int, ObjectType } from '@nestjs/graphql';
+import { Args, Mutation, Resolver, InputType, Field, Int, ObjectType, Query } from '@nestjs/graphql';
 import { UsePipes, ValidationPipe, Logger } from '@nestjs/common';
 import { AgentService } from './agent.service';
 import { GraphQLUpload, FileUpload } from 'graphql-upload';
-import { Content } from '@google/generative-ai';
+import { Content, Part } from '@google/generative-ai';
 import { Stream } from 'stream';
 
-// --- GraphQL Input and Object Types ---
+// --- GraphQL Input Types ---
 // These types define the shape of data for this subgraph's GraphQL mutations.
-// They align with the types previously exposed by the BFF to ensure a smooth
-// transition to the federated supergraph.
 
 @InputType()
 class GenerateAdVideoInput {
@@ -33,6 +31,25 @@ class GenerateCardImageInput {
   @Field()
   prompt: string;
 }
+
+@InputType('PartInput')
+class ChatPartInput {
+  @Field(() => String)
+  text: string;
+}
+
+@InputType('ContentInput')
+class ChatContentInput {
+  @Field(() => String)
+  role: string;
+
+  @Field(() => [ChatPartInput])
+  parts: ChatPartInput[];
+}
+
+
+// --- GraphQL Object Types ---
+// These types define the shape of data returned by this subgraph's GraphQL queries/mutations.
 
 @ObjectType()
 class AIAdvisorMessagePart {
@@ -62,15 +79,18 @@ class AIAdvisorResponse {
 }
 
 @ObjectType()
-class VideoGenerationResult {
+class VideoOperationStatus {
   @Field()
-  operationId: string;
+  operationId: string; // This will be the Temporal Workflow ID.
 
   @Field()
-  status: string;
+  status: string; // e.g., 'STARTED', 'RUNNING', 'COMPLETED', 'FAILED'.
 
   @Field({ nullable: true })
-  videoUrl?: string;
+  videoUrl?: string; // Only available if status is 'COMPLETED'.
+
+  @Field({ nullable: true })
+  errorMessage?: string; // Only available if status is 'FAILED'.
 }
 
 /**
@@ -79,15 +99,15 @@ class VideoGenerationResult {
  * This resolver provides the GraphQL API for the AI Agent Service.
  * As part of a federated subgraph, it exposes mutations for all generative AI
  * capabilities, including text, chat, video, and image generation.
+ *
+ * It delegates complex, long-running tasks like video generation to Temporal workflows,
+ * returning a workflow ID for asynchronous tracking. Simpler, synchronous tasks
+ * directly interact with the underlying AI models via the AgentService.
  */
 @Resolver('AIAgent')
 @UsePipes(new ValidationPipe({ transform: true }))
 export class AgentResolver {
   private readonly logger = new Logger(AgentResolver.name);
-  // In-memory store for conversations for demonstration purposes.
-  // In a production microservice, this would be a persistent, distributed
-  // cache like Redis to handle state across multiple service instances.
-  private conversations: Map<string, Content[]> = new Map();
 
   constructor(private readonly agentService: AgentService) {}
 
@@ -95,71 +115,81 @@ export class AgentResolver {
     description: 'Generates a short story for a custom card design.',
   })
   async generateCardStory(@Args('prompt') prompt: string): Promise<string> {
-    // The service layer abstracts the call to the underlying AI model.
     return this.agentService.generateText({ prompt });
   }
 
   @Mutation(() => AIAdvisorResponse, {
-    description: 'Sends a message to the AI Financial Advisor and gets a response.',
+    description: 'Sends a message to the AI Financial Advisor and gets a response (stateless per request).',
   })
   async askAIAdvisor(
+    // The client (BFF) is responsible for managing and sending the full history.
+    @Args('history', { type: () => [ChatContentInput], defaultValue: [] }) history: ChatContentInput[],
     @Args('message') message: string,
     @Args('conversationId', { type: () => String, nullable: true }) conversationId?: string,
   ): Promise<AIAdvisorResponse> {
-    const currentConversationId = conversationId || `conv-${Date.now()}`;
-    const history = this.conversations.get(currentConversationId) || [];
+    this.logger.log(`Received askAIAdvisor for conversation ${conversationId || 'new'}`);
+    
+    // Map ChatContentInput[] to Content[] for the AgentService
+    const formattedHistory: Content[] = history.map(chatContent => ({
+        role: chatContent.role,
+        parts: chatContent.parts.map(p => ({ text: p.text })) as Part[],
+    }));
 
-    const responseParts = await this.agentService.continueChat({
-      history,
+    const responseParts: Part[] = await this.agentService.continueChat({
+      history: formattedHistory,
       newMessage: message,
     });
 
-    const userMessage: Content = { role: 'user', parts: [{ text: message }] };
-    const modelResponse: Content = { role: 'model', parts: responseParts };
-
-    // Update and store the conversation history.
-    const newHistory = [...history, userMessage, modelResponse];
-    this.conversations.set(currentConversationId, newHistory);
-
-    // Map the internal Content[] format to the GraphQL AIAdvisorMessage[] type.
-    const messages: AIAdvisorMessage[] = newHistory.map((content, i) => ({
-      id: `${currentConversationId}-${i}`,
-      role: content.role,
-      parts: content.parts.map(part => ({ text: (part as any).text })), // Simple text mapping
+    // Re-construct the full message list including the user's message and the new AI response for GraphQL output.
+    const userMessage: AIAdvisorMessage = {
+      id: `${conversationId || 'new'}-user-${Date.now()}`,
+      role: 'user',
+      parts: [{ text: message }],
       timestamp: new Date(),
+    };
+
+    const newAIResponse: AIAdvisorMessage = {
+      id: `${conversationId || 'new'}-model-${Date.now()}`,
+      role: 'model',
+      parts: responseParts.map(p => ({ text: (p as any).text })), // Assuming only text parts for now, match AIAdvisorMessagePart
+      timestamp: new Date(),
+    };
+    
+    // Map existing history to AIAdvisorMessage for the response
+    const mappedHistoryForResponse: AIAdvisorMessage[] = history.map((chatContent, i) => ({
+        id: `${conversationId || 'new'}-hist-${i}`,
+        role: chatContent.role,
+        parts: chatContent.parts.map(p => ({ text: p.text })),
+        timestamp: new Date(), // Regenerate timestamp if not provided in history.
     }));
 
-    return { messages };
+    return { messages: [...mappedHistoryForResponse, userMessage, newAIResponse] };
   }
 
-  @Mutation(() => VideoGenerationResult, {
-    description: 'Generates a video ad based on a prompt.',
+  @Mutation(() => VideoOperationStatus, {
+    description: 'Initiates a long-running workflow to generate a video ad and returns an operation ID for tracking.',
   })
   async generateAdVideo(
     @Args('input') input: GenerateAdVideoInput,
-  ): Promise<VideoGenerationResult> {
-    const { prompt, ...settings } = input;
-    const result = await this.agentService.generateVideo({ prompt, settings });
-    
-    // The service handles the long-running operation and returns the final result.
-    return {
-      operationId: result.operationId || `op-vid-${Date.now()}`,
-      status: 'COMPLETED', // Simplified status for the client
-      videoUrl: result.videoUri,
-    };
+    // Assume userId comes from the GraphQL context via authentication in a real scenario.
+    // For now, use a placeholder.
+    @Args('userId', { type: () => String, nullable: true, defaultValue: 'mock-user-id' }) userId: string,
+  ): Promise<VideoOperationStatus> {
+    this.logger.log(`Initiating generateAdVideo workflow for user ${userId} with prompt: "${input.prompt.substring(0, 50)}..."`);
+    const { workflowId, status } = await this.agentService.startVideoGenerationWorkflow({ ...input, userId });
+    return { operationId: workflowId, status };
   }
 
-  @Mutation(() => VideoGenerationResult, {
-    description: 'Checks the status of a video generation operation.',
+  @Query(() => VideoOperationStatus, {
+    name: 'videoGenerationStatus',
+    description: 'Checks the current status of a video generation operation by its ID.',
   })
   async checkVideoGenerationStatus(
     @Args('operationId') operationId: string,
-  ): Promise<VideoGenerationResult> {
-    this.logger.log(`Received status check for ${operationId}`);
-    // In this architecture, the `generateVideo` service method is synchronous from the client's perspective
-    // (it polls and waits for the final result). This mutation is kept for schema compatibility
-    // and can be used for more complex async patterns in the future.
-    return this.agentService.getVideoGenerationStatus(operationId);
+  ): Promise<VideoOperationStatus> {
+    this.logger.log(`Checking status for video operation: ${operationId}`);
+    const statusResult = await this.agentService.queryVideoGenerationWorkflowStatus(operationId);
+    return statusResult;
   }
 
   @Mutation(() => String, {
@@ -183,7 +213,6 @@ export class AgentResolver {
       mimeType: mimetype,
     });
 
-    // Return the generated image as a data URI string for easy client-side display.
     return `data:${result.mimeType};base64,${result.imageBase64}`;
   }
 }

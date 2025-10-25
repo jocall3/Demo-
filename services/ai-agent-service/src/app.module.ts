@@ -16,7 +16,7 @@ import * as jwksRsa from 'jwks-rsa';
 
 import { AgentModule } from './agent/agent.module';
 import { EventBusModule } from './event-bus/event-bus.module';
-import { WorkflowModule } from './workflow/workflow.module';
+import { TemporalModule } from './temporal/temporal.module';
 
 // =============================================================================
 // INLINE AUTHENTICATION COMPONENTS
@@ -132,7 +132,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
     // Module for workflow orchestration (e.g., Temporal).
     // This is the core of the new architectural change for handling long-running Sagas.
-    WorkflowModule,
+    TemporalModule,
   ],
   providers: [
     // The JWT strategy for validating incoming tokens.
