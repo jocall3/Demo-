@@ -1,0 +1,31 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: accounts-service
+  description: The core microservice responsible for managing user financial accounts. It acts as a GraphQL subgraph, implementing CQRS and Event Sourcing patterns to handle account creation, balances, and state changes.
+  tags:
+    - service
+    - backend
+    - nestjs
+    - graphql
+    - accounts
+    - cqrs
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    github.com/project-slug: your-org/your-repo
+    backstage.io/source-location: 'url:https://github.com/your-org/your-repo/tree/main/services/accounts-service'
+spec:
+  type: service
+  lifecycle: production
+  owner: team-core-banking
+  system: core-platform
+  dependsOn:
+    - component:default/user-service
+    - component:default/api-gateway
+    - resource:default/demobank-kafka
+    - resource:default/postgres-accounts-db
+  providesApis:
+    - accounts-graphql-subgraph
+  consumesApis:
+    - user-events-stream
+    - transaction-events-stream

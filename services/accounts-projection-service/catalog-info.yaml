@@ -1,0 +1,29 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: accounts-projection-service
+  description: A CQRS read-side (query) service for the Accounts domain. It consumes `account.*` domain events from Kafka and builds a denormalized projection of account data in MongoDB. This read model is exposed as a GraphQL subgraph for efficient querying.
+  tags:
+    - service
+    - backend
+    - cqrs
+    - projection
+    - nodejs
+    - kafka
+    - mongodb
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    github.com/project-slug: 'demobank/platform' # Placeholder for the actual repo slug
+spec:
+  type: service
+  lifecycle: production
+  owner: team-accounts
+  system: demobank-platform
+  dependsOn:
+    - component:default/accounts-service # It consumes events produced by the accounts-service
+    - resource:default/kafka-message-bus # It consumes from Kafka
+    - resource:default/mongodb-accounts-projection # It writes to a MongoDB instance
+  providesApis:
+    - accounts-read-api # Exposes the query side of the accounts API as a GraphQL subgraph
+  consumesApis:
+    - accounts-domain-events # Consumes events from the accounts domain on Kafka
