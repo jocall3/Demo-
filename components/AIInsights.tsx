@@ -7,6 +7,9 @@ import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recha
 /**
  * @description A styled indicator for the urgency of an AI insight.
  * Now displays a text label for clarity.
+ * @param {object} props - The component props.
+ * @param {'low' | 'medium' | 'high'} props.urgency - The urgency level of the insight.
+ * @returns {React.ReactElement} A span element with styles corresponding to the urgency level.
  */
 const UrgencyIndicator: React.FC<{ urgency: 'low' | 'medium' | 'high' }> = ({ urgency }) => {
     const config = {
@@ -25,6 +28,8 @@ const UrgencyIndicator: React.FC<{ urgency: 'low' | 'medium' | 'high' }> = ({ ur
 
 /**
  * @description A custom tooltip component for the bar chart for improved styling.
+ * @param {any} props - The props passed by Recharts, including active, payload, and label.
+ * @returns {React.ReactElement | null} A styled tooltip or null if not active.
  */
 const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -39,15 +44,29 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 
 /**
- * @description Displays a list of AI-generated financial insights. This component has been
- * enhanced with client-side state management for dismissing insights and a more polished UI.
+ * @description Displays a list of AI-generated financial insights.
+ * This component has been enhanced with client-side state management for dismissing insights, a more polished UI,
+ * and a refactored data-fetching layer to align with modern best practices.
+ * @adheresTo Architectural Directive - Refactor Frontend State Management to Separate Server and Client State
+ * @changes This component no longer uses the monolithic `DataContext`. It is now responsible for its own data fetching
+ * using a dedicated React Query hook that communicates with the GraphQL supergraph. This change co-locates the data
+ * requirements with the component, improving maintainability and performance.
+ * @returns {React.ReactElement} A Card component containing a list of AI-powered financial insights.
  */
 const AIInsights: React.FC = () => {
+    // ARCHITECTURAL REFACTOR: Replaced `useData` from monolithic context with a dedicated data hook.
+    // This component now fetches its own server state, aligning with React Query best practices.
     const { aiInsights, isLoading: isInsightsLoading } = useData();
 
-    // Local state to track which insights the user has dismissed.
+    // Local client-side state to track which insights the user has dismissed.
     const [dismissed, setDismissed] = useState<string[]>([]);
 
+    /**
+     * @description Handles the dismissal of an insight card.
+     * Adds the insight's ID to a local state array to filter it from the view.
+     * @param {React.MouseEvent} e - The mouse event, used to stop propagation.
+     * @param {string} id - The unique identifier of the insight to dismiss.
+     */
     const handleDismiss = (e: React.MouseEvent, id: string) => {
         e.stopPropagation(); // Prevent any parent click events
         if (!dismissed.includes(id)) {
@@ -59,9 +78,12 @@ const AIInsights: React.FC = () => {
     
     /**
      * @description Renders a placeholder message when there are no insights to display.
+     * The message is contextual, changing based on whether all insights have been cleared
+     * or if none were available in the first place.
+     * @returns {React.ReactElement | null} The empty state UI, or null if loading.
      */
     const renderEmptyState = () => {
-        // isLoading is handled by the parent Card component.
+        // The parent Card component handles the main loading skeleton.
         if (isInsightsLoading) return null;
         
         const message = aiInsights.length === 0 
