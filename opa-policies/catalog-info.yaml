@@ -1,0 +1,23 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: opa-policies
+  description: Centralized repository for all Open Policy Agent (OPA) authorization policies written in Rego. These policies are distributed to OPA sidecars throughout the service mesh to provide externalized authorization.
+  tags:
+    - opa
+    - rego
+    - authorization
+    - security
+    - policy
+  annotations:
+    # This annotation links to the source code location within the Git repository.
+    backstage.io/source-location: dir:./
+    # This annotation enables TechDocs for this component, assuming docs are co-located.
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: service
+  lifecycle: production
+  owner: security-team # Policies are owned by the security team.
+  system: security-and-compliance # This component is part of the broader security system.
+  providesApis:
+    - opa-authorization-policy # Defines the logical "API" or contract that this component provides to the rest of the system.
