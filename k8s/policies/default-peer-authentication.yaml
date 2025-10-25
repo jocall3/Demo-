@@ -1,0 +1,27 @@
+# k8s/policies/default-peer-authentication.yaml
+#
+# This policy enforces strict mutual TLS (mTLS) for all workloads within the 'default' namespace.
+#
+# ARCHITECTURAL ALIGNMENT:
+# This resource is a critical component of the "Introduce a Service Mesh for Zero-Trust Networking"
+# architectural directive. By setting the mTLS mode to STRICT, we ensure that no service
+# within the 'default' namespace can accept unencrypted, unauthenticated traffic from any source.
+#
+# KEY CONFIGURATION:
+# - apiVersion/kind: Specifies this is an Istio PeerAuthentication policy.
+# - namespace: 'default': The policy applies to all workloads in the 'default' Kubernetes namespace.
+#   By not specifying a 'selector', the policy applies to every workload in the namespace.
+# - spec.mtls.mode: STRICT: This is the core of the policy. It instructs the Istio sidecar proxies
+#   to only accept traffic that is encrypted with mTLS. Any plaintext traffic will be rejected.
+#
+# This establishes a zero-trust network where service-to-service communication is secured by default,
+# regardless of the underlying network infrastructure. It is a foundational layer for security
+# within the Kubernetes cluster.
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default-strict-mtls
+  namespace: default
+spec:
+  mtls:
+    mode: STRICT

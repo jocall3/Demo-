@@ -1,0 +1,40 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: demobank-gateway
+  # This Gateway resource should be deployed in the same namespace as the Istio ingress controller.
+  namespace: istio-system
+spec:
+  selector:
+    # This selector targets the default Istio ingress gateway deployment,
+    # which is typically labeled with 'istio: ingressgateway'.
+    istio: ingressgateway
+  servers:
+    # Server for HTTP traffic on port 80.
+    # This configuration redirects all incoming HTTP requests to HTTPS, enforcing encryption.
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*" # Applies to all hosts. For production, specify your domain, e.g., "demobank.example.com".
+      tls:
+        httpsRedirect: true # Enforces HTTPS for all traffic.
+
+    # Server for HTTPS traffic on port 443.
+    # This is the primary entry point for all application traffic into the service mesh.
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      hosts:
+        - "*" # Binds to all hosts. For production, specify your domain.
+      tls:
+        # 'SIMPLE' mode terminates the TLS connection from the client (browser) at the gateway.
+        # Traffic from this gateway to the backend services (e.g., Kong or the Apollo Gateway)
+        # will then be secured by the service mesh's automatic mutual TLS (mTLS), fulfilling the zero-trust directive.
+        mode: SIMPLE
+        # The name of the Kubernetes secret that contains the TLS certificate and private key for your domain.
+        # This secret must exist in the 'istio-system' namespace.
+        # In a production setup, this secret would typically be created and managed by a tool like cert-manager.
+        credentialName: demobank-tls-credential
