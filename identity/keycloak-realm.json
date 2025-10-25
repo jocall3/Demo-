@@ -3,20 +3,14 @@
   "enabled": true,
   "sslRequired": "external",
   "registrationAllowed": false,
-  "loginTheme": "keycloak",
-  "accountTheme": "keycloak",
-  "adminTheme": "keycloak",
-  "emailTheme": "keycloak",
   "accessTokenLifespan": 300,
-  "accessTokenLifespanForImplicitFlow": 900,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
-  "offlineSessionIdleTimeout": 2592000,
   "roles": {
     "realm": [
       {
         "name": "user",
-        "description": "Default user role for all authenticated users."
+        "description": "Default role for authenticated end-users."
       },
       {
         "name": "admin",
@@ -32,13 +26,12 @@
   "clients": [
     {
       "clientId": "demobank-frontend",
-      "name": "DemoBank Frontend",
-      "description": "The primary web application client for user authentication.",
+      "name": "DemoBank Frontend SPA",
+      "description": "The public client representing the single-page application.",
       "publicClient": true,
       "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
-      "serviceAccountsEnabled": false,
-      "authorizationServicesEnabled": false,
       "redirectUris": [
         "http://localhost:5173/*",
         "https://demobank.example.com/*"
@@ -49,7 +42,7 @@
       ],
       "protocolMappers": [
         {
-          "name": "audience-mapper",
+          "name": "audience-for-gateway",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-audience-mapper",
           "config": {
@@ -57,113 +50,109 @@
             "id.token.claim": "false",
             "access.token.claim": "true"
           }
-        },
-        {
-          "name": "realm-roles",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-realm-role-mapper",
-          "config": {
-              "multivalued": "true",
-              "user.attribute": "realm.roles",
-              "id.token.claim": "true",
-              "access.token.claim": "true",
-              "claim.name": "realm_access.roles",
-              "jsonType.label": "String"
-          }
         }
       ]
     },
     {
       "clientId": "api-gateway",
       "name": "API Gateway",
-      "description": "Internal client representing the API Gateway for token validation.",
-      "bearerOnly": true,
+      "description": "Confidential client that performs token exchange on behalf of users.",
+      "secret": "${API_GATEWAY_CLIENT_SECRET}",
       "publicClient": false,
-      "standardFlowEnabled": false
-    },
-    {
-      "clientId": "accounts-service",
-      "name": "Accounts Service",
-      "description": "Microservice for managing user accounts. Acts as a resource in token exchange.",
-      "secret": "${ACCOUNTS_SERVICE_CLIENT_SECRET}",
-      "publicClient": false,
-      "serviceAccountsEnabled": true,
+      "bearerOnly": false,
       "standardFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "directAccessGrantsEnabled": true,
       "authorizationServicesEnabled": true,
-      "policyEnforcementMode": "ENFORCING",
       "authorizationSettings": {
         "allowRemoteResourceManagement": true,
         "policyEnforcementMode": "ENFORCING",
         "policies": [
           {
-            "name": "Allow Token Exchange from specific services",
-            "description": "Grants permission to specific clients to exchange tokens for new tokens with an audience of this service.",
-            "type": "client",
+            "name": "API Gateway Service Account Policy",
+            "type": "js",
             "logic": "POSITIVE",
             "decisionStrategy": "UNANIMOUS",
+            "description": "Grants permission only to the service account of the API Gateway client itself.",
             "config": {
-              "clients": "[\"transactions-service\", \"user-service\"]"
+              "code": "var context = $evaluation.getContext();\nvar identity = context.getIdentity();\n\n// Grant if the requester is the service account of this client (api-gateway)\nif (identity.getRealm().getClientById('api-gateway').getServiceAccountUser().getId() === identity.id) {\n    $evaluation.grant();\n}"
             }
           }
         ],
+        "scopes": [
+          {
+            "name": "urn:ietf:params:oauth:grant-type:token-exchange"
+          }
+        ],
         "permissions": [
-           {
+          {
             "name": "Token Exchange Permission",
-            "description": "Allows clients that satisfy the policy to perform a token exchange.",
             "type": "scope",
             "logic": "POSITIVE",
             "decisionStrategy": "UNANIMOUS",
+            "description": "Allows the API Gateway to perform the OAuth 2.0 Token Exchange grant.",
             "config": {
-              "policies": "[\"Allow Token Exchange from specific services\"]",
-              "default": true,
-              "scopes": "[\"urn:ietf:params:oauth:grant-type:token-exchange\"]"
+              "scopes": "[\"urn:ietf:params:oauth:grant-type:token-exchange\"]",
+              "applyPolicies": "[\"API Gateway Service Account Policy\"]"
             }
           }
         ]
       }
     },
     {
-      "clientId": "transactions-service",
-      "name": "Transactions Service",
-      "description": "Microservice for managing transactions. Acts as a client in token exchange.",
-      "secret": "${TRANSACTIONS_SERVICE_CLIENT_SECRET}",
-      "publicClient": false,
-      "serviceAccountsEnabled": true,
-      "standardFlowEnabled": false,
-      "authorizationServicesEnabled": true
-    },
-    {
-      "clientId": "user-service",
-      "name": "User Service",
-      "description": "Microservice for managing user profiles.",
-      "secret": "${USER_SERVICE_CLIENT_SECRET}",
+      "clientId": "accounts-service",
+      "name": "Accounts Service",
+      "description": "Resource server for the Accounts microservice. Acts as an audience in token exchange.",
+      "secret": "${ACCOUNTS_SERVICE_CLIENT_SECRET}",
+      "bearerOnly": true,
       "publicClient": false,
       "serviceAccountsEnabled": true
     },
     {
-        "clientId": "ai-agent-service",
-        "name": "AI Agent Service",
-        "description": "Microservice for AI-powered agents and tasks.",
-        "secret": "${AI_AGENT_SERVICE_CLIENT_SECRET}",
-        "publicClient": false,
-        "serviceAccountsEnabled": true
+      "clientId": "transactions-service",
+      "name": "Transactions Service",
+      "description": "Resource server for the Transactions microservice. Acts as an audience in token exchange.",
+      "secret": "${TRANSACTIONS_SERVICE_CLIENT_SECRET}",
+      "bearerOnly": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true
     },
     {
-        "clientId": "plaid-integration-service",
-        "name": "Plaid Integration Service",
-        "description": "Microservice for interacting with the Plaid API.",
-        "secret": "${PLAID_INTEGRATION_SERVICE_CLIENT_SECRET}",
-        "publicClient": false,
-        "serviceAccountsEnabled": true
+      "clientId": "user-service",
+      "name": "User Service",
+      "description": "Resource server for the User microservice. Acts as an audience in token exchange.",
+      "secret": "${USER_SERVICE_CLIENT_SECRET}",
+      "bearerOnly": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true
+    },
+    {
+      "clientId": "ai-agent-service",
+      "name": "AI Agent Service",
+      "description": "Resource server for the AI Agent microservice. Acts as an audience in token exchange.",
+      "secret": "${AI_AGENT_SERVICE_CLIENT_SECRET}",
+      "bearerOnly": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true
+    },
+    {
+      "clientId": "plaid-integration-service",
+      "name": "Plaid Integration Service",
+      "description": "Resource server for the Plaid Integration microservice. Acts as an audience in token exchange.",
+      "secret": "${PLAID_INTEGRATION_SERVICE_CLIENT_SECRET}",
+      "bearerOnly": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true
     }
   ],
   "users": [
     {
       "username": "the_visionary",
       "enabled": true,
-      "email": "visionary@demobank.com",
+      "emailVerified": true,
       "firstName": "The",
       "lastName": "Visionary",
+      "email": "visionary@demobank.com",
       "credentials": [
         {
           "type": "password",
@@ -174,8 +163,7 @@
       "realmRoles": [
         "user",
         "admin"
-      ],
-      "emailVerified": true
+      ]
     }
   ]
 }
