@@ -1,71 +1,98 @@
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
-  name: api-gateway-vs
-  # It is best practice to deploy applications into their own namespace.
+  name: api-gateway-vs # Retaining name for consistency, but this now routes more than just the api-gateway.
   namespace: demobank
 
-# This VirtualService defines the routing rules for traffic entering the service mesh
-# via the main ingress gateway. It acts as the central traffic manager for the entire application,
-# aligning with the "Service Mesh for Zero-Trust Networking and Advanced Traffic Management" directive.
+# This VirtualService defines the routing rules for all traffic entering the service mesh
+# via the main ingress gateway. It acts as the central traffic controller for the entire application,
+# directing requests to the appropriate backend service based on the request path.
+#
+# ARCHITECTURAL REFACTOR:
+# This configuration has been updated to support the new multi-tiered API architecture with
+# dedicated Experience APIs. It now routes traffic to:
+# 1. New Experience APIs (e.g., /experience/dashboard) for specific frontend user journeys.
+# 2. The central federated Supergraph Gateway (/graphql) for general data queries.
+# 3. The Micro-Frontend Shell application (default route) for serving the main UI.
 
 spec:
-  # Apply these rules to traffic for all hostnames. In a production environment,
-  # this would be locked down to a specific domain (e.g., "demobank.example.com").
+  # Apply these rules to traffic for all hostnames. In production, this would be
+  # locked down to a specific domain (e.g., "demobank.example.com").
   hosts:
     - "*"
 
-  # Binds this VirtualService to the default Istio ingress gateway, which is the
-  # entry point for all external traffic into the cluster.
+  # Binds this VirtualService to the demobank-gateway deployed in the 'istio-system' namespace.
   gateways:
-    - istio-system/ingressgateway
+    - istio-system/demobank-gateway
 
   http:
-    # Route for the federated GraphQL API, which is the primary backend endpoint.
-    - name: "graphql-api-route"
+    # --- Route for the Dashboard Experience API ---
+    # Routes requests for the dashboard user journey to its dedicated microservice.
+    - name: "experience-dashboard-api-route"
+      match:
+        - uri:
+            prefix: /experience/dashboard
+      # Rewrite the path to strip the prefix.
+      # e.g., a request to /experience/dashboard/summary becomes /summary on the destination service.
+      rewrite:
+        uri: "/"
+      route:
+        - destination:
+            host: experience-dashboard-api.demobank.svc.cluster.local
+            port:
+              number: 8080 # Standard port for new microservices
+      retries:
+        attempts: 3
+        perTryTimeout: 2s
+        retryOn: 5xx,connect-failure,refused-stream
+      timeout: 10s
+
+    # --- Route for the Onboarding Experience API ---
+    # Routes requests for the user onboarding journey to its dedicated microservice.
+    - name: "experience-onboarding-api-route"
+      match:
+        - uri:
+            prefix: /experience/onboarding
+      rewrite:
+        uri: "/"
+      route:
+        - destination:
+            host: experience-onboarding-api.demobank.svc.cluster.local
+            port:
+              number: 8080
+      retries:
+        attempts: 3
+        perTryTimeout: 2s
+        retryOn: 5xx,connect-failure,refused-stream
+      timeout: 10s
+
+    # --- Route for the Federated Supergraph Gateway ---
+    # This is the primary endpoint for general GraphQL queries from clients or Experience APIs.
+    - name: "supergraph-gateway-route"
       match:
         - uri:
             prefix: /graphql
       route:
         - destination:
-            # Route traffic to the internal Kubernetes service for the API Gateway.
-            # The fully qualified domain name (FQDN) is used for clarity.
+            # The 'api-gateway' service has been repurposed as the federated Supergraph Gateway.
             host: api-gateway.demobank.svc.cluster.local
             port:
               number: 4000
-
-      # --- Advanced Traffic Management: Retries ---
-      # This configuration enables automatic retries for failed requests to the api-gateway,
-      # improving resilience against transient network or service issues. It implements
-      # the "automatic retries with exponential backoff" pattern mentioned in the directive.
       retries:
         attempts: 3
         perTryTimeout: 2s
-        # Retry on 5xx errors, connection failures, or if the upstream service refuses the stream.
         retryOn: 5xx,connect-failure,refused-stream
-
-      # --- Advanced Traffic Management: Timeouts ---
-      # A request timeout to prevent long-running requests from holding up client resources.
       timeout: 15s
 
-      # --- Advanced Traffic Management: Fault Injection (Chaos Engineering) ---
-      # Injects a 503 Service Unavailable error for 5% of requests to /graphql.
-      # This is used for chaos engineering exercises to test client resilience, directly
-      # fulfilling the "fault injection for chaos engineering exercises" directive.
-      fault:
-        abort:
-          httpStatus: 503
-          percentage:
-            value: 5.0
-
-    # Default route for all other traffic, which serves the frontend Micro-Frontend Shell application.
+    # --- Default Route for the Frontend Application ---
+    # This is the catch-all route. It must be last in the list.
+    # It routes all other traffic to the Micro-Frontend Shell application.
     - name: "frontend-mfe-shell-route"
       match:
         - uri:
             prefix: /
       route:
         - destination:
-            # Route traffic to the service that serves the static assets for the MFE Shell.
             host: mfe-shell.demobank.svc.cluster.local
             port:
-              number: 80 # Standard HTTP port for a web server like Nginx
+              number: 80 # Standard HTTP port for a web server

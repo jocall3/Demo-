@@ -17,7 +17,13 @@ spec:
         name: http
         protocol: HTTP
       hosts:
-        - "*" # Applies to all hosts. For production, specify your domain, e.g., "demobank.example.com".
+        # Define the public-facing hostnames for the application.
+        # This replaces the wildcard host to be more explicit about the application's entrypoints,
+        # aligning with the new multi-tiered API architecture with dedicated Experience APIs.
+        - "app.demobank.example.com"                # For the main web app (MFE Shell)
+        - "api.demobank.example.com"                # For the Supergraph Gateway & other general APIs
+        - "dashboard.api.demobank.example.com"    # For the Dashboard Experience API
+        - "onboarding.api.demobank.example.com"   # For the Onboarding Experience API
       tls:
         httpsRedirect: true # Enforces HTTPS for all traffic.
 
@@ -28,13 +34,18 @@ spec:
         name: https
         protocol: HTTPS
       hosts:
-        - "*" # Binds to all hosts. For production, specify your domain.
+        # VirtualServices will match on these hosts to route traffic to the correct backend services
+        # (e.g., MFE Shell, Experience APIs, Supergraph Gateway).
+        - "app.demobank.example.com"
+        - "api.demobank.example.com"
+        - "dashboard.api.demobank.example.com"
+        - "onboarding.api.demobank.example.com"
       tls:
         # 'SIMPLE' mode terminates the TLS connection from the client (browser) at the gateway.
-        # Traffic from this gateway to the backend services (e.g., Kong or the Apollo Gateway)
-        # will then be secured by the service mesh's automatic mutual TLS (mTLS), fulfilling the zero-trust directive.
+        # Traffic from this gateway to the backend services will then be secured by the
+        # service mesh's automatic mutual TLS (mTLS), fulfilling the zero-trust directive.
         mode: SIMPLE
-        # The name of the Kubernetes secret that contains the TLS certificate and private key for your domain.
-        # This secret must exist in the 'istio-system' namespace.
-        # In a production setup, this secret would typically be created and managed by a tool like cert-manager.
+        # The name of the Kubernetes secret that contains the TLS certificate and private key for your domain(s).
+        # This secret must exist in the 'istio-system' namespace and should cover all specified hosts.
+        # In a production setup, this would be managed by a tool like cert-manager.
         credentialName: demobank-tls-credential

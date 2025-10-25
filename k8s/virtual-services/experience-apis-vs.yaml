@@ -1,0 +1,89 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: experience-apis-vs
+  namespace: demobank
+spec:
+  # Apply these rules to traffic for all hostnames. In a production environment,
+  # this would be locked down to a specific domain (e.g., "demobank.example.com").
+  hosts:
+    - "*"
+
+  # Binds this VirtualService to the main ingress gateway, which is the
+  # entry point for all external traffic into the cluster.
+  gateways:
+    - istio-system/demobank-gateway
+
+  http:
+    # ===================================================================================
+    # Experience Layer API Routes
+    # ===================================================================================
+    # This section defines the routing for the new "Experience Layer" of microservices.
+    # These services are the primary backend endpoints for client applications,
+    # orchestrating data from the federated Supergraph.
+
+    # Route for the Dashboard Experience API
+    - name: "experience-dashboard-api-route"
+      match:
+        - uri:
+            # Match requests starting with /exp/dashboard and capture the rest of the path.
+            regex: "^/exp/dashboard(/.*)?$"
+      rewrite:
+        # Rewrite the URI to strip the prefix. For example, a request to
+        # /exp/dashboard/widgets becomes /widgets when forwarded to the service.
+        # This allows the service to have simpler internal routing.
+        uri: "\1"
+      route:
+        - destination:
+            host: experience-dashboard-api.demobank.svc.cluster.local
+            port:
+              number: 8080 # Assuming services run on port 8080 inside the cluster
+      # Add resilience policies for this route
+      retries:
+        attempts: 3
+        perTryTimeout: 3s
+        retryOn: 5xx,connect-failure,refused-stream
+      timeout: 20s
+
+    # Route for the Onboarding Experience API
+    - name: "experience-onboarding-api-route"
+      match:
+        - uri:
+            regex: "^/exp/onboarding(/.*)?$"
+      rewrite:
+        uri: "\1"
+      route:
+        - destination:
+            host: experience-onboarding-api.demobank.svc.cluster.local
+            port:
+              number: 8080
+      retries:
+        attempts: 3
+        perTryTimeout: 3s
+        retryOn: 5xx,connect-failure,refused-stream
+      timeout: 20s
+
+    # ===================================================================================
+    # New UI Schema Service Route
+    # ===================================================================================
+    # As per the "Schema-Driven UI Rendering Engine" directive, this route exposes
+    # the new UI Schema Service to the frontend.
+
+    - name: "ui-schema-service-route"
+      match:
+        - uri:
+            # A dedicated path for fetching UI schemas.
+            regex: "^/api/ui-schema(/.*)?$"
+      rewrite:
+        uri: "\1"
+      route:
+        - destination:
+            host: ui-schema-service.demobank.svc.cluster.local
+            port:
+              number: 8080
+      # Use shorter timeouts for this service as it should be very fast.
+      retries:
+        attempts: 3
+        perTryTimeout: 1s
+        retryOn: 5xx,connect-failure,refused-stream
+      timeout: 5s

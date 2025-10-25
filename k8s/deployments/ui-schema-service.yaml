@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui-schema-service
+  namespace: demobank
+  labels:
+    app.kubernetes.io/name: ui-schema-service
+    app.kubernetes.io/part-of: demobank
+spec:
+  selector:
+    app.kubernetes.io/name: ui-schema-service
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: http-app
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui-schema-service
+  namespace: demobank
+  labels:
+    app.kubernetes.io/name: ui-schema-service
+    app.kubernetes.io/part-of: demobank
+# Architectural Directive: "Implement a Schema-Driven UI Rendering Engine"
+# This deployment manifest defines the new 'UI Schema Service'.
+# This microservice is responsible for serving declarative JSON schemas that define the structure,
+# layout, validation, and conditional logic for all forms and wizards across the application.
+# It is a central component for enabling a dynamic, schema-driven UI rendering engine.
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ui-schema-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ui-schema-service
+        app.kubernetes.io/part-of: demobank
+      annotations:
+        # Istio sidecar injection for zero-trust networking, mTLS, and observability
+        sidecar.istio.io/inject: "true"
+        # Vault agent injection for zero-trust secret management
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "ui-schema-service-role"
+        vault.hashicorp.com/agent-run-as-user: "1001"
+        # Template for injecting secrets from Vault into the container's environment
+        vault.hashicorp.com/agent-inject-template-config: |-
+          {{- with secret "secret/data/demobank/ui-schema-service" -}}
+          export MONGODB_URI="{{ .Data.data.MONGODB_URI }}"
+          {{- end -}}
+    spec:
+      serviceAccountName: default # Use a specific service account in production
+      containers:
+        - name: ui-schema-service
+          image: us-central1-docker.pkg.dev/demobank/apps/ui-schema-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http-app
+              containerPort: 8080
+              protocol: TCP
+            - name: http-metrics
+              containerPort: 9473 # Unique port for Prometheus scraping
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: NODE_ENV
+              value: "production"
+            - name: OTEL_SERVICE_NAME
+              value: "ui-schema-service"
+            - name: PROMETHEUS_PORT
+              value: "9473"
+            # Common environment variables from a shared ConfigMap
+            - name: OIDC_ISSUER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: common-environment-config
+                  key: OIDC_ISSUER_URL
+            - name: KAFKA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: common-environment-config
+                  key: KAFKA_BROKERS
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: common-environment-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: VAULT_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: common-environment-config
+                  key: VAULT_ADDR
+          # The command sources the secrets file injected by the Vault agent
+          command: ["/bin/sh", "-c", "source /vault/secrets/config && node dist/main"]
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http-app
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http-app
+            initialDelaySeconds: 5
+            periodSeconds: 10

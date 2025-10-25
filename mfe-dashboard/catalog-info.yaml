@@ -2,36 +2,34 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: mfe-dashboard
-  description: The Dashboard Micro-Frontend, displaying a personalized financial overview for users. It is a remote application orchestrated by the main Micro-Frontend Shell.
+  description: The Dashboard Micro-Frontend, responsible for the main user landing page. It consumes the Experience Dashboard API to orchestrate and display a personalized financial overview.
   tags:
     - microfrontend
     - react
     - dashboard
     - frontend
-    - financial
-    - module-federation
   annotations:
-    backstage.io/techdocs-ref: url:https://github.com/demobank/demobank-frontend/tree/main/mfe-dashboard
-    backstage.io/source-location: url:https://github.com/demobank/demobank-frontend/tree/main/mfe-dashboard
-    backstage.io/language: typescript
-    backstage.io/framework: react
-    backstage.io/managed-by: team-frontend-dashboard
+    # Link to the source code repository for browsing in Backstage.
+    github.com/project-slug: your-org/demobank
+    # TechDocs are co-located with the code in the 'docs' directory.
+    backstage.io/techdocs-ref: dir:./docs
 spec:
   type: website
   lifecycle: production
-  owner: team-frontend-dashboard
-  system: demobank-microfrontends
+  owner: team-dashboard
+  system: user-experience-platform
   dependsOn:
-    - component:apollo-gateway
     - component:mfe-shell
-  providesApis:
-    - dashboard-module-federation-entrypoint
+    - component:experience-dashboard-api
+    - component:ui-library
   consumesApis:
-    - apollo-gateway-graphql-api
+    - api:experience-dashboard-api-graphql
+  providesApis:
+    - api:dashboard-mfe
   links:
     - url: http://localhost:5173/dashboard
-      title: Local Development
+      title: Live (in Shell)
       icon: dashboard
-    - url: https://demobank.example.com/dashboard
-      title: Production Deployment
-      icon: website
+    - url: http://localhost:8081
+      title: Standalone Dev
+      icon: bug_report
