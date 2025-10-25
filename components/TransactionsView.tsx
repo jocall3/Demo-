@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, UseMutationResult, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Card from './Card';
-import type { Transaction, DetectedSubscription } from '../types';
+import type { Transaction } from '../types';
 import { gql } from 'graphql-request'; // Assumes a GraphQL client library is added to the project
 
 // ================================================================================================
-// GraphQL CLIENT & QUERIES
+// GRAPHQL CLIENT & QUERIES
 // In a real application, this would be in dedicated files (e.g., `lib/graphql.ts`, `features/transactions/queries.ts`)
 // ================================================================================================
 
@@ -65,10 +65,11 @@ const ASK_AI_ADVISOR_MUTATION = gql`
  * Fetches all transactions from the GraphQL Supergraph.
  */
 const useTransactions = () => {
-    return useQuery<Transaction[], Error>({        
+    return useQuery<Transaction[], Error>({
         queryKey: ['transactions'],
         queryFn: async () => {
             const data = await graphqlRequest<{ userData: { transactions: Transaction[] } }>(GET_TRANSACTIONS_QUERY);
+            // The schema nests transactions inside userData
             return data.userData.transactions;
         },
         staleTime: 1000 * 60 * 5, // 5 minutes
@@ -79,7 +80,7 @@ const useTransactions = () => {
  * Hook to generate an AI insight for transactions via a GraphQL mutation.
  */
 const useTransactionInsight = (insightType: string, transactions?: Transaction[]) => {
-    return useMutation<{ askAIAdvisor: { messages: any[] } }, Error>({        
+    return useMutation<{ askAIAdvisor: { messages: any[] } }, Error>({
         mutationFn: () => {
             // In a real scenario, you might pass transaction IDs or a summary.
             // For this demo, we just send a descriptive prompt.
@@ -170,7 +171,6 @@ const TransactionTableSkeleton: React.FC = () => (
         ))}
     </tbody>
 );
-
 
 const TransactionsView: React.FC = () => {
     const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);

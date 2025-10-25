@@ -1,24 +1,78 @@
-import React, { useState, useEffect, useRef, useCallback, useContext } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Transaction } from '../types';
-import { DataContext } from '../context/DataContext';
+
+// ===============================================================================================
+// HYPOTHETICAL API HOOKS (NEW ARCHITECTURE)
+// In a real application, these hooks would use a library like React Query or Apollo Client
+// to interact with the federated GraphQL supergraph.
+// ===============================================================================================
+
+const useSendMoneyMutation = () => {
+  const [isPending, setIsPending] = useState(false);
+  const mutate = async (vars: { recipient: string, amount: number }): Promise<Transaction> => {
+    setIsPending(true);
+    // Simulate a GraphQL mutation to the API Gateway/BFF
+    console.log(`[API] Sending GraphQL Mutation: sendMoney(${JSON.stringify(vars)})`);
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    // Simulate potential failure for demonstration
+    if (vars.recipient.toLowerCase().includes('fail')) {
+        setIsPending(false);
+        throw new Error('Payment to this recipient is currently blocked.');
+    }
+
+    const newTx: Transaction = {
+      id: `tx_voice_${Date.now()}`,
+      type: 'expense',
+      category: 'Transfer',
+      description: `Sent to ${vars.recipient}`,
+      amount: vars.amount,
+      date: new Date().toISOString().split('T')[0],
+    };
+    setIsPending(false);
+    return newTx;
+  };
+  return { mutate, isPending };
+};
+
+const useBalanceQuery = () => {
+    const [isLoading, setIsLoading] = useState(false);
+    const query = async (): Promise<{ totalBalance: number }> => {
+        setIsLoading(true);
+        console.log('[API] Sending GraphQL Query: totalBalance');
+        await new Promise(resolve => setTimeout(resolve, 800));
+        setIsLoading(false);
+        // Simulate fetching a balance from the accounts-service subgraph
+        return { totalBalance: 54321.98 };
+    };
+    return { query, isLoading };
+}
+
+// ===============================================================================================
+// UI SUB-COMPONENTS
+// ===============================================================================================
 
 type VoiceState = 'idle' | 'listening' | 'processing' | 'speaking' | 'error';
 
-// --- UI Components ---
 const MicIcon = ({ className }: { className?: string }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className || "h-8 w-8"} fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
     </svg>
 );
 
-const VoiceModal: React.FC<{
+const VoiceModal: React.FC<{ 
     onClose: () => void;
     voiceState: VoiceState;
     transcript: string;
     aiResponse: string;
     processUtterance: (utterance: string) => void;
 }> = ({ onClose, voiceState, transcript, aiResponse, processUtterance }) => {
-    const commands = ["Show my dashboard", "What are my recent transactions?", "Pay Alex Ray $50 for dinner", "Take me to my budgets"];
+    const commands = [
+        "Show my dashboard", 
+        "What is my total balance?", 
+        "Pay Alex Ray $50 for dinner", 
+        "Take me to my budgets"
+    ];
 
     const stateText = {
         idle: 'Ready',
@@ -57,7 +111,9 @@ const VoiceModal: React.FC<{
     );
 };
 
-// --- Main Voice Control Component ---
+// ===============================================================================================
+// MAIN VOICE CONTROL COMPONENT (REFACTORED)
+// ===============================================================================================
 
 interface VoiceControlProps {
     setActiveView: (view: View) => void;
@@ -69,8 +125,11 @@ const VoiceControl: React.FC<VoiceControlProps> = ({ setActiveView }) => {
     const [transcript, setTranscript] = useState('');
     const [aiResponse, setAiResponse] = useState('Hello! How can I help you?');
     
+    // --- API Hooks --- 
+    const { mutate: sendMoney } = useSendMoneyMutation();
+    const { query: getBalance } = useBalanceQuery();
+
     const recognitionRef = useRef<any>(null);
-    const dataContext = useContext(DataContext);
     const isMounted = useRef(false);
 
     const startListening = useCallback(() => {
@@ -80,7 +139,6 @@ const VoiceControl: React.FC<VoiceControlProps> = ({ setActiveView }) => {
             try {
                 recognitionRef.current.start();
             } catch (error) {
-                // Handle cases where recognition is already started
                 console.warn("Speech recognition already started.", error);
             }
         }
@@ -89,15 +147,13 @@ const VoiceControl: React.FC<VoiceControlProps> = ({ setActiveView }) => {
     const speak = useCallback((text: string): Promise<void> => {
         return new Promise((resolve, reject) => {
             if (!isMounted.current) {
-                reject();
+                reject(new Error('Component not mounted'));
                 return;
             }
             setVoiceState('speaking');
             setAiResponse(text);
             const utterance = new SpeechSynthesisUtterance(text);
-            utterance.onend = () => {
-                if(isMounted.current) resolve();
-            };
+            utterance.onend = () => isMounted.current && resolve();
             utterance.onerror = (e) => {
                 if(isMounted.current) {
                      setVoiceState('error');
@@ -115,11 +171,11 @@ const VoiceControl: React.FC<VoiceControlProps> = ({ setActiveView }) => {
         setVoiceState('processing');
         const lowerCommand = command.toLowerCase();
 
-        // Navigate
+        // Command: Navigate
         const navMatch = lowerCommand.match(/^(show|go to|take me to|open|view) (my )?(.+)$/i);
         if (navMatch) {
             let viewName = navMatch[3].trim().replace(/\s+/g, '-');
-            if (viewName === 'home' || viewName === 'overview') viewName = 'dashboard';
+            if (['home', 'overview'].includes(viewName)) viewName = 'dashboard';
             
             const targetView = Object.values(View).find(v => v.replace(/-/g, '') === viewName.replace(/-/g, ''));
             
@@ -131,27 +187,38 @@ const VoiceControl: React.FC<VoiceControlProps> = ({ setActiveView }) => {
             }
         }
         
-        // Send Money
+        // Command: Send Money (CQRS Command)
         const payMatch = lowerCommand.match(/^(pay|send) (.+?) \$?(\d+(\.\d{1,2})?)/i);
-        if (payMatch && dataContext) {
+        if (payMatch) {
             const recipient = payMatch[2].trim();
             const amount = parseFloat(payMatch[3]);
-            
-            const newTx: Transaction = {
-                id: `tx_voice_${Date.now()}`, type: 'expense', category: 'Transfer',
-                description: `Sent to ${recipient}`, amount: amount,
-                date: new Date().toISOString().split('T')[0],
-            };
-            dataContext.addTransaction(newTx);
-            await speak(`Okay, I've sent $${amount} to ${recipient}.`);
+            try {
+                await speak(`Initiating payment of $${amount} to ${recipient}.`);
+                await sendMoney({ recipient, amount });
+                await speak(`Payment successful.`);
+            } catch (error: any) {
+                await speak(`Sorry, I couldn't complete the payment. ${error.message}`);
+            }
             setIsModalOpen(false);
+            return;
+        }
+
+        // Command: Get Balance (CQRS Query)
+        if (lowerCommand.includes('balance') || lowerCommand.includes('how much money')) {
+            try {
+                const { totalBalance } = await getBalance();
+                await speak(`Your total balance is $${totalBalance.toLocaleString()}.`);
+            } catch (error: any) {
+                await speak(`Sorry, I couldn't retrieve your balance right now.`);
+            }
+            startListening();
             return;
         }
 
         await speak("I'm sorry, I didn't understand that. Please try again.");
         if (isMounted.current) startListening();
 
-    }, [setActiveView, dataContext, speak, startListening]);
+    }, [setActiveView, speak, startListening, sendMoney, getBalance]);
 
     useEffect(() => {
         isMounted.current = true;
@@ -167,14 +234,14 @@ const VoiceControl: React.FC<VoiceControlProps> = ({ setActiveView }) => {
         recognition.interimResults = true;
         recognition.lang = 'en-US';
 
-        // FIX: Use 'any' as SpeechRecognitionEvent is not available in all TS lib configs.
+        // Use 'any' as SpeechRecognitionEvent is not available in all TS lib configs.
         recognition.onresult = (event: any) => {
             let finalTranscript = '';
             for (let i = event.resultIndex; i < event.results.length; ++i) {
                 if (event.results[i].isFinal) {
                     finalTranscript += event.results[i][0].transcript;
                 } else {
-                    setTranscript(event.results[i][0].transcript);
+                    if(isMounted.current) setTranscript(event.results[i][0].transcript);
                 }
             }
             if (finalTranscript) {
@@ -183,11 +250,13 @@ const VoiceControl: React.FC<VoiceControlProps> = ({ setActiveView }) => {
             }
         };
 
-        // FIX: Use 'any' as SpeechRecognitionErrorEvent is not available in all TS lib configs.
+        // Use 'any' as SpeechRecognitionErrorEvent is not available in all TS lib configs.
         recognition.onerror = (event: any) => {
             console.error('Speech recognition error', event.error);
-            setAiResponse(`Error: ${event.error}. Please try again.`);
-            setVoiceState('error');
+            if(isMounted.current) {
+                setAiResponse(`Error: ${event.error}. Please try again.`);
+                setVoiceState('error');
+            }
         };
         
         recognition.onstart = () => {
@@ -205,6 +274,10 @@ const VoiceControl: React.FC<VoiceControlProps> = ({ setActiveView }) => {
         return () => {
             isMounted.current = false;
             if (recognitionRef.current) {
+                recognitionRef.current.onresult = null;
+                recognitionRef.current.onerror = null;
+                recognitionRef.current.onstart = null;
+                recognitionRef.current.onend = null;
                 recognitionRef.current.stop();
             }
             window.speechSynthesis.cancel();
@@ -214,7 +287,6 @@ const VoiceControl: React.FC<VoiceControlProps> = ({ setActiveView }) => {
     const openModal = () => {
         setAiResponse('Hello! How can I help you?');
         setIsModalOpen(true);
-        // Delay listening to allow modal to open and permissions prompt if needed
         setTimeout(startListening, 300);
     }
     
