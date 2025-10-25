@@ -1,6 +1,6 @@
-import { Injectable, OnModuleInit, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, Logger, HttpException, HttpStatus, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Client, Connection, WorkflowFailedError } from '@temporalio/client';
+import { Client, WorkflowFailedError } from '@temporalio/client';
 import { randomUUID } from 'node:crypto';
 
 // DTOs for inputs to align with GraphQL and workflow definitions
@@ -33,43 +33,28 @@ export interface AskAIAdvisorInput {
  * ARCHITECTURAL REFACTOR:
  * This service no longer contains direct calls to the Google Gemini API for asynchronous processes.
  * Instead, it acts as a client to a Temporal workflow orchestration engine. It is responsible for:
- * 1. Connecting to the Temporal cluster.
+ * 1. Connecting to the Temporal cluster (via an injected client).
  * 2. Starting long-running workflows like 'Quantum Weaver' business plan analysis and video generation.
  * 3. Awaiting and returning the results of these durable executions.
  *
  * This change decouples the BFF from the complexities of the AI workflow, offloading state management,
- * retries, and failures to the Temporal engine. Synchronous, fast AI calls (like simple text generation)
- * might still be handled here directly if needed, but the primary focus is orchestration.
+ * retries, and failures to the Temporal engine, aligning with Hexagonal Architecture principles.
  */
 @Injectable()
-export class GenaiService implements OnModuleInit {
+export class GenaiService {
   private readonly logger = new Logger(GenaiService.name);
-  private temporalClient: Client | null = null;
+  private readonly taskQueue: string;
 
-  constructor(private configService: ConfigService) {}
-
-  /**
-   * Establishes a connection to the Temporal frontend service on module initialization.
-   */
-  async onModuleInit() {
-    try {
-      const temporalAddress = this.configService.get<string>('TEMPORAL_ADDRESS');
-      if (!temporalAddress) {
-        this.logger.warn('TEMPORAL_ADDRESS is not configured. GenAI workflow features will be unavailable.');
-        return;
-      }
-      const connection = await Connection.connect({ address: temporalAddress });
-      this.temporalClient = new Client({ connection });
-      this.logger.log(`Successfully connected to Temporal frontend at ${temporalAddress}`);
-    } catch (err) {
-      this.logger.error('Failed to connect to Temporal.', err);
-      // The service will continue to run, but workflow-related methods will fail.
-    }
+  constructor(
+    private readonly configService: ConfigService,
+    @Inject('TEMPORAL_CLIENT') private readonly temporalClient: Client,
+  ) {
+    this.taskQueue = this.configService.get<string>('TEMPORAL_GENAI_TASK_QUEUE', 'genai-task-queue');
   }
 
   private ensureClient(): Client {
     if (!this.temporalClient) {
-      this.logger.error('Temporal client is not connected. Cannot start workflow.');
+      this.logger.error('Temporal client is not available. Was the TemporalModule imported correctly?');
       throw new HttpException(
         'AI orchestration engine is currently unavailable.',
         HttpStatus.SERVICE_UNAVAILABLE,
@@ -94,11 +79,10 @@ export class GenaiService implements OnModuleInit {
 
     try {
       await client.workflow.start('quantumWeaverWorkflow', {
-        taskQueue: 'genai-task-queue',
+        taskQueue: this.taskQueue,
         workflowId: workflowId,
         args: [input],
-        // You can define timeouts and retry policies here
-        // workflowExecutionTimeout: '5 minutes',
+        workflowExecutionTimeout: '5 minutes',
       });
       return workflowId;
     } catch (error) {
@@ -121,9 +105,8 @@ export class GenaiService implements OnModuleInit {
     this.logger.log(`Executing 'videoGenerationWorkflow' with ID: ${workflowId}`);
 
     try {
-      // `execute` starts the workflow and returns a promise that resolves with the result.
       const result = await client.workflow.execute('videoGenerationWorkflow', {
-        taskQueue: 'genai-task-queue',
+        taskQueue: this.taskQueue,
         workflowId: workflowId,
         args: [input],
         workflowExecutionTimeout: '10 minutes', // It's a long-running task
@@ -132,16 +115,11 @@ export class GenaiService implements OnModuleInit {
     } catch (error) {
       this.logger.error(`videoGenerationWorkflow failed: ${workflowId}`, error);
       if (error instanceof WorkflowFailedError) {
-        // More specific error handling for workflow failures
         throw new HttpException(`Video generation failed: ${error.cause?.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
       }
       throw new HttpException('Failed to generate video ad.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
-  
-  // NOTE: Synchronous, fast AI calls can remain here if they don't benefit from orchestration.
-  // For this refactoring, we assume all GenAI tasks are now workflows. If some are simple,
-  // the old logic of calling the genai-service directly would be here.
   
   async generateCardStory(prompt: string): Promise<string> {
     const client = this.ensureClient();
@@ -149,7 +127,7 @@ export class GenaiService implements OnModuleInit {
     this.logger.log(`Executing 'simpleTextGenerationWorkflow' for card story with ID: ${workflowId}`);
     try {
        const result = await client.workflow.execute('simpleTextGenerationWorkflow', {
-        taskQueue: 'genai-task-queue',
+        taskQueue: this.taskQueue,
         workflowId,
         args: [{ prompt }],
         workflowExecutionTimeout: '1 minute',
@@ -167,12 +145,11 @@ export class GenaiService implements OnModuleInit {
     this.logger.log(`Executing 'imageGenerationWorkflow' for card image with ID: ${workflowId}`);
      try {
        const result = await client.workflow.execute('imageGenerationWorkflow', {
-        taskQueue: 'genai-task-queue',
+        taskQueue: this.taskQueue,
         workflowId,
         args: [input],
         workflowExecutionTimeout: '2 minutes',
       });
-      // The workflow is expected to return a data URI string
       return result as string;
     } catch(error) {
         this.logger.error(`Card image generation workflow failed: ${workflowId}`, error);
@@ -186,7 +163,7 @@ export class GenaiService implements OnModuleInit {
     this.logger.log(`Executing 'chatWorkflow' for AI advisor with ID: ${workflowId}`);
     try {
       const result = await client.workflow.execute('chatWorkflow', {
-        taskQueue: 'genai-task-queue',
+        taskQueue: this.taskQueue,
         workflowId,
         args: [input],
         workflowExecutionTimeout: '2 minutes',
