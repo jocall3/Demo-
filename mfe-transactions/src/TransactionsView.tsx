@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, FC, ReactNode } from 'react';
 import { useQuery, useMutation, UseMutationResult, QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { gql } from 'graphql-request'; // Assumes a GraphQL client library is added to the project
+import { gql } from 'graphql-request';
 
 // ================================================================================================
-// SHARED TYPES (Copied for self-containment, but ideally from a shared types package/MFE contracts)
+// SHARED TYPES (Copied for self-containment, but ideally from a shared types package)
 // ================================================================================================
 
 export enum TransactionType {
@@ -22,288 +22,50 @@ export interface Transaction {
   carbonFootprint?: number | null;
 }
 
-export interface DetectedSubscription {
-  name: string;
-  estimatedMonthlyAmount: number;
-}
-
 // ================================================================================================
-// CORE UI COMPONENTS (Copied for self-containment as per MFE decomposition pattern)
+// CORE UI COMPONENTS (Inlined for self-containment as an MFE)
 // ================================================================================================
 
-// --- Card Component (Simplified for brevity but can be full implementation) ---
-// Full implementation of Card component would be much larger, for this MFE context,
-// we use a minimal version or assume it's provided by the shell/local library.
-// For absolute self-containment as per prompt, a full Card is usually included.
-// For this specific MFE, we'll inline a simplified but functional version.
-
-export type CardVariant = 'default' | 'outline' | 'ghost' | 'interactive';
-
-export interface CardHeaderAction {
-  id: string;
-  icon: React.ReactElement;
-  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  label: string; 
-  disabled?: boolean;
-}
-
+// --- Card Component (Simplified but functional version) ---
 export interface CardProps {
   title?: string;
-  subtitle?: string;
   children: React.ReactNode;
-  headerActions?: CardHeaderAction[];
-  footerContent?: React.ReactNode;
   isCollapsible?: boolean;
   defaultCollapsed?: boolean;
   isLoading?: boolean;
   errorState?: string | null;
-  onRetry?: () => void;
   className?: string;
-  variant?: CardVariant;
-  padding?: 'sm' | 'md' | 'lg' | 'none';
-  onClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
-  isMetric?: boolean;
-  loadingIndicator?: React.ReactNode;
 }
 
-const LoadingSkeleton: React.FC = () => (
-    <div className="space-y-4 animate-pulse p-6">
-        <div className="flex items-center justify-between">
-            <div className="h-6 bg-gray-700 rounded-md w-1/3"></div>
-            <div className="h-6 bg-gray-700 rounded-full w-6"></div>
-        </div>
-        <div className="space-y-3 pt-4">
-            <div className="h-4 bg-gray-700 rounded-md w-full"></div>
-            <div className="h-4 bg-gray-700 rounded-md w-5/6"></div>
-            <div className="h-4 bg-gray-700 rounded-md w-3/4"></div>
-        </div>
-    </div>
-);
-
-const ErrorDisplay: React.FC<{ message: string; onRetry?: () => void; }> = ({ message, onRetry }) => (
-    <div className="flex flex-col items-center justify-center text-center p-6 bg-red-900/20 border-t border-b border-red-500/20">
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-red-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <h4 className="text-lg font-semibold text-red-200">An Error Occurred</h4>
-        <p className="text-red-300 mt-1 mb-4 max-w-md">{message}</p>
-        {onRetry && (
-            <button
-                onClick={onRetry}
-                className="px-4 py-2 bg-red-500/50 hover:bg-red-500 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-                Retry
-            </button>
-        )}
-    </div>
-);
-
-const CardHeader: React.FC<{
-  title?: string;
-  subtitle?: string;
-  isCollapsible?: boolean;
-  isCollapsed: boolean;
-  toggleCollapse: () => void;
-  actions?: CardHeaderAction[];
-}> = ({ title, subtitle, isCollapsible, isCollapsed, toggleCollapse, actions }) => {
-  if (!title && !subtitle && (!actions || actions.length === 0) && !isCollapsible) {
-    return null;
-  }
-
-  const handleHeaderClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isCollapsible && (e.target as HTMLElement).closest('button') === null) {
-      toggleCollapse();
-    }
-  };
-
-  const headerCursorClass = isCollapsible ? 'cursor-pointer' : 'cursor-default';
-
-  return (
-    <div
-      className={`flex items-start justify-between pb-4 ${headerCursorClass}`}
-      onClick={handleHeaderClick}
-    >
-      <div className="flex-1 pr-4">
-        {title && (
-          <h3 className="text-xl font-semibold text-gray-100 truncate">{title}</h3>
-        )}
-        {subtitle && (
-          <p className="text-sm text-gray-400 mt-1">{subtitle}</p>
-        )}
-      </div>
-      <div className="flex items-center space-x-2 flex-shrink-0">
-        {actions && actions.map(action => (
-          <button
-            key={action.id}
-            onClick={action.onClick}
-            aria-label={action.label}
-            disabled={action.disabled}
-            className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {React.cloneElement(action.icon as React.ReactElement<any>, { className: 'h-5 w-5' })}
-          </button>
-        ))}
-        {isCollapsible && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleCollapse();
-            }}
-            aria-label={isCollapsed ? 'Expand section' : 'Collapse section'}
-            className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-full transition-colors"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transition-transform duration-300 ${isCollapsed ? 'rotate-0' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-            </svg>
-          </button>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const CardFooter: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
-  if (!children) return null;
-  return (
-    <div className="pt-4 border-t border-gray-700/60">
-      {children}
-    </div>
-  );
-};
-
-const getVariantClasses = (variant: string): string => {
-  switch (variant) {
-    case 'outline': return 'bg-transparent border-2 border-gray-600/80 shadow-md';
-    case 'ghost': return 'bg-transparent border-none shadow-none';
-    case 'interactive': return 'bg-gray-800/50 backdrop-blur-sm border border-gray-700/60 rounded-xl shadow-lg transition-all duration-300 hover:bg-gray-800/80 hover:border-cyan-500/80 hover:shadow-cyan-500/10';
-    case 'default':
-    default: return 'bg-gray-800/50 backdrop-blur-sm border border-gray-700/60 rounded-xl shadow-lg';
-  }
-};
-
-const getPaddingClasses = (padding: string): string => {
-    switch(padding) {
-        case 'sm': return 'p-3';
-        case 'md': return 'p-6';
-        case 'lg': return 'p-8';
-        case 'none': return 'p-0';
-        default: return 'p-6';
-    }
-};
-
-const Card: React.FC<CardProps> = ({
-  title,
-  subtitle,
-  children,
-  className = '',
-  variant = 'default',
-  padding = 'md',
-  headerActions,
-  footerContent,
-  isCollapsible = false,
-  defaultCollapsed = false,
-  isLoading = false,
-  errorState = null,
-  onRetry,
-  loadingIndicator,
-  onClick,
-  isMetric = false,
-}) => {
+const Card: FC<CardProps> = ({ title, children, isCollapsible = false, defaultCollapsed = false, isLoading = false, errorState = null, className = '' }) => {
   const [isCollapsed, setIsCollapsed] = useState(isCollapsible && defaultCollapsed);
-  const contentRef = React.useRef<HTMLDivElement>(null);
-  const [contentHeight, setContentHeight] = useState<number | string>('auto');
 
-  const toggleCollapse = useCallback(() => {
-    if (isCollapsible) {
-      setIsCollapsed(prev => !prev);
-    }
-  }, [isCollapsible]);
-
-  React.useEffect(() => {
-    if (isCollapsible) {
-      if (isCollapsed) {
-        setContentHeight(0);
-      } else {
-        const contentEl = contentRef.current;
-        setContentHeight(contentEl ? contentEl.scrollHeight : 'auto');
-      }
-    }
-  }, [isCollapsed, isCollapsible, children]);
-
-  React.useEffect(() => {
-    if (!isCollapsible && isCollapsed) {
-        setIsCollapsed(false);
-    }
-  }, [isCollapsible, isCollapsed]);
-
-  const baseClasses = getVariantClasses(variant);
-  const finalPadding = isMetric && padding === 'md' ? 'sm' : padding;
-  const paddingClasses = getPaddingClasses(finalPadding);
-
-  const finalContainerClasses = `
-    ${baseClasses}
-    ${className}
-    overflow-hidden
-  `;
-
-  const renderCardContent = (): React.ReactNode => {
+  const renderContent = () => {
     if (isLoading) {
-      return loadingIndicator || <LoadingSkeleton />;
+      return <div className="p-6 text-center text-gray-500">Loading...</div>;
     }
-
     if (errorState) {
-      return <ErrorDisplay message={errorState} onRetry={onRetry} />;
+      return <div className="p-6 text-center text-red-400">Error: {errorState}</div>;
     }
-
-    const contentWrapperStyle = {
-      height: isCollapsible ? contentHeight : 'auto',
-    };
-
-    const contentPadding = (title || subtitle || isCollapsible || headerActions) ? 'pt-4' : '';
-
-    return (
-        <div
-          style={contentWrapperStyle}
-          className="transition-[height] duration-500 ease-in-out overflow-hidden"
-          aria-hidden={isCollapsed}
-        >
-          <div ref={contentRef}>
-             <div className={contentPadding}>
-                {children}
-             </div>
-          </div>
-        </div>
-    );
+    return <div className="p-6">{children}</div>;
   };
-  
+
   return (
-    <div className={finalContainerClasses.trim().replace(/\s+/g, ' ')} onClick={onClick}>
-      <div className={`${paddingClasses} ${isMetric ? 'text-center' : ''}`}>
-        <CardHeader
-          title={title}
-          subtitle={subtitle}
-          isCollapsible={isCollapsible}
-          isCollapsed={!!isCollapsed}
-          toggleCollapse={toggleCollapse}
-          actions={headerActions}
-        />
-        
-        {(isLoading || errorState) ? (
-            renderCardContent()
-        ) : (
-            <>
-                {renderCardContent()}
-                <CardFooter>{footerContent}</CardFooter>
-            </>
-        )}
-      </div>
+    <div className={`bg-gray-800/50 backdrop-blur-sm border border-gray-700/60 rounded-xl shadow-lg ${className}`}>
+      {(title || isCollapsible) && (
+        <div className={`flex justify-between items-center p-4 border-b border-gray-700/60 ${isCollapsible ? 'cursor-pointer' : ''}`} onClick={() => isCollapsible && setIsCollapsed(!isCollapsed)}>
+          {title && <h3 className="text-xl font-semibold text-gray-100 truncate">{title}</h3>}
+          {isCollapsible && <button className="text-gray-400 hover:text-white">{isCollapsed ? 'Show' : 'Hide'}</button>}
+        </div>
+      )}
+      {!isCollapsed && renderContent()}
     </div>
   );
 };
 
-// --- Transaction-specific Sub-Components (Inlined for self-containment) ---
+// --- Transaction-specific Sub-Components ---
 
-const TransactionIcon: React.FC<{ category: string }> = ({ category }) => {
+const TransactionIcon: FC<{ category: string }> = ({ category }) => {
     let iconPath;
     switch (category) {
         case 'Dining': iconPath = "M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c2 1 5 1 7 0 2-1 2.657-1.343 2.657-1.343a8 8 0 010 10z"; break;
@@ -313,24 +75,14 @@ const TransactionIcon: React.FC<{ category: string }> = ({ category }) => {
         case 'Utilities': iconPath = "M13 10V3L4 14h7v7l9-11h-7z"; break;
         case 'Transport': iconPath = "M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M12 11a3 3 0 100-6 3 3 0 000 6z"; break;
         case 'Entertainment': iconPath = "M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 002 2h14a2 2 0 002-2V7a2 2 0 00-2-2H5z"; break;
-        case 'Rent': iconPath = "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"; break;
-        case 'Travel': iconPath = 'M12 19l9 2-9-18-9 18 9-2zm0 0v-8'; break;
         default: iconPath = "M4 6h16M4 10h16M4 14h16M4 18h16"; break;
     }
     return (<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={iconPath}></path></svg>);
 };
 
-const CarbonFootprintBadge: React.FC<{ footprint: number }> = ({ footprint }) => {
-    const getBadgeStyle = () => {
-        if (footprint < 2) return 'text-green-400';
-        if (footprint < 10) return 'text-yellow-400';
-        return 'text-red-400';
-    };
-    return (<div className={`flex items-center text-xs ${getBadgeStyle()}`}><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path d="M10 3.5a1.5 1.5 0 011.5 1.5v.92l5.06 4.69a1.5 1.5 0 01-.18 2.4l-3.38 1.95a1.5 1.5 0 01-1.5-.26L10 12.43l-1.5 2.25a1.5 1.5 0 01-1.5.26l-3.38-1.95a1.5 1.5 0 01-.18-2.4l5.06-4.69V5A1.5 1.5 0 0110 3.5z" /></svg><span className="font-mono">{footprint.toFixed(1)} kg COâ‚‚</span></div>);
-};
-
-const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClose: () => void }> = ({ transaction, onClose }) => {
+const TransactionDetailModal: FC<{ transaction: Transaction | null; onClose: () => void }> = ({ transaction, onClose }) => {
     if (!transaction) return null;
+
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm" onClick={onClose}>
             <div className="bg-gray-800 rounded-lg shadow-2xl max-w-md w-full border border-gray-700" onClick={e => e.stopPropagation()}>
@@ -344,7 +96,7 @@ const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClos
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Date:</span> <span className="text-white">{transaction.date}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Category:</span> <span className="text-white">{transaction.category}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-gray-400">Transaction ID:</span> <span className="text-white font-mono text-xs">{transaction.id}</span></div>
-                    {transaction.carbonFootprint && <div className="flex justify-between text-sm"><span className="text-gray-400">Carbon Footprint:</span> <span className="text-green-300">{transaction.carbonFootprint.toFixed(1)} kg COâ‚‚</span></div>}
+                    {transaction.carbonFootprint && <div className="flex justify-between text-sm"><span className="text-gray-400">Carbon Footprint:</span> <span className="text-green-300">{transaction.carbonFootprint.toFixed(1)} kg CO2</span></div>}
                 </div>
             </div>
         </div>
@@ -354,10 +106,10 @@ const TransactionDetailModal: React.FC<{ transaction: Transaction | null; onClos
 interface AITransactionWidgetProps {
     title: string;
     mutation: UseMutationResult<any, Error, void, unknown>;
-    children?: (result: string) => React.ReactNode; // Change type to string
+    children?: (result: string) => React.ReactNode;
 }
 
-const AITransactionWidget: React.FC<AITransactionWidgetProps> = ({ title, mutation, children }) => {
+const AITransactionWidget: FC<AITransactionWidgetProps> = ({ title, mutation, children }) => {
     const { mutate, data, isPending: isLoading, error } = mutation;
     const result = data?.askAIAdvisor.messages.find((m: any) => m.role === 'model')?.parts[0]?.text;
 
@@ -385,9 +137,9 @@ const AITransactionWidget: React.FC<AITransactionWidgetProps> = ({ title, mutati
     );
 };
 
-const TransactionTableSkeleton: React.FC = () => (
+const TransactionTableSkeleton: FC = () => (
     <tbody>
-        {Array.from({ length: 5 }).map((_, i) => (
+        {Array.from({ length: 10 }).map((_, i) => (
             <tr key={i} className="animate-pulse border-b border-gray-800">
                 <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-3/4"></div></td>
                 <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-1/2"></div></td>
@@ -399,7 +151,7 @@ const TransactionTableSkeleton: React.FC = () => (
 );
 
 // ================================================================================================
-// GraphQL CLIENT & QUERIES
+// GRAPHQL CLIENT & QUERIES
 // ================================================================================================
 
 const graphqlRequest = async <T, V>(query: string, variables?: V): Promise<T> => {
@@ -410,7 +162,7 @@ const graphqlRequest = async <T, V>(query: string, variables?: V): Promise<T> =>
     });
     if (!response.ok) {
         const errorBody = await response.json().catch(() => ({ message: 'An unknown network error occurred' }));
-        throw new Error(errorBody.message || `GraphQL request failed with status ${response.status}`);
+        throw new Error(errorBody.errors?.[0]?.message || `GraphQL request failed with status ${response.status}`);
     }
     const { data, errors } = await response.json();
     if (errors) {
@@ -459,7 +211,7 @@ const useTransactions = () => {
             const data = await graphqlRequest<{ userData: { transactions: Transaction[] } }>(GET_TRANSACTIONS_QUERY);
             return data.userData.transactions;
         },
-        staleTime: 1000 * 60 * 5,
+        staleTime: 1000 * 60 * 5, // 5 minutes
     });
 };
 
@@ -482,7 +234,7 @@ const useTransactionInsight = (insightType: string) => {
 // MAIN COMPONENT
 // ================================================================================================
 
-const TransactionsView: React.FC = () => {
+const TransactionsView: FC = () => {
     const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
     const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
     const [sort, setSort] = useState<'date' | 'amount'>('date');
@@ -564,7 +316,10 @@ const TransactionsView: React.FC = () => {
                                     )}
                                     {!error && filteredTransactions.map(tx => (
                                         <tr key={tx.id} onClick={() => setSelectedTransaction(tx)} className="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer">
-                                            <th scope="row" className="px-6 py-4 font-medium text-white whitespace-nowrap">{tx.description}</th>
+                                            <th scope="row" className="px-6 py-4 font-medium text-white whitespace-nowrap flex items-center gap-4">
+                                              <div className="p-2 bg-gray-700 rounded-full text-cyan-400"><TransactionIcon category={tx.category} /></div>
+                                              {tx.description}
+                                            </th>
                                             <td className="px-6 py-4">{tx.category}</td>
                                             <td className="px-6 py-4">{tx.date}</td>
                                             <td className={`px-6 py-4 text-right font-mono ${tx.type === TransactionType.INCOME ? 'text-green-400' : 'text-red-400'}`}>
@@ -585,7 +340,7 @@ const TransactionsView: React.FC = () => {
 
 const queryClient = new QueryClient();
 
-const TransactionsViewWithProvider: React.FC = () => (
+const TransactionsViewWithProvider: FC = () => (
     <QueryClientProvider client={queryClient}>
         <TransactionsView />
     </QueryClientProvider>

@@ -1,0 +1,45 @@
+Title: 0003: Implement a Full CQRS and Event Sourcing Pattern for Core Microservices
+Status: Accepted
+Date: 2024-05-15
+
+Context:
+Our core microservices, particularly `accounts-service` and `transactions-service`, currently follow a traditional CRUD-based architecture. A single data model and database are used for both command (write) and query (read) operations. This approach presents several growing challenges:
+
+1.  **Scalability Contention**: Read-heavy operations (e.g., fetching transaction history) and write-heavy operations (e.g., processing payments) compete for the same database resources, leading to performance bottlenecks. Scaling one side of the workload inefficiently scales the other.
+2.  **Lack of Auditability and History**: State is mutable. When a record is updated, the previous state is lost. This makes it difficult to answer historical questions ("What was this user's account balance on this date?") and to create a reliable audit log of all state changes.
+3.  **Model Complexity**: A single data model must serve both the complex validation rules of write operations and the varied, often denormalized, needs of query operations. This leads to a compromised model that is not optimal for either task.
+4.  **Tight Coupling**: Services that need to react to state changes often query the primary database directly or rely on fragile, synchronous API calls, leading to tight coupling and reduced resilience.
+
+Decision:
+We will refactor the `accounts-service` and `transactions-service` to strictly adhere to the Command Query Responsibility Segregation (CQRS) and Event Sourcing (ES) patterns. This decision decouples the write and read paths of our data lifecycle.
+
+The new architecture will be composed of the following components:
+
+1.  **Commands**: All intentions to change state will be expressed as immutable `Commands` (e.g., `CreateAccountCommand`, `DebitAccountCommand`). These commands will be dispatched to the application layer.
+
+2.  **Aggregates**: The core domain logic for processing commands will be encapsulated within `Aggregates` (e.g., `AccountAggregate`). An aggregate is a consistency boundary that validates a command against its current state and, if successful, produces one or more `Domain Events`.
+
+3.  **Domain Events**: These are immutable records of facts that have occurred within the domain (e.g., `AccountCreated`, `AccountDebited`). They are the single source of truth for all state changes.
+
+4.  **Event Store**: We will use dedicated Apache Kafka topics as our event store. All domain events produced by aggregates will be persisted to these topics in an append-only log. The event log represents the complete, ordered history of the system's state.
+
+5.  **Projections (Read Models)**: Separate, denormalized data stores (e.g., MongoDB, Elasticsearch) will be created, optimized for specific query use cases. These are the "Read Models." For example, a `TransactionHistoryProjection` could store transactions in a way that is highly efficient to query by date range and category for a user's mobile app.
+
+6.  **Consumers (Projectors)**: Dedicated consumer services will subscribe to the event topics in Kafka. Their sole responsibility is to process the event stream and update the corresponding projections (read models).
+
+Consequences:
+
+Positive:
+*   **Independent Scalability**: The write-side (command processing, event persistence) and read-side (querying projections) can be scaled independently based on their specific loads.
+*   **Enhanced Performance**: Read models can be designed and indexed specifically for their query patterns, leading to faster data retrieval for the frontend.
+*   **Full Auditability**: The event log provides a complete, immutable audit trail of every state change that has ever occurred in the system. This is invaluable for debugging, analytics, and compliance.
+*   **Temporal Queries**: It becomes possible to reconstruct the state of an aggregate at any point in time by replaying events up to that point.
+*   **Flexibility and Decoupling**: New read models and downstream microservices can be built by simply subscribing to the existing event stream, without modifying the core write-side services. This greatly reduces coupling.
+*   **Improved Resilience**: The asynchronous, event-driven nature of the system improves resilience. If a read-model consumer fails, it can catch up by re-processing events from the log once it recovers.
+
+Negative:
+*   **Increased Complexity**: This pattern introduces more components (commands, aggregates, events, consumers, multiple data stores) and moving parts compared to a traditional CRUD architecture.
+*   **Eventual Consistency**: There will be a replication lag between when a command is processed (and an event is written) and when the read models are updated. The UI must be designed to handle this eventual consistency.
+*   **Steeper Learning Curve**: Developers will need to be trained on CQRS, Event Sourcing, and domain-driven design principles.
+*   **Infrastructure Overhead**: Requires a robust and highly available message bus (Kafka) and potentially multiple database technologies.
+*   **Event Schema Versioning**: As the domain evolves, managing different versions of event schemas ("event versioning") can become a complex challenge that requires a clear strategy (e.g., upcasting).

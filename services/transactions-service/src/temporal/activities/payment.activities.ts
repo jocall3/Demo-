@@ -5,109 +5,106 @@
  * Each function in this file represents a single, idempotent unit of work (an Activity) that can be orchestrated
  * by a Temporal Workflow. These activities encapsulate interactions with external services, databases, or APIs.
  * This approach allows the workflow logic to be durable, reliable, and decoupled from the implementation
- * details of each step.
+ * details of each step, adhering to Hexagonal Architecture principles where activities are inbound adapters to the application's core logic.
  */
 
-// NOTE: In a real-world NestJS + Temporal integration, services like TransactionService
-// would be injected into an Activities class. For this file, we simulate these interactions
-// to focus on the activity definitions themselves.
+import { TransactionService } from '../../transaction/transaction.service';
+
+// =============================================================================
+// ACTIVITY INPUT/OUTPUT INTERFACES
+// =============================================================================
 
 /**
- * Defines the data structure passed between payment activities.
+ * @interface AccountActivityInput
+ * @description Defines the input structure for activities that interact with a financial account.
+ * @property {string} accountId - The unique identifier of the target account.
+ * @property {number} amount - The monetary amount for the operation.
+ * @property {string} transactionId - The unique ID for the transaction, used for idempotency.
  */
-export interface PaymentDetails {
-  transactionId: string;
-  sourceUserId: string;
-  destinationUserId: string;
+export interface AccountActivityInput {
+  accountId: string;
   amount: number;
-  currency: string;
+  transactionId: string;
 }
 
 /**
- * Debits the specified amount from the source user's account.
- * This is an idempotent activity that can be safely retried.
- * @param details - The details of the payment.
- * @returns A confirmation string (e.g., a charge ID) for potential compensation.
+ * @interface UpdateStatusInput
+ * @description Defines the input structure for the activity that updates a transaction's status.
+ * @property {string} transactionId - The unique ID of the transaction to update.
+ * @property {string} status - The new status to set for the transaction.
+ * @property {string} [error] - An optional error message if the status is a failure state.
  */
-export async function debitSourceAccount(details: PaymentDetails): Promise<string> {
-  console.log(`[Activity] Debiting ${details.amount} ${details.currency} from user ${details.sourceUserId} for transaction ${details.transactionId}`);
-
-  // Simulate an idempotent call to an external accounts service.
-  // If this service were called again with the same transactionId, it should not double-charge.
-  await new Promise(resolve => setTimeout(resolve, 500));
-
-  // Simulate a potential transient failure. Temporal will retry this activity based on the workflow's retry policy.
-  if (Math.random() < 0.1) {
-    console.error('[Activity] Failed to connect to banking provider for debit.');
-    throw new Error('Failed to connect to banking provider for debit.');
-  }
-
-  const chargeId = `charge_${details.transactionId}`;
-  console.log(`[Activity] Debit successful. Charge ID: ${chargeId}`);
-  return chargeId;
+export interface UpdateStatusInput {
+  transactionId: string;
+  status: 'PROCESSING_DEBIT' | 'PROCESSING_CREDIT' | 'COMPLETED' | 'CREDIT_FAILED' | 'REFUNDING' | 'REFUNDED' | 'FAILED';
+  error?: string;
 }
 
-/**
- * The compensation activity for `debitSourceAccount`.
- * This will be executed by a Saga if a subsequent activity in the workflow fails, ensuring the user is refunded.
- * @param chargeId - The charge ID returned by the `debitSourceAccount` activity.
- * @param transactionId - The original transaction ID for logging and tracing.
- */
-export async function refundSourceAccount(chargeId: string, transactionId: string): Promise<void> {
-  console.log(`[Activity] [COMPENSATION] Refunding charge ${chargeId} for transaction ${transactionId}`);
-
-  // Simulate an idempotent call to the accounts service to issue a refund.
-  await new Promise(resolve => setTimeout(resolve, 500));
-
-  console.log(`[Activity] [COMPENSATION] Refund for transaction ${transactionId} processed successfully.`);
-}
+// =============================================================================
+// ACTIVITIES FACTORY
+// =============================================================================
 
 /**
- * Credits the specified amount to the destination user's account.
- * @param details - The details of the payment.
- * @returns A confirmation string (e.g., a credit transaction ID).
+ * Creates an object containing the Temporal Activities for the payment workflow.
+ * This factory function allows for dependency injection of NestJS services (like TransactionService)
+ * into the activities. This is a common pattern for integrating Temporal with a DI framework.
+ *
+ * @param {TransactionService} transactionService - An instance of the TransactionService, which contains the core business logic.
+ * @returns {object} An object containing all activity functions for the payment workflow.
  */
-export async function creditDestinationAccount(details: PaymentDetails): Promise<string> {
-  console.log(`[Activity] Crediting ${details.amount} ${details.currency} to user ${details.destinationUserId} for transaction ${details.transactionId}`);
+export function createActivities(transactionService: TransactionService) {
+  return {
+    /**
+     * Activity: Debits a specified amount from an account.
+     * This is an idempotent operation that would typically trigger a command to an external 'accounts-service'.
+     * @param {AccountActivityInput} input - Contains accountId, amount, and transactionId for idempotency.
+     * @returns {Promise<void>}
+     */
+    async debitAccount(input: AccountActivityInput): Promise<void> {
+      console.log(`[Activity] Debiting ${input.amount} from account ${input.accountId} for transaction ${input.transactionId}`);
+      // In a real CQRS system, this would dispatch a `DebitAccountCommand`.
+      await transactionService.debitAccount(input.accountId, input.amount, input.transactionId);
+      console.log(`[Activity] Debit successful for account ${input.accountId}.`);
+    },
 
-  // Simulate calling an external accounts service.
-  await new Promise(resolve => setTimeout(resolve, 500));
+    /**
+     * Activity: Credits a specified amount to an account.
+     * This is also an idempotent operation.
+     * @param {AccountActivityInput} input - Contains accountId, amount, and transactionId for idempotency.
+     * @returns {Promise<void>}
+     */
+    async creditAccount(input: AccountActivityInput): Promise<void> {
+      console.log(`[Activity] Crediting ${input.amount} to account ${input.accountId} for transaction ${input.transactionId}`);
+      await transactionService.creditAccount(input.accountId, input.amount, input.transactionId);
+      console.log(`[Activity] Credit successful for account ${input.accountId}.`);
+    },
 
-  // Simulate a higher chance of failure to demonstrate the Saga's compensation logic.
-  if (Math.random() < 0.3) {
-    console.error('[Activity] Failed to credit destination account. The receiving bank is offline.');
-    throw new Error('Failed to credit destination account. The receiving bank is offline.');
-  }
+    /**
+     * Activity: Refunds a previously debited amount to an account.
+     * This is the compensation activity for the `debitAccount` operation in the Saga pattern.
+     * @param {AccountActivityInput} input - Contains accountId, amount, and transactionId for idempotency.
+     * @returns {Promise<void>}
+     */
+    async refundAccount(input: AccountActivityInput): Promise<void> {
+      console.log(`[Activity] [COMPENSATION] Refunding ${input.amount} to account ${input.accountId} for transaction ${input.transactionId}`);
+      await transactionService.refundAccount(input.accountId, input.amount, input.transactionId);
+      console.log(`[Activity] [COMPENSATION] Refund successful for account ${input.accountId}.`);
+    },
 
-  const creditId = `credit_${details.transactionId}`;
-  console.log(`[Activity] Credit successful. Credit ID: ${creditId}`);
-  return creditId;
-}
-
-/**
- * Records the final status of the transaction in the local database.
- * This is typically one of the last steps in the workflow to ensure transactional integrity.
- * @param details - The full details of the transaction to record, including its final status.
- */
-export async function recordTransaction(details: PaymentDetails & { status: 'COMPLETED' | 'FAILED' }): Promise<void> {
-  console.log(`[Activity] Recording transaction ${details.transactionId} in database with status ${details.status}`);
-
-  // Simulate writing to the transactions-service's own database using its service.
-  await new Promise(resolve => setTimeout(resolve, 200));
-
-  console.log(`[Activity] Transaction ${details.transactionId} recorded successfully.`);
-}
-
-/**
- * Sends a notification to a user regarding the transaction status.
- * @param userId - The ID of the user to notify.
- * @param message - The message to send.
- */
-export async function notifyUser(userId: string, message: string): Promise<void> {
-  console.log(`[Activity] Notifying user ${userId}: "${message}"`);
-
-  // Simulate emitting an event to a notifications service or calling a notification API.
-  await new Promise(resolve => setTimeout(resolve, 100));
-
-  console.log(`[Activity] Notification sent to user ${userId}.`);
+    /**
+     * Activity: Updates the status of the transaction in the read model.
+     * This provides visibility into the progress of the workflow.
+     * @param {UpdateStatusInput} input - Contains the transactionId, new status, and an optional error message.
+     * @returns {Promise<void>}
+     */
+    async updateTransactionStatus(input: UpdateStatusInput): Promise<void> {
+      console.log(`[Activity] Updating status for transaction ${input.transactionId} to ${input.status}`);
+      await transactionService.updateTransactionReadModelStatus(
+        input.transactionId,
+        input.status,
+        input.error,
+      );
+      console.log(`[Activity] Status updated for transaction ${input.transactionId}.`);
+    },
+  };
 }

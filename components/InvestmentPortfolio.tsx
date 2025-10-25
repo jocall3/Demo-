@@ -5,6 +5,8 @@ import { useInvestmentPortfolio } from '../hooks/useInvestmentPortfolio'; // Dec
 
 /**
  * A custom tooltip component for the pie chart for improved styling and data presentation.
+ * @param {any} { active, payload } - Props provided by Recharts, containing tooltip state and data.
+ * @returns {React.ReactElement | null} The rendered tooltip component or null if not active.
  */
 const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
@@ -27,19 +29,25 @@ const CustomTooltip = ({ active, payload }: any) => {
 };
 
 /**
- * Displays the user's investment portfolio breakdown.
- * This component has been refactored to fetch its data via the `useInvestmentPortfolio`
- * custom hook, which uses React Query. This decouples the component from the global DataContext
- * and makes it a self-contained feature that manages its own server state.
+ * @component InvestmentPortfolio
+ * @description Displays the user's investment portfolio breakdown as a pie chart and summary.
+ * 
+ * ARCHITECTURAL REFACTOR:
+ * This component has been refactored to fetch its own data via the `useInvestmentPortfolio`
+ * custom hook, which uses TanStack Query. This change decouples the component from the global `DataContext`,
+ * making it a self-contained, feature-sliced component that manages its own server state.
+ * This aligns with the new architecture directive to separate server and client state management.
+ * 
+ * @returns {React.ReactElement} The rendered investment portfolio component.
  */
 const InvestmentPortfolio: React.FC = () => {
-    // The component is now completely decoupled from the global context for its data.
-    // It relies on a dedicated hook that manages fetching, caching, and state.
+    // The component is now completely decoupled from any global context for its data.
+    // It relies on a dedicated hook that manages fetching, caching, and state transformations.
     const { portfolio: assets, isLoading, isError, error, totalValue, weightedPerformance } = useInvestmentPortfolio();
 
     // Use the Card component's built-in loading and error states for a consistent UX.
     if (isLoading) {
-        // Provide a specific height to prevent layout shift during loading.
+        // Provide a specific height to prevent layout shift during the loading skeleton's appearance.
         return <Card title="Investment Portfolio" isLoading={true} className="min-h-[380px]" />;
     }
 

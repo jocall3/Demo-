@@ -1,0 +1,73 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Define a common namespace for all resources in this Kustomization.
+# This ensures all our microservices are deployed into a dedicated 'demobank' namespace.
+namespace: demobank
+
+# A common prefix to be added to the name of all resources.
+# The result will be e.g., 'demobank-api-gateway', 'demobank-user-service'.
+namePrefix: demobank-
+
+# Common labels to be applied to every resource managed by this Kustomization.
+# This helps in organizing and selecting resources, e.g., for monitoring or policy enforcement.
+commonLabels:
+  app.kubernetes.io/part-of: demobank
+  app.kubernetes.io/managed-by: kustomize
+
+# List of resources that Kustomize should manage.
+# This follows a structured approach where each service has its own directory containing
+# its Kubernetes manifests (e.g., deployment.yaml, service.yaml).
+resources:
+  # The namespace resource ensures that the 'demobank' namespace is created if it doesn't exist.
+  - ../namespace.yaml
+
+  # Core application services (subgraphs and gateways)
+  - ./services/api-gateway
+  - ./services/user-service
+  - ./services/accounts-service
+  - ./services/transactions-service
+  - ./services/ai-agent-service
+  - ./services/plaid-integration-service
+
+# ConfigMapGenerator creates a ConfigMap from literals.
+# This is used for injecting shared configuration that is not secret into all services.
+configMapGenerator:
+- name: common-environment-config
+  literals:
+    # URL for the OIDC provider (Keycloak), shared across services for token validation.
+    - OIDC_ISSUER_URL="http://keycloak.identity.svc.cluster.local/realms/demobank"
+    # Address for the central message bus (Kafka).
+    - KAFKA_BROKERS="kafka.message-bus.svc.cluster.local:9092"
+    # Address for the workflow orchestration engine (Temporal).
+    - TEMPORAL_ADDRESS="temporal-frontend.temporal.svc.cluster.local:7233"
+    - TEMPORAL_NAMESPACE="default"
+    # Address for the OpenTelemetry collector for observability.
+    - OTEL_EXPORTER_OTLP_ENDPOINT="http://otel-collector.observability.svc.cluster.local:4318"
+    # Address for the secrets manager (HashiCorp Vault).
+    - VAULT_ADDR="http://vault.security.svc.cluster.local:8200"
+
+# Patches are used to apply common modifications to all resources of a certain kind.
+# Here, we ensure that all Deployments get the necessary annotations for service mesh
+# sidecar injection and Vault agent injection.
+patches:
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    # Apply to all deployments managed by this Kustomization.
+  patch: |-
+    # This strategic merge patch adds annotations to the Pod template spec.
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: not-important # 'name' is required but ignored in this context.
+    spec:
+      template:
+        metadata:
+          annotations:
+            # Enable Istio sidecar injection for zero-trust networking and mTLS.
+            sidecar.istio.io/inject: "true"
+            # Enable HashiCorp Vault agent injection for zero-trust secret management.
+            # Service-specific role annotations will be in their respective deployment manifests.
+            vault.hashicorp.com/agent-inject: "true"

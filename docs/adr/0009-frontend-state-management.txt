@@ -1,0 +1,44 @@
+ADR-0009: Refactor Frontend State Management to Separate Server and Client State
+
+- **Status**: Accepted
+- **Date**: 2024-07-22
+
+## Context
+
+The current monolithic frontend architecture relies heavily on a combination of a large, shared `DataContext` and a Redux store that indiscriminately manages both server state (data fetched from APIs) and client state (UI state). This approach has led to several significant problems:
+
+1.  **Boilerplate Overload**: For every piece of server data, we are manually writing logic for fetching, storing loading and error states, and handling success cases. This is repetitive and error-prone.
+2.  **Stale Data**: Data fetched from the server and stored in our client-side state can quickly become stale. Keeping it synchronized with the backend requires complex and often inefficient mechanisms like periodic refetching, manual cache invalidation on mutations, or prop-drilling refetch functions.
+3.  **Lack of Caching**: Our current implementation lacks a robust, out-of-the-box caching strategy for API responses. Components often re-fetch the same data on mount, leading to unnecessary network requests and slower perceived performance.
+4.  **State Management Complexity**: The global state is bloated with a mix of concerns. It is difficult to distinguish between data that is owned by the server and state that is local to the client's session. This violates separation of concerns and makes the state difficult to reason about, debug, and maintain.
+5.  **Performance Issues**: Over-fetching data and the cascading re-renders caused by frequent updates to a large, shared context or Redux store lead to suboptimal application performance.
+
+## Decision
+
+We will overhaul the frontend state management paradigm by establishing a strict separation between server state and client state.
+
+1.  **Server State Management with TanStack Query**: All asynchronous state that is fetched, cached, and synchronized with the backend API will be exclusively managed by TanStack Query (formerly React Query). 
+    -   This library will become the single source of truth for all server data.
+    -   The monolithic `DataContext` will be completely eliminated. Its data-fetching logic will be migrated into dedicated, reusable custom hooks (e.g., `useTransactions`, `useBalanceSummary`) that are built on top of `useQuery` and `useMutation`.
+    -   Components will consume server data directly through these custom hooks, which will provide data, loading status, error status, and refetching capabilities.
+
+2.  **Client State Management with Redux**: The global Redux store will be reserved **only** for managing purely global, client-side UI state. This is state that is not persisted on the server and needs to be accessible across multiple, disconnected component trees.
+    -   **Examples of appropriate Redux state**: User authentication status (`isAuthenticated`, user profile), UI theme (`'light'/'dark'`), and global layout state (`isSidebarOpen`).
+
+3.  **Local UI State**: Component-specific UI state (e.g., form input values, modal open/closed status, accordion state) will continue to be managed locally within components using React's built-in `useState` and `useReducer` hooks.
+
+## Consequences
+
+### Positive
+
+-   **Simplified Data Fetching**: TanStack Query dramatically reduces boilerplate by automatically handling fetching, loading states, error states, and retries.
+-   **Improved Performance**: Caching is now a first-class citizen. TanStack Query's intelligent caching and background refetching will significantly reduce network requests and improve perceived application speed.
+-   **Automatic State Synchronization**: The `(Stale-While-Revalidate)`**: The library automatically handles keeping server state fresh in the background, ensuring the UI is eventually consistent without complex manual logic.
+-   **Clear Separation of Concerns**: By creating a clear boundary between server and client state, the application becomes easier to reason about, maintain, and debug. The Redux store becomes smaller and more focused.
+-   **Enhanced Developer Experience**: Developers can declaratively fetch data in components without worrying about the underlying implementation details. Custom hooks provide a clean, typed, and reusable API for accessing server data.
+
+### Negative
+
+-   **New Dependency**: Introduces a new major library (`@tanstack/react-query`) to the frontend stack that the team must learn and maintain.
+-   **Migration Effort**: There is a significant, one-time effort required to refactor all existing data-fetching logic from the `DataContext` and Redux into new TanStack Query hooks.
+-   **Conceptual Overhead**: Developers need to understand the concepts of query keys, stale time, and cache time, which adds a slight learning curve.

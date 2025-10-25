@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { gql, useQuery, useMutation } from '@apollo/client';
-import Card from './Card';
-import type { Asset as BaseAsset, FinancialGoal as FinancialGoalType } from '../types';
+import { Card } from '@demobank/ui'; // Assuming Card is from a shared UI library
+import type { Asset as BaseAsset, FinancialGoal as FinancialGoalType } from '@demobank/types'; // Assuming shared types
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, AreaChart, Area, PieChart, Pie, Cell, Legend, LineChart, Line, CartesianGrid, TooltipProps } from 'recharts';
-import InvestmentPortfolio from './InvestmentPortfolio';
+import InvestmentPortfolio from './InvestmentPortfolio'; // Assuming this is a local or shared component
 import { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent';
 
 // ================================================================================================
@@ -77,18 +77,6 @@ const INVEST_IN_ASSET_MUTATION = gql`
         category
         type
       }
-    }
-  }
-`;
-
-const ADD_FINANCIAL_GOAL_MUTATION = gql`
-  mutation AddFinancialGoal($input: FinancialGoalInput!) {
-    addFinancialGoal(input: $input) {
-      id
-      name
-      targetAmount
-      currentAmount
-      targetDate
     }
   }
 `;
@@ -204,19 +192,6 @@ const InvestmentModal: React.FC<{
     );
 };
 
-export const ChartTimeframeSelector: React.FC<{ selected: string; onSelect: (timeframe: any) => void; }> = ({ selected, onSelect }) => {
-    const timeframes: any[] = ['1D', '1W', '1M', '1Y', '5Y'];
-    return (
-        <div className="flex items-center space-x-2">
-            {timeframes.map(tf => (
-                <button key={tf} onClick={() => onSelect(tf)} className={`px-3 py-1 text-xs font-medium rounded-md ${selected === tf ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
-                    {tf}
-                </button>
-            ))}
-        </div>
-    );
-};
-
 export const CustomTooltip: React.FC<TooltipProps<ValueType, NameType>> = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       return (
@@ -234,9 +209,6 @@ export const DetailedAssetViewModal: React.FC<{
     onClose: () => void;
     onInvest: (assetName: string, amount: number) => void;
 }> = ({ asset, onClose, onInvest }) => {
-    // This component is complex and its internal logic remains the same.
-    // It receives data via props, independent of the parent's data source.
-    // Placeholder content for brevity, assuming full implementation exists.
     if (!asset) return null;
     return (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-md" onClick={onClose}>
@@ -245,7 +217,7 @@ export const DetailedAssetViewModal: React.FC<{
                     <h3 className="text-2xl font-bold text-white">{asset.name} ({asset.ticker})</h3>
                      <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">&times;</button>
                 </div>
-                 <div className="p-6">Details for {asset.name} would be displayed here.</div>
+                 <div className="p-6 text-gray-300">Details for {asset.name} would be displayed here, including charts for historical data, news, analyst ratings etc.</div>
             </div>
         </div>
     );
@@ -279,8 +251,6 @@ export const PortfolioDiversification: React.FC<{ assets: AdvancedAsset[] }> = (
     );
 };
 
-// Other sub-components like RiskAssessmentQuiz and GoalTracker would be here.
-
 // ================================================================================================
 // MAIN VIEW COMPONENT: InvestmentsView (CapitalVista)
 // ================================================================================================
@@ -292,7 +262,7 @@ const InvestmentsView: React.FC = () => {
 
     const { data, loading, error } = useQuery(GET_INVESTMENTS_DATA);
 
-    const [investMutation, { loading: isInvesting }] = useMutation(INVEST_IN_ASSET_MUTATION, {
+    const [investMutation] = useMutation(INVEST_IN_ASSET_MUTATION, {
         refetchQueries: [{ query: GET_INVESTMENTS_DATA }],
         onCompleted: () => alert('Investment successful!'),
         onError: (err) => alert(`Investment failed: ${err.message}`),

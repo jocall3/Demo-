@@ -1,34 +1,59 @@
+/**
+ * @file store/slices/themeSlice.ts
+ * @description Redux Toolkit slice for managing the application's global UI theme.
+ *
+ * ARCHITECTURAL REFACTOR:
+ * As per the "Refactor Frontend State Management" directive, the Redux store is now
+ * exclusively for pure client-side UI state. This `themeSlice` is a prime example
+ * of such state. It is managed by the Shell application and its state can be
+ * potentially passed down to or consumed by remote Micro-Frontends (MFEs) if needed.
+ *
+ * This slice is responsible for:
+ * 1. Determining the initial theme (from localStorage or system preference).
+ * 2. Storing the current theme mode ('light' or 'dark').
+ * 3. Providing actions (`setTheme`, `toggleTheme`) to change the theme.
+ * 4. Persisting the user's theme choice to `localStorage`.
+ * 5. Applying the current theme as a CSS class to the `<html>` element to enable
+ *    global styling via Tailwind CSS's dark mode feature.
+ *
+ * This file also adheres to the "Mandate Comprehensive JSDoc/TSDoc" directive, with
+ * detailed documentation for all exported members.
+ */
+
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { RootState } from '../store';
 
 /**
- * @description Defines the possible theme modes for the application.
+ * Defines the possible theme modes for the application.
  */
-export type Theme = 'light' | 'dark';
+export type ThemeMode = 'light' | 'dark';
 
 /**
- * @interface ThemeState
- * @description Represents the state structure for the theme slice.
+ * Represents the state structure for the theme slice.
  */
 interface ThemeState {
-  mode: Theme;
+  /** The current active theme mode. */
+  mode: ThemeMode;
 }
 
 /**
- * @function getInitialTheme
- * @description Determines the initial theme mode for the application.
- * It checks local storage first for a persisted user preference. If none is found,
- * it falls back to the user's system color scheme preference. Defaults to 'dark'
- * if no preference is found or if running server-side.
- * The resolved theme is also immediately applied to the document's root element.
- * @returns {Theme} The resolved initial theme mode ('light' or 'dark').
+ * Determines the initial theme mode for the application on client-side load.
+ *
+ * It checks for a user preference in `localStorage`. If not found, it falls back
+ * to the user's operating system preference via `prefers-color-scheme`.
+ * The default is 'dark' if no preference can be determined.
+ *
+ * IMPORTANT: This function has a side effect of applying the theme class to the
+ * `document.documentElement` to prevent a Flash of Unstyled Content (FOUC).
+ *
+ * @returns {ThemeMode} The resolved initial theme mode ('light' or 'dark').
  */
-const getInitialTheme = (): Theme => {
+const getInitialTheme = (): ThemeMode => {
   // This function should only run on the client side.
   if (typeof window !== 'undefined' && window.localStorage) {
     const storedTheme = window.localStorage.getItem('theme');
     if (storedTheme === 'light' || storedTheme === 'dark') {
-      // Immediately apply the stored theme to the document element to prevent flash of unstyled content
+      // Apply the stored theme to the document element immediately.
       document.documentElement.className = storedTheme;
       return storedTheme;
     }
@@ -42,8 +67,9 @@ const getInitialTheme = (): Theme => {
   }
 
   // Default to 'dark' if no preference is found or if running on the server.
-  // Also apply the default theme to the document element.
-  document.documentElement.className = 'dark';
+  if (typeof document !== 'undefined') {
+    document.documentElement.className = 'dark';
+  }
   return 'dark';
 };
 
@@ -52,28 +78,22 @@ const initialState: ThemeState = {
 };
 
 /**
- * @reduxSlice
- * @description Manages the application's visual theme.
- * This slice stores the current theme mode ('light' or 'dark') and provides
- * reducers to change or toggle the theme. It also handles persisting the
- * theme preference to `localStorage` and applying the theme class to the
- * document's root element.
- * This is considered a 'shared state' managed by the central shell in a
- * micro-frontend architecture.
+ * A Redux Toolkit slice for managing the application's visual theme.
+ * It handles state changes, persistence to localStorage, and DOM manipulation
+ * for applying theme styles.
  */
 export const themeSlice = createSlice({
   name: 'theme',
   initialState,
   reducers: {
     /**
-     * @reducer setTheme
-     * @description Sets the application's theme to a specified mode.
-     * The new theme is persisted to `localStorage` and applied as a class
-     * to the `document.documentElement` to control global styling.
-     * @param {ThemeState} state - The current theme state.
-     * @param {PayloadAction<Theme>} action - The action containing the new theme mode ('light' or 'dark').
+     * Sets the application's theme to a specified mode. This action persists
+     * the new theme to `localStorage` and updates the class on the `<html>` element.
+     *
+     * @param state - The current Redux state for this slice.
+     * @param action - The action containing the new theme mode.
      */
-    setTheme: (state, action: PayloadAction<Theme>) => {
+    setTheme: (state, action: PayloadAction<ThemeMode>) => {
       state.mode = action.payload;
       if (typeof window !== 'undefined') {
         window.localStorage.setItem('theme', action.payload);
@@ -81,11 +101,10 @@ export const themeSlice = createSlice({
       }
     },
     /**
-     * @reducer toggleTheme
-     * @description Toggles the application's theme between 'light' and 'dark'.
-     * The new theme is persisted to `localStorage` and applied as a class
-     * to the `document.documentElement`.
-     * @param {ThemeState} state - The current theme state.
+     * Toggles the application's theme between 'light' and 'dark'. This action
+     * persists the new theme and updates the class on the `<html>` element.
+     *
+     * @param state - The current Redux state for this slice.
      */
     toggleTheme: (state) => {
       const newMode = state.mode === 'light' ? 'dark' : 'light';
@@ -98,16 +117,17 @@ export const themeSlice = createSlice({
   },
 });
 
-// Export the actions for use in components that need to dispatch theme changes.
+// --- Actions ---
 export const { setTheme, toggleTheme } = themeSlice.actions;
 
+// --- Selectors ---
 /**
- * @selector selectTheme
- * @description A Redux selector that returns the current theme mode.
- * @param {RootState} state - The root Redux state.
- * @returns {Theme} The current theme mode ('light' or 'dark').
+ * A Redux selector that returns the current theme mode from the state.
+ *
+ * @param {RootState} state - The root Redux state of the application.
+ * @returns {ThemeMode} The current theme mode ('light' or 'dark').
  */
-export const selectTheme = (state: RootState): Theme => state.theme.mode;
+export const selectCurrentTheme = (state: RootState): ThemeMode => state.theme.mode;
 
-// Export the reducer as the default export for the slice, to be combined in the store.
+// --- Reducer Export ---
 export default themeSlice.reducer;

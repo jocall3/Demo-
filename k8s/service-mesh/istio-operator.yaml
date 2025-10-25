@@ -1,0 +1,216 @@
+# istio-operator.yaml
+#
+# This manifest installs the Istio operator, which is responsible for managing the
+# lifecycle of the Istio control plane (istiod).
+#
+# ARCHITECTURAL DIRECTIVE: "Introduce a Service Mesh for Zero-Trust Networking and Advanced Traffic Management"
+# This file is the first step in fulfilling this directive. By deploying the operator, we establish
+# a declarative way to manage the Istio service mesh installation and configuration.
+#
+# USAGE:
+# 1. Apply this manifest to the cluster:
+#    `kubectl apply -f k8s/service-mesh/istio-operator.yaml`
+# 2. Wait for the operator to become ready:
+#    `kubectl get pods -n istio-operator -w`
+# 3. Create a separate `IstioOperator` custom resource manifest to define and install the control plane.
+#    (e.g., `istio-control-plane.yaml`)
+#
+# This manifest includes:
+# - Namespace for the operator.
+# - The `IstioOperator` Custom Resource Definition (CRD).
+# - RBAC rules (ClusterRole, ClusterRoleBinding, ServiceAccount) for the operator.
+# - The Deployment for the operator itself.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-operator
+  labels:
+    istio-operator-managed: Reconcile
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: istiooperators.install.istio.io
+  labels:
+    istio-operator-managed: Reconcile
+spec:
+  group: install.istio.io
+  names:
+    kind: IstioOperator
+    listKind: IstioOperatorList
+    plural: istiooperators
+    singular: istiooperator
+    shortNames:
+      - iop
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+      subresources:
+        status: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: istio-operator
+  namespace: istio-operator
+  labels:
+    release: istio-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: istio-operator
+  labels:
+    release: istio-operator
+rules:
+  # Permissions for the operator to manage Istio resources across the cluster.
+  - apiGroups:
+      - install.istio.io
+    resources:
+      - istiooperators
+      - istiooperators/status
+      - istiooperators/finalizers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  # Permissions for managing core Kubernetes resources required by Istio.
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - events
+      - pods
+      - services
+      - namespaces
+      - secrets
+      - serviceaccounts
+      - endpoints
+    verbs:
+      - "*"
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - daemonsets
+      - statefulsets
+    verbs:
+      - "*"
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
+    verbs:
+      - "*"
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - clusterroles
+      - clusterrolebindings
+      - roles
+      - rolebindings
+    verbs:
+      - "*"
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - mutatingwebhookconfigurations
+      - validatingwebhookconfigurations
+    verbs:
+      - "*"
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - "*"
+  # Permissions for Istio's own CRDs (ServiceEntry, Gateway, etc.).
+  - apiGroups:
+      - networking.istio.io
+      - security.istio.io
+      - telemetry.istio.io
+    resources:
+      - "*"
+    verbs:
+      - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: istio-operator
+  labels:
+    release: istio-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: istio-operator
+subjects:
+  - kind: ServiceAccount
+    name: istio-operator
+    namespace: istio-operator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: istio-operator
+  namespace: istio-operator
+  labels:
+    release: istio-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: istio-operator
+  template:
+    metadata:
+      labels:
+        name: istio-operator
+    spec:
+      serviceAccountName: istio-operator
+      containers:
+        - name: istio-operator
+          image: gcr.io/istio-release/operator:1.18.2 # Using a recent, stable version of the Istio operator image.
+          command:
+            - operator
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: WATCHED_NAMESPACE
+              value: "istio-system" # The operator will watch for IstioOperator CRs in this namespace.
+            - name: LEADER_ELECTION_NAMESPACE
+              value: "istio-operator"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: OPERATOR_NAME
+              value: "istio-operator"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 1024Mi

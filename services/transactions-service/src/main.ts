@@ -1,3 +1,23 @@
+/**
+ * @file services/transactions-service/src/main.ts
+ * @description Main entry point for the Transactions microservice.
+ *
+ * ARCHITECTURAL REFACTOR:
+ * This file has been completely overhauled to align with new architectural directives:
+ * 1.  **Observability First**: OpenTelemetry SDK is initialized before any other code to ensure
+ *     comprehensive tracing and metrics collection from the very start of the process.
+ * 2.  **Structured Logging**: A Pino-based structured logger is implemented, automatically enriching
+ *     logs with OpenTelemetry trace and span IDs for correlated logging.
+ * 3.  **Hexagonal Architecture Bootstrapping**: This file acts as the primary infrastructure adapter, responsible
+ *     for bootstrapping the NestJS application, connecting to external systems (Kafka, Temporal), and starting
+ *     the server.
+ * 4.  **Durable Sagas**: It explicitly starts a Temporal Worker in the background. This worker is responsible for
+ *     executing the durable, long-running payment sagas, offloading complex state management from the service's
+ *     direct logic.
+ * 5.  **Event-Driven Communication**: It connects to Kafka as a microservice to listen for relevant domain events,
+ *     adhering to the CQRS and Event Sourcing patterns for updating its read models.
+ */
+
 // --- 1. Observability Setup (MUST be imported and executed before ANY other module) ---
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
@@ -8,6 +28,7 @@ import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentation
 import { diag, DiagConsoleLogger, DiagLogLevel, trace, context } from '@opentelemetry/api';
 
 // --- 2. NestJS & Workflow Engine Imports (after OTel setup) ---
+import { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, LoggerService } from '@nestjs/common';
@@ -16,7 +37,7 @@ import { Transport } from '@nestjs/microservices';
 import pino from 'pino';
 import { NativeConnection, Worker } from '@temporalio/worker';
 import { TransactionService } from './transaction/transaction.service';
-import * as activities from './temporal/activities'; // Corrected import path for activities
+import * as activities from './temporal/activities';
 
 // --- 3. OpenTelemetry Initialization ---
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
@@ -29,7 +50,7 @@ const otelSDK = new NodeSDK({
   }),
   traceExporter: new OTLPTraceExporter(),
   metricReader: new PrometheusExporter({
-    port: parseInt(process.env.METRICS_PROMETHEUS_PORT || '9464', 10),
+    port: parseInt(process.env.PROMETHEUS_PORT || '9468', 10),
   }),
   instrumentations: [getNodeAutoInstrumentations()],
 });
@@ -47,7 +68,6 @@ otelSDK.start();
 // --- 4. Structured Logging with OpenTelemetry Context ---
 class StructuredLogger implements LoggerService {
   private readonly pino: pino.Logger;
-  private readonly serviceName = SERVICE_NAME;
 
   constructor() {
     this.pino = pino({
@@ -57,7 +77,7 @@ class StructuredLogger implements LoggerService {
           const span = trace.getSpan(context.active());
           const logObject: { [key: string]: any } = {
             ...object,
-            service: this.serviceName,
+            service: SERVICE_NAME,
           };
           if (span) {
             const spanContext = span.spanContext();
@@ -88,11 +108,43 @@ class StructuredLogger implements LoggerService {
   verbose?(message: any, context?: string) { this.pino.trace({ context }, message); }
 }
 
-// --- 5. Application Bootstrap ---
+// --- 5. Temporal Worker Bootstrap ---
+/**
+ * Initializes and runs the Temporal Worker in the background.
+ * The worker connects to the Temporal cluster and executes workflows and activities
+ * defined in this service, such as the 'paymentWorkflow' saga.
+ * @param app - The NestJS application context to resolve DI for activities.
+ * @param logger - The structured logger for worker-specific logs.
+ */
+async function runTemporalWorker(
+  app: INestApplicationContext,
+  logger: StructuredLogger,
+) {
+  logger.log('Initializing Temporal Worker...');
+
+  const configService = app.get(ConfigService);
+  const transactionService = app.get(TransactionService);
+
+  const temporalAddress = configService.get<string>('TEMPORAL_ADDRESS', 'localhost:7233');
+  const taskQueue = configService.get<string>('TEMPORAL_TRANSACTIONS_TASK_QUEUE', 'transactions-queue');
+
+  const connection = await NativeConnection.create({ address: temporalAddress });
+
+  const worker = await Worker.create({
+    connection,
+    namespace: configService.get<string>('TEMPORAL_NAMESPACE', 'default'),
+    taskQueue,
+    workflowsPath: require.resolve('./temporal/workflows'),
+    activities: activities.createActivities(transactionService),
+  });
+
+  logger.log(`Temporal Worker started. Listening on task queue: "${taskQueue}".`);
+  await worker.run();
+  logger.log('Temporal Worker has shut down.');
+}
+
+// --- 6. Application Bootstrap ---
 async function bootstrap() {
-  // Create the main NestJS application instance.
-  // This instance will be used for both the GraphQL server and to provide
-  // dependency injection for the Temporal Worker's activities.
   const app = await NestFactory.create(AppModule, {
     logger: new StructuredLogger(),
   });
@@ -100,42 +152,13 @@ async function bootstrap() {
   const logger = app.get(StructuredLogger);
   const configService = app.get(ConfigService);
 
-  /**
-   * Initializes and runs the Temporal Worker.
-   * The worker connects to the Temporal cluster and starts polling a specific task queue
-   * for workflows and activities to execute. This runs in the background.
-   */
-  const runTemporalWorker = async () => {
-    logger.log('Initializing Temporal Worker...');
-
-    // Resolve NestJS services to be used as activities
-    const transactionService = app.get(TransactionService);
-
-    const temporalAddress = configService.get<string>('TEMPORAL_ADDRESS', 'localhost:7233');
-    const taskQueue = configService.get<string>('TEMPORAL_TRANSACTIONS_TASK_QUEUE', 'transactions-task-queue');
-
-    const connection = await NativeConnection.create({ address: temporalAddress });
-
-    const worker = await Worker.create({
-      connection,
-      namespace: configService.get<string>('TEMPORAL_NAMESPACE', 'default'),
-      taskQueue,
-      workflowsPath: require.resolve('./temporal/workflows'), // Assumes workflows are in ./src/temporal/workflows/index.ts
-      activities: activities.createActivities(transactionService), // Create activities with DI
-    });
-
-    logger.log(`Starting Temporal Worker for task queue: "${taskQueue}"...`);
-    await worker.run();
-    logger.log('Temporal Worker has shut down.');
-  };
-
-  // Run the worker in the background; do not await its completion.
-  runTemporalWorker().catch((err) => {
-    logger.error('Temporal Worker failed to run', err.stack, 'Bootstrap');
+  // Run the Temporal Worker in the background; do not await its completion.
+  runTemporalWorker(app, logger).catch((err) => {
+    logger.error('Temporal Worker crashed', err.stack, 'Bootstrap');
     process.exit(1);
   });
 
-  // Connect Kafka Microservice for event-driven communication
+  // Connect Kafka Microservice for event-driven communication (CQRS read model updates).
   app.connectMicroservice({
     transport: Transport.KAFKA,
     options: {
@@ -152,15 +175,14 @@ async function bootstrap() {
   await app.startAllMicroservices();
   logger.log('Kafka microservice connected and listening for events.');
 
-  // Enable CORS for development (e.g., Apollo Studio)
+  // Configure and start the HTTP server for the GraphQL API.
   app.enableCors();
   logger.log('CORS has been enabled.');
 
-  // Apply global validation pipes
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      forbidNonWhiteListed: true,
+      forbidNonWhitelisted: true,
       transform: true,
       transformOptions: { enableImplicitConversion: true },
     }),
@@ -168,16 +190,15 @@ async function bootstrap() {
   logger.log('Global ValidationPipe configured.');
 
   const port = configService.get<number>('PORT') || 4003;
+  const prometheusPort = process.env.PROMETHEUS_PORT || '9468';
 
   await app.listen(port);
-  
-  const prometheusPort = process.env.METRICS_PROMETHEUS_PORT || '9464';
-  logger.log(`ðŸš€ Transactions subgraph is running on: http://localhost:${port}/graphql`);
+
+  logger.log(`🚀 Transactions subgraph is running on: http://localhost:${port}/graphql`);
   logger.log(`Prometheus metrics available on port ${prometheusPort}`);
 }
 
-bootstrap()
-  .catch((err) => {
-    console.error('Application bootstrap failed', err.stack);
-    process.exit(1);
-  });
+bootstrap().catch((err) => {
+  console.error('Application bootstrap failed', err.stack);
+  process.exit(1);
+});

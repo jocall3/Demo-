@@ -1,21 +1,48 @@
+/**
+ * @file components/VoiceControl.tsx
+ * @description Implements the primary voice control interface for the application.
+ *
+ * ARCHITECTURAL REFACTOR:
+ * This component has been significantly enhanced to demonstrate a more sophisticated, AI-driven interaction model.
+ * It now utilizes the browser's Web Speech API for realistic voice recognition and speech synthesis, moving
+ * beyond a simple click-based simulation.
+ *
+ * Key Architectural Changes:
+ * 1.  **Web Speech API Integration**: Implements `SpeechRecognition` for listening and `SpeechSynthesisUtterance` for speaking,
+ *     providing a high-fidelity voice interaction experience.
+ * 2.  **Command & Query Separation**: The `processUtterance` function demonstrates client-side CQRS by parsing natural
+ *     language to distinguish between:
+ *     - **Navigation Actions**: Client-side state changes (calling `setActiveView`).
+ *     - **Queries**: Read operations that fetch server state (e.g., "What is my balance?"), simulated via TanStack Query-style hooks.
+ *     - **Commands**: Write operations that mutate server state (e.g., "Pay Alex Ray $50"), simulated via TanStack Query-style hooks that would trigger a GraphQL mutation and a durable workflow.
+ * 3.  **Decoupled Server State**: Introduces `useSendMoneyMutation` and `useBalanceQuery` as examples of how this component would interact
+ *     with the backend via feature-specific hooks, adhering to the principle of separating client and server state management.
+ * 4.  **Comprehensive TSDoc**: All types, components, and functions are documented as per the new architectural directive.
+ */
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Transaction } from '../types';
 
 // ===============================================================================================
 // HYPOTHETICAL API HOOKS (NEW ARCHITECTURE)
-// In a real application, these hooks would use a library like React Query or Apollo Client
-// to interact with the federated GraphQL supergraph.
+// These hooks simulate the TanStack Query pattern for managing server state,
+// replacing direct data context consumption.
 // ===============================================================================================
 
+/**
+ * @description A simulated TanStack Query `useMutation` hook for sending money.
+ * In a real application, this would wrap a GraphQL mutation call.
+ * @returns An object with a `mutate` function and `isPending` state.
+ */
 const useSendMoneyMutation = () => {
   const [isPending, setIsPending] = useState(false);
   const mutate = async (vars: { recipient: string, amount: number }): Promise<Transaction> => {
     setIsPending(true);
-    // Simulate a GraphQL mutation to the API Gateway/BFF
     console.log(`[API] Sending GraphQL Mutation: sendMoney(${JSON.stringify(vars)})`);
+    // Simulate network latency and a durable workflow initiation.
     await new Promise(resolve => setTimeout(resolve, 1500));
     
-    // Simulate potential failure for demonstration
+    // Simulate a potential business logic failure for demonstration.
     if (vars.recipient.toLowerCase().includes('fail')) {
         setIsPending(false);
         throw new Error('Payment to this recipient is currently blocked.');
@@ -23,7 +50,7 @@ const useSendMoneyMutation = () => {
 
     const newTx: Transaction = {
       id: `tx_voice_${Date.now()}`,
-      type: 'expense',
+      type: 'EXPENSE',
       category: 'Transfer',
       description: `Sent to ${vars.recipient}`,
       amount: vars.amount,
@@ -35,6 +62,10 @@ const useSendMoneyMutation = () => {
   return { mutate, isPending };
 };
 
+/**
+ * @description A simulated TanStack Query `useQuery` hook for fetching the user's balance.
+ * @returns An object with a `query` function and `isLoading` state.
+ */
 const useBalanceQuery = () => {
     const [isLoading, setIsLoading] = useState(false);
     const query = async (): Promise<{ totalBalance: number }> => {
@@ -42,31 +73,56 @@ const useBalanceQuery = () => {
         console.log('[API] Sending GraphQL Query: totalBalance');
         await new Promise(resolve => setTimeout(resolve, 800));
         setIsLoading(false);
-        // Simulate fetching a balance from the accounts-service subgraph
+        // Simulate fetching a balance from the accounts-service subgraph.
         return { totalBalance: 54321.98 };
     };
     return { query, isLoading };
 }
 
 // ===============================================================================================
-// UI SUB-COMPONENTS
+// UI SUB-COMPONENTS & TYPES
 // ===============================================================================================
 
+/**
+ * @description Defines the possible states of the voice interaction lifecycle.
+ */
 type VoiceState = 'idle' | 'listening' | 'processing' | 'speaking' | 'error';
 
+/**
+ * @description A simple, reusable microphone icon component.
+ * @param {object} props - Component props.
+ * @param {string} [props.className] - Optional CSS classes.
+ * @returns {React.ReactElement} The SVG icon.
+ */
 const MicIcon = ({ className }: { className?: string }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className || "h-8 w-8"} fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
     </svg>
 );
 
-const VoiceModal: React.FC<{ 
-    onClose: () => void;
-    voiceState: VoiceState;
-    transcript: string;
-    aiResponse: string;
-    processUtterance: (utterance: string) => void;
-}> = ({ onClose, voiceState, transcript, aiResponse, processUtterance }) => {
+/**
+ * @interface VoiceModalProps
+ * @description Props for the `VoiceModal` component.
+ */
+interface VoiceModalProps {
+  /** Function to close the modal. */
+  onClose: () => void;
+  /** The current state of the voice recognition engine. */
+  voiceState: VoiceState;
+  /** The current speech-to-text transcript. */
+  transcript: string;
+  /** The text response from the AI or system. */
+  aiResponse: string;
+  /** Callback to process a text command, simulating a voice command. */
+  processUtterance: (utterance: string) => void;
+}
+
+/**
+ * @description The modal UI for the voice interaction, showing state and example commands.
+ * @param {VoiceModalProps} props - The component props.
+ * @returns {React.ReactElement} The rendered modal component.
+ */
+const VoiceModal: React.FC<VoiceModalProps> = ({ onClose, voiceState, transcript, aiResponse, processUtterance }) => {
     const commands = [
         "Show my dashboard", 
         "What is my total balance?", 
@@ -78,7 +134,7 @@ const VoiceModal: React.FC<{
         idle: 'Ready',
         listening: 'Listening...',
         processing: 'Thinking...',
-        speaking: 'Speaking...',
+        speaking: 'Responding...',
         error: 'Error'
     };
 
@@ -112,20 +168,29 @@ const VoiceModal: React.FC<{
 };
 
 // ===============================================================================================
-// MAIN VOICE CONTROL COMPONENT (REFACTORED)
+// MAIN VOICE CONTROL COMPONENT
 // ===============================================================================================
 
+/**
+ * @interface VoiceControlProps
+ * @description Props for the main `VoiceControl` component.
+ */
 interface VoiceControlProps {
-    setActiveView: (view: View) => void;
+  /** Callback to change the active view in the application. */
+  setActiveView: (view: View) => void;
 }
 
+/**
+ * @description The main floating action button and modal orchestrator for voice commands.
+ * @param {VoiceControlProps} props - The component props.
+ * @returns {React.ReactElement} The rendered voice control UI.
+ */
 const VoiceControl: React.FC<VoiceControlProps> = ({ setActiveView }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [voiceState, setVoiceState] = useState<VoiceState>('idle');
     const [transcript, setTranscript] = useState('');
     const [aiResponse, setAiResponse] = useState('Hello! How can I help you?');
     
-    // --- API Hooks --- 
     const { mutate: sendMoney } = useSendMoneyMutation();
     const { query: getBalance } = useBalanceQuery();
 
@@ -176,12 +241,10 @@ const VoiceControl: React.FC<VoiceControlProps> = ({ setActiveView }) => {
         if (navMatch) {
             let viewName = navMatch[3].trim().replace(/\s+/g, '-');
             if (['home', 'overview'].includes(viewName)) viewName = 'dashboard';
-            
             const targetView = Object.values(View).find(v => v.replace(/-/g, '') === viewName.replace(/-/g, ''));
-            
             if (targetView) {
-                setActiveView(targetView);
                 await speak(`Navigating to ${targetView.replace(/-/g, ' ')}.`);
+                setActiveView(targetView);
                 setIsModalOpen(false);
                 return;
             }
@@ -234,7 +297,6 @@ const VoiceControl: React.FC<VoiceControlProps> = ({ setActiveView }) => {
         recognition.interimResults = true;
         recognition.lang = 'en-US';
 
-        // Use 'any' as SpeechRecognitionEvent is not available in all TS lib configs.
         recognition.onresult = (event: any) => {
             let finalTranscript = '';
             for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -250,7 +312,6 @@ const VoiceControl: React.FC<VoiceControlProps> = ({ setActiveView }) => {
             }
         };
 
-        // Use 'any' as SpeechRecognitionErrorEvent is not available in all TS lib configs.
         recognition.onerror = (event: any) => {
             console.error('Speech recognition error', event.error);
             if(isMounted.current) {

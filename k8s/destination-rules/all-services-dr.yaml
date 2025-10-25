@@ -1,0 +1,46 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: default-mtls-and-resiliency
+  namespace: default # This policy is applied to the 'default' namespace where all services are deployed.
+spec:
+  # This DestinationRule applies to every service within the '.default.svc.cluster.local' domain.
+  # The wildcard '*' host is a best practice for setting mesh-wide default traffic policies.
+  host: "*.default.svc.cluster.local"
+
+  # trafficPolicy defines the rules for traffic destined for services matching the host.
+  trafficPolicy:
+    # --- mTLS Enforcement (Zero-Trust Networking) ---
+    # This section is critical for implementing the zero-trust networking directive.
+    # It instructs all client-side Istio proxies to initiate mutual TLS (mTLS) when
+    # communicating with any service in the mesh.
+    # This must be paired with a mesh-wide `PeerAuthentication` policy in STRICT mode.
+    tls:
+      mode: ISTIO_MUTUAL
+
+    # --- Connection Pooling (Resilience & Performance) ---
+    # These settings prevent a single client from overwhelming a service with too many connections or requests,
+    # which helps prevent cascading failures.
+    connectionPool:
+      tcp:
+        # Maximum number of TCP connections to a destination host.
+        maxConnections: 100
+      http:
+        # Maximum number of pending HTTP/1.1 requests to a destination.
+        http1MaxPendingRequests: 1024
+        # Maximum number of requests that can be outstanding to a backend connection at any given time.
+        maxRequestsPerConnection: 10
+
+    # --- Outlier Detection (Circuit Breaker Pattern) ---
+    # This implements a passive circuit breaker. Istio will monitor upstream hosts and eject them
+    # from the load balancing pool if they start failing consistently, improving overall system resilience.
+    outlierDetection:
+      # After 5 consecutive 5xx errors, the host will be ejected.
+      consecutive5xxErrors: 5
+      # The time interval between ejection sweep analysis.
+      interval: 10s
+      # The base duration a host is ejected for. The total time is baseEjectionTime * number of ejections.
+      baseEjectionTime: 30s
+      # The maximum percentage of hosts that can be ejected from the load balancing pool.
+      # This is a critical safety net to prevent mass ejections during a large-scale outage.
+      maxEjectionPercent: 50

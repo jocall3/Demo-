@@ -1,23 +1,48 @@
+/**
+ * @file components/BalanceSummary.tsx
+ * @description Displays an overview of the user's total balance, including a historical chart.
+ *
+ * ARCHITECTURAL REFACTOR:
+ * This component has been significantly refactored to align with the new frontend state management directive.
+ * - It no longer consumes the monolithic `DataContext`.
+ * - All server state (balance summary, chart data) is now fetched via the `useBalanceSummary` custom hook, which utilizes TanStack Query.
+ * - Complex calculations like running balance and 30-day change are now performed on the backend/BFF and served ready-to-use by the API.
+ * - The component is now primarily presentational, consuming the loading and error states directly from the React Query hook and passing them to the `Card` component.
+ * - Comprehensive TSDoc has been added as per documentation standards.
+ */
 import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, TooltipProps } from 'recharts';
+import { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent';
 import Card from './Card';
 import { useBalanceSummary } from '../hooks/useBanking';
-import { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent';
 
+/**
+ * A custom tooltip component for the balance summary chart, providing enhanced styling.
+ * @param {TooltipProps<ValueType, NameType>} props - The props provided by Recharts to the tooltip component.
+ * @returns {React.ReactElement | null} The custom tooltip element or null if not active.
+ */
 const CustomTooltip: React.FC<TooltipProps<ValueType, NameType>> = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
         return (
-            <div className="p-2 bg-gray-800/80 border border-gray-700 rounded-md shadow-lg text-sm">
+            <div className="p-2 bg-gray-800/80 border border-gray-700 rounded-md shadow-lg text-sm backdrop-blur-sm">
                 <p className="label text-gray-300">{`${label}`}</p>
-                <p className="intro text-cyan-400">{`Balance: $${(payload[0].value as number).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</p>
+                <p className="intro text-cyan-400">
+                    {`Balance: $${(payload[0].value as number).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                </p>
             </div>
         );
     }
     return null;
 };
 
+/**
+ * A functional component that renders a summary of the user's total financial balance,
+ * including a 30-day change and a historical performance chart.
+ * It fetches its data declaratively using the `useBalanceSummary` hook.
+ * @returns {React.ReactElement} The rendered BalanceSummary component.
+ */
 const BalanceSummary: React.FC = () => {
-    // Per the new architecture, data is fetched via a custom hook using React Query.
+    // Per the new architecture, data is fetched via a custom hook using TanStack Query.
     // Complex calculations (running balance, 30d change) are now handled by the BFF.
     const { data: summary, isLoading, isError, error } = useBalanceSummary();
 
@@ -28,9 +53,14 @@ const BalanceSummary: React.FC = () => {
     const previousBalance = totalBalance - change30d;
     const changePercentage = previousBalance !== 0 ? (change30d / Math.abs(previousBalance)) * 100 : (change30d > 0 ? 100 : 0);
 
-    const formatYAxis = (tick: number) => `$${(tick / 1000).toFixed(0)}k`;
+    /**
+     * Formats a numeric tick value for the Y-axis into a shortened currency format (e.g., $50k).
+     * @param {number} tick - The numeric value of the axis tick.
+     * @returns {string} The formatted string.
+     */
+    const formatYAxis = (tick: number): string => `$${(tick / 1000).toFixed(0)}k`;
 
-    // The Card component now handles the loading skeleton and error states.
+    // The Card component now handles the loading skeleton and error states, passed from the `useQuery` hook.
     return (
         <Card 
             title="Balance Summary" 
@@ -45,7 +75,7 @@ const BalanceSummary: React.FC = () => {
                 <div className="text-right">
                     <p className="text-gray-400 text-sm">Change (30d)</p>
                     <p className={`text-lg font-semibold ${change30d >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {change30d >= 0 ? '+' : ''}${change30d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({changePercentage.toFixed(1)}%)
+                        {change30d >= 0 ? '+' : ''}{change30d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({changePercentage.toFixed(1)}%)
                     </p>
                 </div>
             </div>

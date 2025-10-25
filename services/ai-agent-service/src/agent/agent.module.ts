@@ -1,43 +1,42 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ConfigModule } from '@nestjs/config';
+import { HttpModule } from '@nestjs/axios';
 import { AgentService } from './agent.service';
 import { AgentResolver } from './agent.resolver';
+import { AgentController } from './agent.controller';
+import { EventBusModule } from '../event-bus/event-bus.module';
 
 /**
- * The AgentModule encapsulates the core logic for the AI Agent.
- * It sets up the necessary providers for the agent's functionality,
- * including the AgentService for business logic and the AgentResolver for GraphQL interactions.
+ * @module AgentModule
+ * @description This module encapsulates the core logic for the AI Agent, including its GraphQL API,
+ * event listeners, and business logic.
  *
- * This module also configures a client for the message bus (Kafka), enabling the agent
- * to communicate asynchronously with other microservices as per the event-driven architecture.
+ * ARCHITECTURAL REFACTOR:
+ * This module has been updated to support the new event-driven and workflow-based architecture.
+ * - It now includes the `AgentController`, which listens for Kafka events to trigger workflows.
+ * - `AgentService` has been refactored to act as a facade for starting Temporal workflows and
+ *   providing AI primitives as activities.
+ * - It imports the `HttpModule` for the AgentService's needs and the `EventBusModule` for Kafka client injection,
+ *   decoupling it from direct client configuration.
+ * - The `TemporalModule` is consumed globally to provide the Temporal client for starting workflows.
  */
 @Module({
   imports: [
     ConfigModule,
-    // Register the Kafka client asynchronously to inject the ConfigService.
-    // This allows the Kafka broker URLs to be managed via environment variables.
-    ClientsModule.registerAsync([
-      {
-        name: 'KAFKA_CLIENT',
-        imports: [ConfigModule],
-        useFactory: (configService: ConfigService) => ({
-          transport: Transport.KAFKA,
-          options: {
-            client: {
-              clientId: 'ai-agent-service',
-              brokers: configService.get<string>('KAFKA_BROKERS').split(','),
-            },
-            consumer: {
-              groupId: 'ai-agent-consumer',
-            },
-          },
-        }),
-        inject: [ConfigService],
-      },
-    ]),
+    HttpModule,
+    // Provides the KAFKA_CLIENT for injection into services within this module.
+    EventBusModule,
   ],
-  providers: [AgentResolver, AgentService],
+  controllers: [
+    // Handles inbound events from the message bus (e.g., Kafka) to trigger workflows.
+    AgentController,
+  ],
+  providers: [
+    // Exposes the AI Agent's capabilities via the federated GraphQL schema.
+    AgentResolver,
+    // Contains core business logic, provides AI primitives, and acts as a facade to Temporal.
+    AgentService,
+  ],
   exports: [AgentService],
 })
 export class AgentModule {}

@@ -1,0 +1,71 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: api-gateway-vs
+  # It is best practice to deploy applications into their own namespace.
+  namespace: demobank
+
+# This VirtualService defines the routing rules for traffic entering the service mesh
+# via the main ingress gateway. It acts as the central traffic manager for the entire application,
+# aligning with the "Service Mesh for Zero-Trust Networking and Advanced Traffic Management" directive.
+
+spec:
+  # Apply these rules to traffic for all hostnames. In a production environment,
+  # this would be locked down to a specific domain (e.g., "demobank.example.com").
+  hosts:
+    - "*"
+
+  # Binds this VirtualService to the default Istio ingress gateway, which is the
+  # entry point for all external traffic into the cluster.
+  gateways:
+    - istio-system/ingressgateway
+
+  http:
+    # Route for the federated GraphQL API, which is the primary backend endpoint.
+    - name: "graphql-api-route"
+      match:
+        - uri:
+            prefix: /graphql
+      route:
+        - destination:
+            # Route traffic to the internal Kubernetes service for the API Gateway.
+            # The fully qualified domain name (FQDN) is used for clarity.
+            host: api-gateway.demobank.svc.cluster.local
+            port:
+              number: 4000
+
+      # --- Advanced Traffic Management: Retries ---
+      # This configuration enables automatic retries for failed requests to the api-gateway,
+      # improving resilience against transient network or service issues. It implements
+      # the "automatic retries with exponential backoff" pattern mentioned in the directive.
+      retries:
+        attempts: 3
+        perTryTimeout: 2s
+        # Retry on 5xx errors, connection failures, or if the upstream service refuses the stream.
+        retryOn: 5xx,connect-failure,refused-stream
+
+      # --- Advanced Traffic Management: Timeouts ---
+      # A request timeout to prevent long-running requests from holding up client resources.
+      timeout: 15s
+
+      # --- Advanced Traffic Management: Fault Injection (Chaos Engineering) ---
+      # Injects a 503 Service Unavailable error for 5% of requests to /graphql.
+      # This is used for chaos engineering exercises to test client resilience, directly
+      # fulfilling the "fault injection for chaos engineering exercises" directive.
+      fault:
+        abort:
+          httpStatus: 503
+          percentage:
+            value: 5.0
+
+    # Default route for all other traffic, which serves the frontend Micro-Frontend Shell application.
+    - name: "frontend-mfe-shell-route"
+      match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            # Route traffic to the service that serves the static assets for the MFE Shell.
+            host: mfe-shell.demobank.svc.cluster.local
+            port:
+              number: 80 # Standard HTTP port for a web server like Nginx

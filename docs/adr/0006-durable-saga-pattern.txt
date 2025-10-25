@@ -1,0 +1,55 @@
+ADR-0006: Implement a Durable Saga Pattern with a Workflow Orchestration Engine
+
+Date: 2024-06-12
+
+## Status
+
+Accepted
+
+## Context
+
+Our architecture currently relies on event-driven choreography for handling complex business processes that span multiple microservices, such as payment processing, user onboarding, and multi-step AI tasks. While this approach promotes service decoupling, it has introduced significant challenges:
+
+1.  **Lack of Durability**: Business process state is often held in-memory within service instances. A service restart, crash, or deployment can cause this state to be lost, leaving the process in an inconsistent or indeterminate state (e.g., a user's account is debited but the credit to another account never happens).
+
+2.  **Complexity and Poor Visibility**: The overall logic of a business process is scattered across multiple services that publish and subscribe to events. There is no single place to view the definition of a saga, making it difficult to understand, debug, and modify. Tracking the status of a specific multi-step operation (e.g., "What is the current state of payment ID 123?") is challenging and often requires correlating logs from multiple services.
+
+3.  **Difficult Error Handling and Compensation**: Implementing robust compensation logic (rollbacks) for sagas is complex and error-prone. Each service must be aware of how to compensate for its actions and may need to listen for failure events from downstream services, increasing complexity and coupling.
+
+4.  **Boilerplate Logic**: Each service involved in a saga must independently implement logic for timeouts, retries with exponential backoff, and idempotency, leading to duplicated effort and potential inconsistencies.
+
+## Decision
+
+We will adopt a workflow orchestration engine to implement the durable saga pattern for all complex, multi-service business processes. The chosen engine is **Temporal.io**.
+
+This decision involves the following key changes:
+
+1.  **Adopt Temporal for Orchestration**: We will introduce a Temporal cluster into our infrastructure. This cluster will be responsible for managing the state and execution of our long-running business processes.
+
+2.  **Model Sagas as Workflows**: All complex, multi-service processes will be explicitly defined as durable, stateful **Temporal Workflows**. The workflow definition will be the single source of truth for the entire saga logic, including the sequence of steps and compensation logic.
+
+3.  **Refactor Business Logic into Activities**: The individual, idempotent steps of a business process (e.g., `debitAccount`, `callAIApi`, `sendNotification`) will be refactored out of existing service classes and into **Temporal Activities**. These activities represent the actual work being done.
+
+4.  **Services as Workflow Clients and Workers**: Our NestJS microservices (e.g., `transactions-service`, `ai-agent-service`) will be refactored to act as both clients and workers:
+    *   **As Clients**: API controllers/resolvers will primarily be responsible for starting, signaling, or querying workflows. For example, a `POST /payments` endpoint in `transactions-service` will start a `paymentWorkflow` and return a workflow ID for tracking.
+    *   **As Workers**: The services will host Temporal Workers that poll a task queue to execute the activities they are responsible for.
+
+5.  **Explicit Compensation Logic**: Compensation actions (e.g., refunding a debit if a credit fails) will be explicitly coded within the workflow definition using standard programming constructs like `try...catch` blocks. This co-locates the saga's forward and backward execution paths, making them easy to understand and maintain.
+
+## Consequences
+
+### Positive
+
+-   **Durability & Reliability**: Workflow state is persisted by the Temporal cluster, making business processes resilient to service restarts, crashes, and deployments. A process will resume exactly where it left off.
+-   **Improved Visibility & Auditability**: The state of any workflow instance is queryable via the Temporal API and Web UI, providing a clear audit trail and simplifying debugging.
+-   **Simplified Service Logic**: Microservices are simplified. They are no longer responsible for managing saga state, timeouts, or complex retry logic. They either start workflows or execute discrete, stateless activities.
+-   **Explicit & Maintainable Sagas**: The entire business process logic, including error handling and compensation, is defined in one place (the workflow code), making it much easier to understand, test, and evolve.
+-   **Built-in Scalability & Reliability Features**: Temporal provides robust, configurable, built-in support for retries, timeouts, and backoff for activities. Workers can be scaled horizontally to handle increased load.
+-   **Enhanced Testability**: Workflows can be unit-tested in isolation, and the entire saga can be integration-tested using Temporal's testing framework, which supports time-skipping and activity mocking.
+
+### Negative / Trade-offs
+
+-   **New Infrastructure Component**: We are introducing and taking on the operational responsibility for a new, stateful component in our infrastructure (the Temporal cluster), which requires deployment, monitoring, and maintenance.
+-   **Learning Curve**: The development team must learn the Temporal SDK and the concepts of durable workflows, activities, workers, and the associated design patterns.
+-   **Potential for Over-Orchestration**: There is a risk of using workflows for simple request/response interactions where a direct call would suffice. The team must be disciplined in applying this pattern only to processes that are truly long-running, asynchronous, or require saga-like guarantees.
+-   **Dependency on Temporal SDK**: The core workflow logic will be written using the Temporal SDK, creating a dependency on that framework. This is mitigated by keeping the business logic within activities as framework-agnostic as possible.

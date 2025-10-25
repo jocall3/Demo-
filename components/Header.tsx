@@ -5,12 +5,26 @@ import { gql, useQuery, useMutation } from '@apollo/client';
 
 // ===============================================================================================
 // GRAPHQL QUERIES & MUTATIONS
-// These are typically defined in a centralized API/GraphQL directory in a larger project.
-// For this refactor, they are co-located here for simplicity.
+// These are co-located for simplicity but would be in a dedicated API directory in a larger project.
 // ===============================================================================================
 
-// Query to fetch shared data like notifications, API status, etc.
-// This is a common pattern in micro-frontends/shells to get global data.
+/**
+ * @const GET_HEADER_DATA
+ * @description GraphQL query to fetch data required by the header, such as user notifications.
+ * This query targets the `userData` type in the supergraph, which aggregates data from various subgraphs.
+ * @document
+ * query GetHeaderData {
+ *   userData {
+ *     notifications {
+ *       id
+ *       message
+ *       timestamp
+ *       read
+ *       view
+ *     }
+ *   }
+ * }
+ */
 const GET_HEADER_DATA = gql`
   query GetHeaderData {
     userData {
@@ -25,7 +39,15 @@ const GET_HEADER_DATA = gql`
   }
 `;
 
-// Mutation to mark a notification as read on the backend.
+/**
+ * @const MARK_NOTIFICATION_AS_READ_MUTATION
+ * @description GraphQL mutation to mark a single notification as read on the backend.
+ * It takes a `notificationId` as input and is expected to return a boolean indicating success.
+ * @document
+ * mutation MarkNotificationAsRead($notificationId: ID!) {
+ *   markNotificationAsRead(id: $notificationId)
+ * }
+ */
 const MARK_NOTIFICATION_AS_READ_MUTATION = gql`
   mutation MarkNotificationAsRead($notificationId: ID!) {
     markNotificationAsRead(id: $notificationId)
@@ -34,12 +56,17 @@ const MARK_NOTIFICATION_AS_READ_MUTATION = gql`
 
 // --- Helper Hook: useClickOutside ---
 /**
- * A simple hook to detect clicks outside of a specified element.
- * @param ref Ref to the element to monitor.
- * @param handler Callback to run on outside click.
+ * A custom React hook that triggers a callback when a click occurs outside of the specified element.
+ *
+ * @param {React.RefObject<HTMLElement>} ref - A React ref object attached to the element to monitor for outside clicks.
+ * @param {() => void} handler - The callback function to execute when a click outside the element is detected.
  */
 const useClickOutside = (ref: React.RefObject<HTMLElement>, handler: () => void) => {
     useEffect(() => {
+        /**
+         * @description Event listener that checks if the clicked target is outside the ref's current element.
+         * @param {MouseEvent | TouchEvent} event - The mouse or touch event.
+         */
         const listener = (event: MouseEvent | TouchEvent) => {
             if (!ref.current || ref.current.contains(event.target as Node)) {
                 return;
@@ -56,8 +83,11 @@ const useClickOutside = (ref: React.RefObject<HTMLElement>, handler: () => void)
 };
 
 /**
- * @description A dynamic widget to show the simulated real-time status of the "Heuristic API".
- * This component is purely presentational.
+ * A purely presentational component that displays a simulated real-time status
+ * of a background AI service ("Heuristic API"). It cycles through a predefined
+ * list of status messages to create a dynamic, "live" feel in the application header.
+ *
+ * @returns {React.ReactElement} A styled div containing the animated status indicator and text.
  */
 const HeuristicAPIStatus: React.FC = () => {
     const messages = [
@@ -77,7 +107,7 @@ const HeuristicAPIStatus: React.FC = () => {
         }, 4000);
 
         return () => clearInterval(interval);
-    }, []);
+    }, [messages.length]);
 
     return (
         <div className="hidden lg:flex items-center space-x-2 text-xs text-cyan-300/80 bg-gray-900/40 px-3 py-1.5 rounded-full border border-cyan-500/10 transition-all duration-500">
@@ -93,11 +123,42 @@ const HeuristicAPIStatus: React.FC = () => {
     );
 };
 
+/**
+ * @interface HeaderProps
+ * @description Defines the properties for the main `Header` component.
+ */
 interface HeaderProps {
+    /**
+     * @property
+     * @description A callback function to be invoked when the hamburger menu icon is clicked.
+     * This is typically used on mobile views to toggle the visibility of the main sidebar.
+     * @type {() => void}
+     */
     onMenuClick: () => void;
+    /**
+     * @property
+     * @description A callback function to set the active view of the application.
+     * Used for navigation, for example, when a user clicks a notification that links to a specific view.
+     * @param {View} view - The view to navigate to, based on the `View` enum.
+     * @type {(view: View) => void}
+     */
     setActiveView: (view: View) => void;
 }
 
+/**
+ * The main application header component for the Micro-Frontend Shell.
+ *
+ * @component
+ * @description This component is responsible for rendering the top navigation bar. It handles
+ * several key global functionalities:
+ * - **Authentication**: Integrates with `useAuth0` to display user information, a login button for unauthenticated users, and a profile dropdown with a logout option for authenticated users.
+ * - **Notifications**: Fetches and displays user notifications using an Apollo Client GraphQL query. It shows an unread indicator and allows users to mark notifications as read via a mutation.
+ * - **Navigation**: Provides triggers for opening the mobile sidebar (`onMenuClick`) and navigating to specific views based on user actions (e.g., clicking a notification).
+ * - **UI State**: Manages local UI state for dropdown visibility (notifications, profile) using `useState` and the `useClickOutside` hook.
+ *
+ * @param {HeaderProps} props - The props for the Header component.
+ * @returns {React.ReactElement} The rendered header element.
+ */
 const Header: React.FC<HeaderProps> = ({ onMenuClick, setActiveView }) => {
     const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
     const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -109,23 +170,19 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, setActiveView }) => {
     useClickOutside(profileRef, () => setIsProfileOpen(false));
 
     // --- AUTH0 INTEGRATION ---
-    // Consuming the real Auth0 context for authentication status and user data.
     const { user, isAuthenticated, isLoading, loginWithRedirect, logout } = useAuth0();
 
     // --- APOLLO CLIENT FOR NOTIFICATIONS ---
-    // Fetching notifications from the GraphQL gateway.
     const { data, loading: notificationsLoading, error: notificationsError } = useQuery(GET_HEADER_DATA);
     const notifications = data?.userData?.notifications || [];
     const unreadCount = notifications.filter((n: Notification) => !n.read).length;
 
-    // Mutation to mark a notification as read.
     const [markAsReadMutation] = useMutation(MARK_NOTIFICATION_AS_READ_MUTATION, {
-        refetchQueries: [{ query: GET_HEADER_DATA }], // Refetch notifications after marking one as read.
+        refetchQueries: [{ query: GET_HEADER_DATA }],
     });
 
     const handleNotificationClick = useCallback((notification: Notification) => {
         if (notification.view) {
-            // The 'view' field from the GraphQL API should map directly to our client-side View enum.
             setActiveView(notification.view as View);
         }
         if (!notification.read) {

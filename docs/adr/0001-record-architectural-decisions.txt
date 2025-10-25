@@ -1,0 +1,15 @@
+# 1. Record Architectural Decisions
+
+Date: 2024-07-23
+
+## Status
+
+Accepted
+
+## Context
+
+The project is undergoing a significant architectural transformation, moving from a monolithic structure to a distributed system of microservices, micro-frontends, and advanced backend patterns (CQRS, Event Sourcing, Service Mesh, etc.). The complexity of the system is increasing substantially.
+
+The rationale behind key architectural decisions is often discussed in meetings, design documents, or transient communication channels like Slack. This knowledge is frequently lost over time, especially as team members join or leave the project.
+
+Future developers, architects, and operations personnel will need to understand *why* certain architectural choices were made to evolve the system effectively, troubleshoot issues, or avoid repeating past mistakes. Without a formal record, this understanding is difficult to achieve, leading to 

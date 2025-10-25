@@ -1,4 +1,4 @@
-## Dockerfile for the Transactions GraphQL Subgraph Service
+# Dockerfile for the Transactions GraphQL Subgraph Service
 
 # STAGE 1: Development - Install dependencies and copy source
 # Use a specific node version on a lean alpine base to keep the image small.
@@ -54,8 +54,7 @@ RUN npm ci --omit=dev
 # Copy the compiled application code from the 'build' stage into the 'dist' directory.
 COPY --from=build /usr/src/app/dist ./dist
 
-# Expose the port the application will run on. This should match the port
-# configured in the service's main.ts or .env file.
+# Expose the port the application will run on. The Transactions service will run on 4003.
 EXPOSE 4003
 
 # The command to start the application when the container launches

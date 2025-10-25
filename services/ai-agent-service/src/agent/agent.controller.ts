@@ -1,18 +1,15 @@
 import { Controller, Logger, ValidationPipe, Inject } from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
-import { AgentService } from './agent.service';
+import { Client } from '@temporalio/client';
+import { v4 as uuidv4 } from 'uuid';
+
+import { TEMPORAL_CLIENT } from '../temporal/temporal.constants';
+import { businessPlanAnalysisWorkflow, proactiveFinancialAnalysisWorkflow, cardStoryGenerationWorkflow } from '../temporal/workflows';
 import {
   RunBusinessPlanAnalysisEvent,
   TriggerFinancialAnalysisEvent,
   CardStoryRequestEvent
 } from './events/agent.events';
-import { Client } from '@temporalio/client';
-import { TEMPORAL_CLIENT } from '../temporal/temporal.constants';
-import {
-  businessPlanAnalysisWorkflow,
-  proactiveFinancialAnalysisWorkflow,
-  cardStoryGenerationWorkflow,
-} from '../temporal/workflows';
 
 /**
  * @class AgentController
@@ -21,7 +18,7 @@ import {
  * the appropriate long-running, durable workflows using a workflow orchestration engine.
  *
  * ARCHITECTURAL REFACTOR:
- * This controller has been refactored to integrate with a workflow orchestration engine (e.g., Temporal).
+ * This controller has been refactored to integrate with a workflow orchestration engine (Temporal).
  * Instead of invoking service methods that manage complex state and retries (a "choreography" pattern),
  * it now starts durable, stateful "workflows" ("orchestration" pattern). This provides better visibility,
  * reliability, and scalability for long-running asynchronous processes like the Quantum Weaver analysis.
@@ -51,7 +48,7 @@ export class AgentController {
     );
 
     try {
-      const workflowId = `biz-plan-${payload.userId}-${Date.now()}`;
+      const workflowId = `biz-plan-${payload.userId}-${uuidv4()}`;
       const handle = await this.temporalClient.workflow.start(
         businessPlanAnalysisWorkflow,
         {
@@ -124,7 +121,7 @@ export class AgentController {
     );
 
     try {
-      const workflowId = `card-story-${payload.userId}-${Date.now()}`;
+      const workflowId = `card-story-${payload.userId}-${uuidv4()}`;
       const handle = await this.temporalClient.workflow.start(
         cardStoryGenerationWorkflow,
         {

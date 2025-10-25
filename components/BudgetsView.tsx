@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Card from './Card';
 import type { BudgetCategory as Budget, Transaction } from '../types';
 import { gql } from 'graphql-request'; // Using this for query string definition clarity
@@ -112,7 +112,7 @@ const useBudgetInsight = () => useMutation<any, Error, { prompt: string }>({
 const NewBudgetModal: React.FC<{ 
     isOpen: boolean; 
     onClose: () => void; 
-    onAdd: (name: string, limit: number) => void; 
+    onAdd: (vars: { name: string, limit: number }) => void; 
     isAdding: boolean;
 }> = ({ isOpen, onClose, onAdd, isAdding }) => {
     const [name, setName] = useState('');
@@ -120,7 +120,7 @@ const NewBudgetModal: React.FC<{
 
     const handleSubmit = () => {
         if(name && limit && !isAdding) {
-            onAdd(name, parseFloat(limit));
+            onAdd({ name, limit: parseFloat(limit) });
             onClose();
             setName('');
             setLimit('');
@@ -329,4 +329,16 @@ const BudgetsView: React.FC = () => {
   );
 };
 
-export default BudgetsView;
+// ================================================================================================
+// WRAPPER COMPONENT WITH QUERY CLIENT PROVIDER
+// For standalone MFE usage or isolated testing, this wrapper provides the necessary context.
+// ================================================================================================
+const queryClient = new QueryClient();
+
+const BudgetsViewWithProvider: React.FC = () => (
+    <QueryClientProvider client={queryClient}>
+        <BudgetsView />
+    </QueryClientProvider>
+);
+
+export default BudgetsViewWithProvider;

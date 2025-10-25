@@ -268,7 +268,7 @@ const StatusBadge: FC<{ status: CorporateCard['status'], frozen: boolean }> = ({
     if (frozen) {
         return <span className={`px-2 py-1 text-xs font-medium rounded-full bg-blue-500/20 text-blue-300`}>Frozen</span>;
     }
-    const colors = {
+    const colors: Record<string, string> = {
         Active: 'bg-green-500/20 text-green-300',
         Suspended: 'bg-yellow-500/20 text-yellow-300',
         Lost: 'bg-red-500/20 text-red-300',
@@ -311,8 +311,8 @@ const CorporateCommandViewInternal: FC = () => {
     const sortedTransactions = useMemo(() => {
         return [...(corporateData?.transactions || [])].sort((a, b) => {
             // A simple way to sort "2m ago" vs "1h ago" is not feasible without parsing,
-            // so we'll just sort by ID for stable-ish ordering in this mock.
-            // A real API would provide a real timestamp.
+            // so we'll just sort by ID for stable-ish ordering.
+            // A real API would provide an ISO timestamp.
             return b.id.localeCompare(a.id);
         });
     }, [corporateData?.transactions]);

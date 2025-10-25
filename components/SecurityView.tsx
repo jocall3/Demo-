@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import Card from './Card';
 import PlaidLinkButton, { PlaidLinkSuccessMetadata } from './PlaidLinkButton';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // --- GraphQL Query/Mutation Definitions ---
 // This query fetches the user's linked financial accounts from the GraphQL API.
@@ -28,7 +28,13 @@ const UNLINK_PLAID_ACCOUNT_MUTATION = `
 `;
 
 // --- Type Definitions for GraphQL Payloads ---
-// Defines the structure of a single linked account as received from the GraphQL API.
+/**
+ * Defines the structure of a single linked account as received from the GraphQL API.
+ * @param id - The unique identifier for the linked account.
+ * @param name - The name of the account (e.g., "Chase Checking").
+ * @param mask - The last 4 digits of the account number.
+ * @param institutionId - An optional identifier for the financial institution.
+ */
 interface LinkedAccountData {
   id: string;
   name: string;
@@ -36,19 +42,25 @@ interface LinkedAccountData {
   institutionId?: string;
 }
 
-// Defines the expected response structure for the `GET_LINKED_ACCOUNTS_QUERY`.
+/**
+ * Defines the expected response structure for the `GET_LINKED_ACCOUNTS_QUERY`.
+ */
 interface LinkedAccountsResponse {
   userData: {
     linkedAccounts: LinkedAccountData[];
   };
 }
 
-// Defines the expected response structure for the `UNLINK_PLAID_ACCOUNT_MUTATION`.
+/**
+ * Defines the expected response structure for the `UNLINK_PLAID_ACCOUNT_MUTATION`.
+ */
 interface UnlinkAccountResponse {
   unlinkPlaidAccount: boolean;
 }
 
-// Defines the variables required for the `UNLINK_PLAID_ACCOUNT_MUTATION`.
+/**
+ * Defines the variables required for the `UNLINK_PLAID_ACCOUNT_MUTATION`.
+ */
 interface UnlinkAccountVariables {
   accountId: string;
 }
@@ -118,15 +130,14 @@ const useUnlinkAccountMutation = () => {
 };
 
 /**
- * @description The SecurityView component provides users with controls over their linked accounts
- * and application-specific security settings.
+ * @component SecurityView
+ * @description Provides users with controls over their linked accounts and application-specific security settings.
  *
  * ARCHITECTURAL REFACTOR:
- * This component has been refactored to align with the Federated Data Mesh architecture.
- * It no longer consumes a monolithic `DataContext` directly for linked accounts. Instead,
- * it uses dedicated `react-query` hooks (`useLinkedAccountsQuery`, `useUnlinkAccountMutation`)
- * that interact with the GraphQL API Gateway.
- * This enhances data fetching reliability, caching, and separation of concerns.
+ * This component has been refactored to align with the new frontend architecture.
+ * It no longer consumes a monolithic `DataContext` for server state. Instead,
+ * it uses dedicated `@tanstack/react-query` hooks (`useLinkedAccountsQuery`, `useUnlinkAccountMutation`)
+ * that interact with the GraphQL API Gateway. This enhances data fetching reliability, caching, and separation of concerns.
  */
 const SecurityView: React.FC = () => {
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -142,35 +153,33 @@ const SecurityView: React.FC = () => {
     /**
      * Handles the toggling of security settings (e.g., 2FA, Biometric Login).
      * In a full implementation, this would trigger a backend mutation to update user preferences.
-     * @param setting The name of the setting to toggle.
+     * @param {('twoFactor' | 'biometric')} setting The name of the setting to toggle.
      */
-    const handleToggle = (setting: 'twoFactor' | 'biometric') => {
+    const handleToggle = useCallback((setting: 'twoFactor' | 'biometric') => {
         setSettings(prev => ({...prev, [setting]: !prev[setting]}));
         console.log(`Toggled ${setting} to ${!settings[setting]}. (Backend update simulated)`);
-    }
+    }, [settings]);
 
     /**
      * Initiates the process of unlinking a financial account.
-     * @param accountId The ID of the account to unlink.
+     * @param {string} accountId The ID of the account to unlink.
      */
-    const handleUnlinkAccount = (accountId: string) => {
+    const handleUnlinkAccount = useCallback((accountId: string) => {
         if (window.confirm("Are you sure you want to unlink this account? This cannot be undone.")) {
             unlinkAccount({ accountId });
         }
-    };
+    }, [unlinkAccount]);
 
     /**
      * Callback for successful Plaid Link integration.
-     * The `PlaidLinkButton` internally handles exchanging the public token and invalidating
+     * The `PlaidLinkButton` component internally handles exchanging the public token and invalidating
      * the `linkedAccounts` query, so no direct state update is needed here.
-     * @param publicToken The public token received from Plaid.
-     * @param metadata Metadata about the linked institution and accounts.
+     * @param {string} publicToken The public token received from Plaid.
+     * @param {PlaidLinkSuccessMetadata} metadata Metadata about the linked institution and accounts.
      */
-    const handlePlaidLinkSuccess = (publicToken: string, metadata: PlaidLinkSuccessMetadata) => {
+    const handlePlaidLinkSuccess = useCallback((publicToken: string, metadata: PlaidLinkSuccessMetadata) => {
         console.log("Plaid Link successful. UI will update automatically from query invalidation.");
-        // The `PlaidLinkButton` itself contains logic to call a GraphQL mutation for token exchange
-        // and to invalidate the 'linkedAccounts' query on success.
-    };
+    }, []);
 
     /**
      * @description A modal component for changing the user's password.
@@ -198,17 +207,15 @@ const SecurityView: React.FC = () => {
             <Card 
                 title="Linked Accounts & Data Sources" 
                 isLoading={isLoadingAccounts || isUnlinking}
-                // Display error messages from data fetching or the unlinking process
-                errorState={accountsError?.message || (isUnlinking ? "Unlinking account..." : null)}
+                errorState={accountsError?.message || null}
             >
                 <div className="space-y-4">
-                    {/* Display dynamically fetched linked accounts */}
                     {linkedAccounts.length > 0 ? (
                         linkedAccounts.map(account => (
                             <div key={account.id} className="flex justify-between items-center p-4 bg-gray-800 rounded-lg">
                                 <div>
                                     <h4 className="font-semibold text-white">{account.name}</h4>
-                                    <p className="text-sm text-gray-400">Account ending in •••• {account.mask}</p>
+                                    <p className="text-sm text-gray-400">Account ending in â€¢â€¢â€¢â€¢ {account.mask}</p>
                                 </div>
                                 <button 
                                     onClick={() => handleUnlinkAccount(account.id)} 
@@ -222,7 +229,6 @@ const SecurityView: React.FC = () => {
                     ) : (
                         <p className="text-center text-gray-400 py-4">You haven't linked any bank accounts yet. Link an account to import your transactions automatically.</p>
                     )}
-                    {/* PlaidLinkButton handles its own API calls to GraphQL for link token and public token exchange */}
                     <PlaidLinkButton onSuccess={handlePlaidLinkSuccess} />
                 </div>
             </Card>
@@ -277,4 +283,18 @@ const SecurityView: React.FC = () => {
     );
 };
 
-export default SecurityView;
+/**
+ * A wrapper component that provides a QueryClient to its children.
+ * This is a good pattern for feature components that manage their own server state,
+ * keeping them decoupled from a single global client provider.
+ */
+const SecurityViewWithProvider: React.FC = () => {
+    const [queryClient] = useState(() => new QueryClient());
+    return (
+        <QueryClientProvider client={queryClient}>
+            <SecurityView />
+        </QueryClientProvider>
+    );
+};
+
+export default SecurityViewWithProvider;
