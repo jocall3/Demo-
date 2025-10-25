@@ -1,0 +1,44 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: genai-service
+  description: A microservice providing generative AI capabilities, including text, chat, video, and image generation. It exposes a GraphQL subgraph and orchestrates long-running AI tasks via Temporal workflows.
+  tags:
+    - microservice
+    - backend
+    - nodejs
+    - nestjs
+    - graphql
+    - subgraph
+    - ai
+    - generative-ai
+    - temporal
+  annotations:
+    # As per the docs-as-code directive, TechDocs will be sourced from markdown files
+    # co-located with the service's source code. 'dir:.' points to the current directory.
+    backstage.io/techdocs-ref: dir:.
+    # Placeholder for the actual GitHub project slug.
+    github.com/project-slug: 'demobank/demobank-platform'
+    # Direct link to the source code for this component.
+    backstage.io/source-location: url:https://github.com/demobank/demobank-platform/tree/main/services/genai
+spec:
+  type: service
+  lifecycle: production
+  owner: team-ai-platform # The team responsible for the GenAI platform services.
+  system: demobank-backend # Logical system grouping all backend microservices.
+  
+  # Defines the other Backstage catalog entities that this component depends on.
+  dependsOn:
+    # Consumed by the API Gateway as a federated subgraph.
+    - component:api-gateway
+    # Uses Temporal for orchestrating long-running AI generation workflows (sagas).
+    - resource:workflow-engine-temporal
+    # Consumes and produces events for asynchronous communication.
+    - resource:message-bus-kafka
+    # Depends on the external Google Gemini API for its core functionality.
+    - resource:google-gemini-api
+      
+  # Defines the APIs that this component exposes to the rest of the system.
+  providesApis:
+    # The name of the API entity that describes this service's GraphQL subgraph.
+    - genai-graphql-subgraph
