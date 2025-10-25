@@ -1,0 +1,46 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: api-gateway
+  description: The primary API Gateway for the Demo Bank federated supergraph. It composes GraphQL subgraphs, handles OAuth 2.0 token exchange, provides distributed caching, and serves as a secure, single entry point for client applications.
+  tags:
+    - api
+    - gateway
+    - graphql
+    - federation
+    - nestjs
+    - platform
+  annotations:
+    # This annotation points to the source code location of the component.
+    backstage.io/source-location: url:https://github.com/your-org/your-repo/tree/main/api-gateway
+    # This annotation tells Backstage's TechDocs plugin where to find the documentation for this component.
+    # 'dir:.' indicates that the documentation (e.g., in Markdown files) is co-located with the source code.
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: service
+  lifecycle: production
+  owner: team-api-platform
+  system: core-platform
+  # Defines the component's relationships to other catalog entities.
+  dependsOn:
+    # Microservice Subgraphs that are federated by this gateway.
+    - component:default/user-service
+    - component:default/accounts-service
+    - component:default/transactions-service
+    - component:default/ai-agent-service
+    - component:default/plaid-integration-service
+    # Core infrastructure resources this service relies on.
+    - resource:default/kafka-cluster
+    - resource:default/temporal-cluster
+    - resource:default/vault-cluster
+    - resource:default/redis-cache
+  # The API that this component exposes to its consumers (Experience APIs and MFEs).
+  providesApis:
+    - demobank-supergraph-api
+  # The APIs that this component consumes (the subgraph APIs).
+  consumesApis:
+    - user-subgraph-api
+    - accounts-subgraph-api
+    - transactions-subgraph-api
+    - ai-agent-subgraph-api
+    - plaid-integration-subgraph-api
