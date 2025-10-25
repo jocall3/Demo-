@@ -2,29 +2,46 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: mfe-transactions
-  description: Micro-Frontend for managing user financial transactions, part of the decomposed monolithic frontend.
-  annotations:
-    github.com/project-slug: demobank/mfe-transactions
-    backstage.io/techdocs-ref: url:https://demobank.github.io/mfe-transactions/docs # Link to TechDocs for this micro-frontend
+  description: The Transactions Micro-Frontend, providing a detailed view of a user's transaction history with advanced filtering and search. It is a remote application orchestrated by the MFE Shell.
   tags:
-    - react
     - microfrontend
+    - react
     - transactions
+    - frontend
     - financial
-    - typescript
-  links:
-    - url: https://demobank.github.io/mfe-transactions
-      title: Live Application
-      icon: web
-    - url: https://demobank.github.com/demobank/mfe-transactions
-      title: GitHub Repository
-      icon: github
+    - module-federation
+  annotations:
+    # The techdocs-ref annotation points to the location of the documentation for this component.
+    # Following the 'docs-as-code' directive, this would be a directory within the component's source.
+    backstage.io/techdocs-ref: dir:.
+    # The source-location annotation helps Backstage link directly to the source code.
+    backstage.io/source-location: url:https://github.com/demobank/demobank-frontend/tree/main/mfe-transactions
+    # Standard annotations for language, framework, and ownership.
+    backstage.io/language: typescript
+    backstage.io/framework: react
+    backstage.io/managed-by: team-frontend-transactions
 spec:
   type: website
   lifecycle: production
-  owner: team-transactions-frontend
-  system: demobank-frontend
+  owner: team-frontend-transactions
+  system: demobank-microfrontends
   dependsOn:
-    - component:demobank-frontend/shell-app
-    - resource:demobank-api-gateway
-    - resource:demobank-transactions-service
+    # This MFE depends on the API Gateway for data...
+    - component:api-gateway
+    # ...and is loaded and orchestrated by the MFE shell.
+    - component:mfe-shell
+    # It consumes data primarily from the backend transactions service via the gateway.
+    - component:transactions-service
+  providesApis:
+    # It exposes its remote entry point via Module Federation.
+    - transactions-module-federation-entrypoint
+  consumesApis:
+    # It consumes the unified API provided by the supergraph gateway.
+    - api-gateway-graphql-api
+  links:
+    - url: http://localhost:5173/transactions
+      title: Local Development
+      icon: dashboard
+    - url: https://demobank.example.com/transactions
+      title: Production Deployment
+      icon: website

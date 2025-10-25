@@ -2,22 +2,23 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: mfe-investments
-  description: Micro-frontend application for managing user investments and portfolio within the Demo Bank platform.
-  annotations:
-    # Links to relevant dashboards, documentation, or deployed instances
-    backstage.io/source-location: url:https://github.com/demobank/demobank-frontend/tree/main/mfe-investments
-    backstage.io/techdocs-ref: url:https://github.com/demobank/demobank-frontend/tree/main/docs/mfe-investments
-    backstage.io/kubernetes-id: mfe-investments
+  description: A remote micro-frontend that provides a detailed view of a user's investment portfolio, market data, and ESG investing options. It is consumed by the MFE Shell.
   tags:
     - microfrontend
-    - frontend
     - react
     - investments
     - module-federation
+  annotations:
+    github.com/project-slug: 'demobank/demobank-platform' # The monorepo where this component lives
+    backstage.io/techdocs-ref: dir:. # Docs-as-code: TechDocs are co-located with the source code
 spec:
   type: website
   lifecycle: production
-  owner: team-investments # Assign to a dedicated team responsible for this micro-frontend
-  system: demobank-frontend # The overarching micro-frontend system
-  dependsOn:
-    - component:api-gateway # Micro-frontends typically depend on the main API Gateway
+  owner: team-investments # The team responsible for this MFE
+  system: user-facing-applications # The larger system this component is part of
+  partOf: # This component is a part of the MFE Shell
+    - component:mfe-shell
+  consumesApis:
+    - api:supergraph-graphql # It fetches data from the federated GraphQL supergraph
+  providesApis:
+    - api:investments-mfe-entrypoint # It exposes itself via Module Federation for consumption by the shell
