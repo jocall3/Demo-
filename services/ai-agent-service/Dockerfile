@@ -3,7 +3,7 @@
 # --- Stage 1: Development ---
 # This stage installs all dependencies (including devDependencies) and copies the source code.
 # It's used as a base for the build stage to leverage Docker's layer caching.
-FROM node:20-alpine AS development
+FROM node:25-alpine AS development
 
 # Set the working directory inside the container
 WORKDIR /usr/src/app
@@ -23,7 +23,7 @@ COPY . .
 # --- Stage 2: Build ---
 # This stage takes the source code from the 'development' stage and builds the
 # production-ready JavaScript files from the TypeScript source.
-FROM node:20-alpine AS build
+FROM node:25-alpine AS build
 
 WORKDIR /usr/src/app
 
@@ -38,7 +38,7 @@ RUN npm run build
 # --- Stage 3: Production ---
 # This is the final, lean production image. It only contains the built application
 # and its production dependencies, resulting in a smaller and more secure image.
-FROM node:20-alpine AS production
+FROM node:25-alpine AS production
 
 # Set the Node environment to 'production' for performance and security optimizations.
 ENV NODE_ENV=production
