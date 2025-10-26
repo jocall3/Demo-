@@ -1,0 +1,94 @@
+# # To get started with Dependabot version updates, you'll need to specify which
+# package ecosystems to update and where the package manifests are located.
+# This file is configured for the Demo Bank monorepo.
+#
+# Please see the documentation for all configuration options:
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # --- 1. NPM for the Monorepo ---
+  # This single entry will scan the root package.json and automatically discover all
+  # workspaces (microservices, MFEs, packages) for dependency updates.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Group patch and minor updates together to reduce noise
+    groups:
+      npm-minor-patch-updates:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # --- 2. GitHub Actions ---
+  # This keeps your CI/CD workflow actions up-to-date.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # --- 3. Docker ---
+  # This section includes one entry for the root docker-compose.yml and
+  # separate entries for each service's Dockerfile. This ensures that both your
+  # base images for development and your production container images are kept up-to-date.
+
+  # Root docker-compose.yml
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # API Gateway Dockerfile
+  - package-ecosystem: "docker"
+    directory: "/api-gateway"
+    schedule:
+      interval: "weekly"
+
+  # Experience API Dockerfiles
+  - package-ecosystem: "docker"
+    directory: "/experience-dashboard-api"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/experience-onboarding-api"
+    schedule:
+      interval: "weekly"
+
+  # Service Dockerfiles
+  - package-ecosystem: "docker"
+    directory: "/services/accounts-projection-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/services/accounts-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/services/ai-agent-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/services/cache-warmer"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/services/plaid-integration-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/services/transactions-projection-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/services/transactions-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/services/ui-schema-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/services/user-service"
+    schedule:
+      interval: "weekly"
