@@ -3,7 +3,7 @@
 # STAGE 1: Development - Install dependencies and copy source
 # Use a specific node version on a lean alpine base to keep the image small.
 # Naming this stage 'development' for clarity.
-FROM node:20-alpine AS development
+FROM node:25-alpine AS development
 
 # Set the working directory inside the container
 WORKDIR /usr/src/app
@@ -22,7 +22,7 @@ COPY . .
 
 # STAGE 2: Build - Compile the TypeScript source code to JavaScript
 # This stage takes the source code from the 'development' stage and builds the production-ready JS files.
-FROM node:20-alpine AS build
+FROM node:25-alpine AS build
 
 WORKDIR /usr/src/app
 
@@ -37,7 +37,7 @@ RUN npm run build
 # STAGE 3: Production - Create the final, optimized image for deployment
 # This is the final, lean image that will be deployed.
 # It only contains the built application and its production dependencies.
-FROM node:20-alpine AS production
+FROM node:25-alpine AS production
 
 # Set the Node environment to 'production' for performance and security optimizations.
 ENV NODE_ENV=production
