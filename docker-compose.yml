@@ -162,7 +162,7 @@ services:
     image: quay.io/keycloak/keycloak:24.0
     container_name: keycloak
     command: start-dev --import-realm
-    volumes: ['./identity/keycloak/realm.json:/opt/keycloak/data/import/realm.json']
+    volumes: ['./identity/keycloak-realm.json:/opt/keycloak/data/import/realm.json']
     environment:
       KC_DB: postgres
       KC_DB_URL_HOST: keycloak-db
@@ -312,11 +312,7 @@ services:
       OTEL_SERVICE_NAME: user-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       PROMETHEUS_PORT: 9465
-    depends_on:
-      user-db:
-        condition: service_healthy
-      kafka:
-        condition: service_started # <-- FIX
+    depends_on: [user-db, kafka]
 
   accounts-service:
     build: ./services/accounts-service
@@ -331,11 +327,7 @@ services:
       OTEL_SERVICE_NAME: accounts-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       PROMETHEUS_PORT: 9466
-    depends_on:
-      accounts-db:
-        condition: service_healthy
-      kafka:
-        condition: service_started # <-- FIX
+    depends_on: [accounts-db, kafka]
 
   transactions-service:
     build: ./services/transactions-service
@@ -351,13 +343,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       PROMETHEUS_PORT: 9468
       TEMPORAL_ADDRESS: temporal:7233
-    depends_on:
-      transactions-db:
-        condition: service_healthy
-      kafka:
-        condition: service_started # <-- FIX
-      temporal:
-        condition: service_started # <-- FIX
+    depends_on: [transactions-db, kafka, temporal]
 
   ai-agent-service:
     build: ./services/ai-agent-service
@@ -387,11 +373,7 @@ services:
       OTEL_SERVICE_NAME: plaid-integration-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       PROMETHEUS_PORT: 9469
-    depends_on:
-      plaid-db:
-        condition: service_healthy
-      kafka:
-        condition: service_started # <-- FIX
+    depends_on: [plaid-db, kafka]
 
   accounts-projection-service:
     build: ./services/accounts-projection-service
@@ -432,9 +414,9 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: ./mfe-shell/Dockerfile # Assumes this file exists
+      dockerfile: ./mfe-shell/Dockerfile
     container_name: frontend-shell
-    ports: ["5173:80"] # Vite dev server port mapped to container port 80
+    ports: ["5173:80"]
     networks: [demobank-net]
     environment:
       VITE_GRAPHQL_GATEWAY_URL: http://localhost:8000/graphql
@@ -444,4 +426,3 @@ services:
       VITE_AUTH0_CLIENT_ID: demobank-frontend
       VITE_AUTH0_AUDIENCE: api-gateway
     depends_on: [api-security-gateway]
-      KAFKA_BROKERS: kafka:9092
