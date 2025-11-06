@@ -1,8 +1,5 @@
 version: "3.9"
 
-# ================================================================================================
-# NETWORKS & VOLUMES
-# ================================================================================================
 networks:
   demobank-net:
     driver: bridge
@@ -23,9 +20,6 @@ volumes:
   plaid_db_data: {}
   mongo_data: {}
 
-# ================================================================================================
-# CORE INFRASTRUCTURE (Databases, Caching, Messaging)
-# ================================================================================================
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.3.0
@@ -67,60 +61,32 @@ services:
     container_name: user-db
     networks: [demobank-net]
     volumes: [user_db_data:/var/lib/postgresql/data]
-    environment:
-      POSTGRES_DB: user_db
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d user_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    environment: { POSTGRES_DB: user_db, POSTGRES_USER: user, POSTGRES_PASSWORD: password }
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U user -d user_db"], interval: 10s, timeout: 5s, retries: 5 }
 
   accounts-db:
     image: postgres:15-alpine
     container_name: accounts-db
     networks: [demobank-net]
     volumes: [accounts_db_data:/var/lib/postgresql/data]
-    environment:
-      POSTGRES_DB: accounts_db
-      POSTGRES_USER: accounts
-      POSTGRES_PASSWORD: password
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U accounts -d accounts_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    environment: { POSTGRES_DB: accounts_db, POSTGRES_USER: accounts, POSTGRES_PASSWORD: password }
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U accounts -d accounts_db"], interval: 10s, timeout: 5s, retries: 5 }
 
   transactions-db:
     image: postgres:15-alpine
     container_name: transactions-db
     networks: [demobank-net]
     volumes: [transactions_db_data:/var/lib/postgresql/data]
-    environment:
-      POSTGRES_DB: transactions_db
-      POSTGRES_USER: transactions
-      POSTGRES_PASSWORD: password
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U transactions -d transactions_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    environment: { POSTGRES_DB: transactions_db, POSTGRES_USER: transactions, POSTGRES_PASSWORD: password }
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U transactions -d transactions_db"], interval: 10s, timeout: 5s, retries: 5 }
 
   plaid-db:
     image: postgres:15-alpine
     container_name: plaid-db
     networks: [demobank-net]
     volumes: [plaid_db_data:/var/lib/postgresql/data]
-    environment:
-      POSTGRES_DB: plaid_db
-      POSTGRES_USER: plaid
-      POSTGRES_PASSWORD: password
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U plaid -d plaid_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    environment: { POSTGRES_DB: plaid_db, POSTGRES_USER: plaid, POSTGRES_PASSWORD: password }
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U plaid -d plaid_db"], interval: 10s, timeout: 5s, retries: 5 }
 
   mongo:
     image: mongo:6.0
@@ -128,13 +94,8 @@ services:
     networks: [demobank-net]
     ports: ["27017:27017"]
     volumes: [mongo_data:/data/db]
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: password
+    environment: { MONGO_INITDB_ROOT_USERNAME: root, MONGO_INITDB_ROOT_PASSWORD: password }
 
-# ================================================================================================
-# SECURITY INFRASTRUCTURE (Identity, Secrets, API Security, Policy)
-# ================================================================================================
   vault:
     image: hashicorp/vault:1.15
     container_name: vault
@@ -142,10 +103,7 @@ services:
     networks: [demobank-net]
     volumes: ['./vault/config.hcl:/vault/config/local.hcl', './vault/policies:/vault/policies', vault_data:/vault/file]
     command: server -config=/vault/config/local.hcl
-    environment:
-      VAULT_ADDR: http://127.0.0.1:8200
-      VAULT_API_ADDR: http://127.0.0.1:8200
-      VAULT_DEV_ROOT_TOKEN_ID: root
+    environment: { VAULT_ADDR: http://127.0.0.1:8200, VAULT_API_ADDR: http://127.0.0.1:8200, VAULT_DEV_ROOT_TOKEN_ID: root }
     cap_add: ["IPC_LOCK"]
 
   keycloak-db:
@@ -153,10 +111,7 @@ services:
     container_name: keycloak-db
     volumes: [keycloak_db_data:/var/lib/postgresql/data]
     networks: [demobank-net]
-    environment:
-      POSTGRES_DB: keycloak
-      POSTGRES_USER: keycloak
-      POSTGRES_PASSWORD: password
+    environment: { POSTGRES_DB: keycloak, POSTGRES_USER: keycloak, POSTGRES_PASSWORD: password }
 
   keycloak:
     image: quay.io/keycloak/keycloak:24.0
@@ -175,53 +130,17 @@ services:
     networks: [demobank-net]
     depends_on: [keycloak-db]
 
-  api-security-gateway:
-    image: kong:3.6
-    container_name: api-security-gateway
-    networks: [demobank-net]
-    environment:
-      KONG_DATABASE: "off"
-      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
-      KONG_PROXY_ACCESS_LOG: /dev/stdout
-      KONG_ADMIN_ACCESS_LOG: /dev/stdout
-      KONG_PROXY_ERROR_LOG: /dev/stderr
-      KONG_ADMIN_ERROR_LOG: /dev/stderr
-      KONG_ADMIN_LISTEN: 0.0.0.0:8001
-      KONG_PLUGINS: bundled,oidc
-      OIDC_DISCOVERY_ENDPOINT: http://keycloak:8080/realms/demobank
-      OIDC_CLIENT_ID: demobank-frontend
-      FRONTEND_URL: http://localhost:5173
-    ports: ["8000:8000", "8443:8443", "8001:8001"]
-    volumes: ['./api-security-gateway/kong.yml:/etc/kong/kong.yml']
-    depends_on: [api-gateway, keycloak]
-
-  opa:
-    image: openpolicyagent/opa:latest-envoy
-    container_name: opa
-    networks: [demobank-net]
-    ports: ["8181:8181"]
-    command: ["run", "--server", "--addr=:8181", "/policies"]
-
-# ================================================================================================
-# WORKFLOW & OBSERVABILITY
-# ================================================================================================
   temporal-db:
     image: postgres:15-alpine
     container_name: temporal-db
     networks: [demobank-net]
-    environment:
-      POSTGRES_USER: temporal
-      POSTGRES_PASSWORD: temporal
-      POSTGRES_DB: temporal
+    environment: { POSTGRES_USER: temporal, POSTGRES_PASSWORD: temporal, POSTGRES_DB: temporal }
     volumes: [temporal_db_data:/var/lib/postgresql/data]
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.2
     container_name: elasticsearch
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    environment: ["discovery.type=single-node", "xpack.security.enabled=false", "ES_JAVA_OPTS=-Xms512m -Xmx512m"]
     ports: ["9200:9200"]
     networks: [demobank-net]
     volumes: [es_data:/usr/share/elasticsearch/data]
@@ -231,22 +150,13 @@ services:
     container_name: temporal
     ports: ["7233:7233", "8088:8088"]
     networks: [demobank-net]
-    environment:
-      - DB=postgresql
-      - DB_PORT=5432
-      - DB_HOST=temporal-db
-      - DB_USER=temporal
-      - DB_PASSWORD=temporal
-      - POSTGRES_SEEDS=temporal-db
-      - DYNAMIC_CONFIG_FILE_PATH=config/dynamic_config.yaml
-      - ES_SEEDS=elasticsearch
-      - ES_VERSION=v8
+    environment: { DB: postgresql, DB_PORT: 5432, DB_HOST: temporal-db, DB_USER: temporal, DB_PASSWORD: temporal, POSTGRES_SEEDS: temporal-db, ES_SEEDS: elasticsearch, ES_VERSION: v8 }
     depends_on: [temporal-db, elasticsearch]
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.97.0
     container_name: otel-collector
-    ports: ["4317:4317", "4318:4318", "8889:8889"]
+    ports: ["4318:4318", "8889:8889"]
     networks: [demobank-net]
 
   prometheus:
@@ -262,56 +172,23 @@ services:
     container_name: grafana
     ports: ["3000:3000"]
     volumes: [grafana_data:/var/lib/grafana, './grafana/provisioning:/etc/grafana/provisioning', './grafana/dashboards:/etc/grafana/dashboards']
-    environment: {GF_SECURITY_ADMIN_USER: admin, GF_SECURITY_ADMIN_PASSWORD: admin, GF_USERS_ALLOW_SIGN_UP: false}
+    environment: { GF_SECURITY_ADMIN_USER: admin, GF_SECURITY_ADMIN_PASSWORD: admin }
     networks: [demobank-net]
     depends_on: [prometheus]
 
-  alertmanager:
-    image: prom/alertmanager:v0.25.0
-    container_name: alertmanager
-    ports: ["9093:9093"]
-    volumes: ['./alertmanager/config.yml:/etc/alertmanager/config.yml']
-    command: '--config.file=/etc/alertmanager/config.yml'
-    networks: [demobank-net]
-
-# ================================================================================================
-# APPLICATION MICROSERVICES
-# ================================================================================================
   api-gateway:
-    build: {context: ./api-gateway, dockerfile: Dockerfile}
+    build: { context: ./api-gateway }
     container_name: api-gateway
     networks: [demobank-net]
     ports: ["4000:4000"]
-    environment:
-      PORT: 4000
-      OTEL_SERVICE_NAME: api-gateway
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      PROMETHEUS_PORT: 9464
-      USERS_SERVICE_URL: http://user-service:4001/graphql
-      ACCOUNTS_SERVICE_URL: http://accounts-service:4002/graphql
-      TRANSACTIONS_SERVICE_URL: http://transactions-service:4003/graphql
-      AI_AGENT_SERVICE_URL: http://ai-agent-service:4004/graphql
-      PLAID_INTEGRATION_SERVICE_URL: http://plaid-integration-service:4005/graphql
-      VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: root
-      OIDC_ISSUER_URL: http://keycloak:8080/realms/demobank
-      OIDC_AUDIENCE: api-gateway
-      OIDC_CLIENT_ID: api-gateway-client
-    depends_on: [user-service, accounts-service, transactions-service, ai-agent-service, plaid-integration-service, otel-collector, vault, keycloak]
+    depends_on: [user-service, accounts-service, transactions-service, ai-agent-service, plaid-integration-service, vault, keycloak]
+    environment: { PORT: 4000, OTEL_SERVICE_NAME: api-gateway, OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318, PROMETHEUS_PORT: 9464, USERS_SERVICE_URL: http://user-service:4001/graphql, ACCOUNTS_SERVICE_URL: http://accounts-service:4002/graphql, TRANSACTIONS_SERVICE_URL: http://transactions-service:4003/graphql, AI_AGENT_SERVICE_URL: http://ai-agent-service:4004/graphql, PLAID_INTEGRATION_SERVICE_URL: http://plaid-integration-service:4005/graphql, VAULT_ADDR: http://vault:8200, OIDC_ISSUER_URL: http://keycloak:8080/realms/demobank, OIDC_AUDIENCE: api-gateway, OIDC_CLIENT_ID: api-gateway-client }
 
   user-service:
     build: ./services/user-service
     container_name: user-service
     networks: [demobank-net]
     ports: ["4001:4001", "9465:9465"]
-    environment:
-      PORT: 4001
-      DATABASE_URL: postgresql://user:password@user-db:5432/user_db
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_GROUP_ID: user-service-group
-      OTEL_SERVICE_NAME: user-service
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      PROMETHEUS_PORT: 9465
     depends_on: [user-db, kafka]
 
   accounts-service:
@@ -319,14 +196,6 @@ services:
     container_name: accounts-service
     networks: [demobank-net]
     ports: ["4002:4002", "9466:9466"]
-    environment:
-      PORT: 4002
-      DATABASE_URL: postgresql://accounts:password@accounts-db:5432/accounts_db
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_GROUP_ID: accounts-group
-      OTEL_SERVICE_NAME: accounts-service
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      PROMETHEUS_PORT: 9466
     depends_on: [accounts-db, kafka]
 
   transactions-service:
@@ -334,15 +203,6 @@ services:
     container_name: transactions-service
     networks: [demobank-net]
     ports: ["4003:4003", "9468:9468"]
-    environment:
-      PORT: 4003
-      DATABASE_URL: postgresql://transactions:password@transactions-db:5432/transactions_db
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_GROUP_ID: transactions-group
-      OTEL_SERVICE_NAME: transactions-service
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      PROMETHEUS_PORT: 9468
-      TEMPORAL_ADDRESS: temporal:7233
     depends_on: [transactions-db, kafka, temporal]
 
   ai-agent-service:
@@ -350,14 +210,6 @@ services:
     container_name: ai-agent-service
     networks: [demobank-net]
     ports: ["4004:4004", "9467:9467"]
-    environment:
-      PORT: 4004
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_GROUP_ID: ai-agent-group
-      OTEL_SERVICE_NAME: ai-agent-service
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      PROMETHEUS_PORT: 9467
-      TEMPORAL_ADDRESS: temporal:7233
     depends_on: [kafka, temporal]
 
   plaid-integration-service:
@@ -365,64 +217,23 @@ services:
     container_name: plaid-integration-service
     networks: [demobank-net]
     ports: ["4005:4005", "9469:9469"]
-    environment:
-      PORT: 4005
-      DATABASE_URL: postgresql://plaid:password@plaid-db:5432/plaid_db
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_GROUP_ID: plaid-group
-      OTEL_SERVICE_NAME: plaid-integration-service
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      PROMETHEUS_PORT: 9469
     depends_on: [plaid-db, kafka]
 
   accounts-projection-service:
     build: ./services/accounts-projection-service
     container_name: accounts-projection-service
     networks: [demobank-net]
-    environment:
-      PORT: 4012
-      MONGODB_URI: mongodb://root:password@mongo:27017
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_GROUP_ID: accounts-projection-group
     depends_on: [mongo, kafka]
 
   transactions-projection-service:
     build: ./services/transactions-projection-service
     container_name: transactions-projection-service
     networks: [demobank-net]
-    environment:
-      PORT: 4013
-      MONGODB_URI: mongodb://root:password@mongo:27017
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_GROUP_ID: transactions-projection-group
     depends_on: [mongo, kafka]
 
-# ================================================================================================
-# DEVELOPER PORTAL
-# ================================================================================================
   backstage:
     image: backstage/backstage
     container_name: backstage
     ports: ["7007:7007"]
     networks: [demobank-net]
-    environment:
-      APP_CONFIG_app_baseUrl: http://localhost:7007
-
-# ================================================================================================
-# FRONTEND (Micro-Frontend Shell)
-# ================================================================================================
-  frontend:
-    build:
-      context: .
-      dockerfile: ./mfe-shell/Dockerfile
-    container_name: frontend-shell
-    ports: ["5173:80"]
-    networks: [demobank-net]
-    environment:
-      VITE_GRAPHQL_GATEWAY_URL: http://localhost:8000/graphql
-      VITE_OTEL_COLLECTOR_URL: http://localhost:4318/v1/traces
-      VITE_OTEL_SERVICE_NAME: 'frontend-shell'
-      VITE_AUTH0_DOMAIN: http://localhost:8180/realms/demobank
-      VITE_AUTH0_CLIENT_ID: demobank-frontend
-      VITE_AUTH0_AUDIENCE: api-gateway
-    depends_on: [api-security-gateway]
+    environment: { APP_CONFIG_app_baseUrl: http://localhost:7007 }
