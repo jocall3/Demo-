@@ -4,7 +4,7 @@ metadata:
   name: mfe-shell
   description: The central MFE Shell application responsible for orchestrating layout, routing, and shared state across remote micro-frontends using Webpack Module Federation.
   annotations:
-    github.com/project-slug: your-org/demobank
+    github.com/project-slug: jocall3/Demo-
     backstage.io/techdocs-ref: dir:.
   tags:
     - microfrontend
@@ -43,9 +43,9 @@ spec:
   consumesApis:
     - api:apollo-gateway-graphql-api
   links:
-    - url: https://demobank.example.com
+    - url: https://citibankdemobusiness.dev
       title: Live Application
       icon: dashboard
-    - url: https://github.com/your-org/demobank/tree/main/mfe-shell
+    - url: https://github.com/jocall3/Demo-/tree/main/mfe-shell
       title: Source Code
       icon: github
