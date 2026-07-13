@@ -12,7 +12,7 @@
 # This stage is dedicated to installing npm dependencies. By isolating this step, we
 # leverage Docker's layer caching. This layer only gets rebuilt if package.json or
 # package-lock.json changes, significantly speeding up subsequent builds.
-FROM node:20-alpine AS deps
+FROM node:26-alpine AS deps
 
 # Set the working directory inside the container
 WORKDIR /usr/src/app
@@ -27,7 +27,7 @@ RUN npm ci
 # --- Stage 2: Builder ---
 # This stage builds the TypeScript source code into JavaScript and then prunes
 # development dependencies to create a clean production-ready node_modules directory.
-FROM node:20-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /usr/src/app
 
@@ -47,7 +47,7 @@ RUN npm prune --production
 # --- Stage 3: Production ---
 # This is the final, lean, and secure production image. It contains only the
 # compiled application and its pruned production dependencies.
-FROM node:20-alpine AS production
+FROM node:26-alpine AS production
 
 # Set the environment to production to enable optimizations in Node.js and frameworks.
 ENV NODE_ENV=production
