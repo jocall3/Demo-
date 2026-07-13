@@ -5,7 +5,7 @@
 # --- Stage 1: Dependencies ---
 # This stage installs npm dependencies. It's cached and only re-runs when
 # package.json or package-lock.json changes, speeding up subsequent builds.
-FROM node:20-alpine AS deps
+FROM node:26-alpine AS deps
 
 # Set the working directory for the application
 WORKDIR /usr/src/app
@@ -20,7 +20,7 @@ RUN npm ci
 # --- Stage 2: Builder ---
 # This stage builds the TypeScript source code into JavaScript and prepares
 # production-only node_modules.
-FROM node:20-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /usr/src/app
 
@@ -40,7 +40,7 @@ RUN npm prune --production
 # --- Stage 3: Production ---
 # This is the final, lean, and secure production image. It contains only the
 # compiled application and its production dependencies.
-FROM node:20-alpine AS production
+FROM node:26-alpine AS production
 
 # Set the environment to production to enable optimizations in Node.js and libraries.
 ENV NODE_ENV=production
